@@ -313,6 +313,15 @@
           full_name: `${first} ${last}`,
           company,
         });
+        // API.put returns null (not an exception) when the server responds 401.
+        // In that case API has already called Auth.logout() which clears the token
+        // and starts a redirect to login — do NOT proceed to dashboard.
+        if (!user) {
+          showProfileError('Session expired — please sign in again.');
+          btn.disabled = false;
+          btn.textContent = 'Finish Setup →';
+          return;
+        }
         Auth.setUser(user);
         window.location.href = '/pages/dashboard.html';
       } catch(e) {
