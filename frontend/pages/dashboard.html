@@ -259,6 +259,8 @@
 
   <script src="/js/app.js"></script>
   <script>
+    console.log('HASH:', window.location.hash);
+    console.log('TOKEN:', localStorage.getItem('ufb_token'));
     const _hash = window.location.hash;
     if (_hash.startsWith('#t=')) {
       localStorage.setItem('ufb_token', _hash.slice(3));
