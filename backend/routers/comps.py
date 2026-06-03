@@ -11,7 +11,7 @@ from auth_utils import get_current_user
 
 router = APIRouter()
 
-# ── Column name aliases (see COSTAR_DATA_DICTIONARY.md) ──────────────────────
+# ── Column name aliases (see CRE_DATA_DICTIONARY.md) ──────────────────────
 # Each entry: primary name first, then known variants.
 
 _SALE_SIGNATURES  = {'Sale Price', 'Recorded Buyer', 'Sale Date'}
@@ -101,7 +101,7 @@ def _map_sale(row: dict, owner_id: int, property_id: Optional[int]) -> Comp:
         cap_rate=_float(_get(row, 'cap_rate')),
         sale_date=_date(_get(row, 'sale_date')),
         year_built=_int(_get(row, 'year_built')),
-        source='CoStar Sale Comp',
+        source='CRE Import',
         notes='\n'.join(parts) or None,
     )
 
@@ -143,7 +143,7 @@ def _map_lease(row: dict, owner_id: int, property_id: Optional[int]) -> Comp:
         cap_rate=None,
         sale_date=_date(_get(row, 'commence')),
         year_built=_int(_get(row, 'year_built')),
-        source='CoStar Lease Comp',
+        source='CRE Import',
         notes='\n'.join(parts) or None,
     )
 
@@ -201,8 +201,8 @@ def create_comp(
     return comp
 
 
-@router.post("/upload-costar")
-async def upload_costar_csv(
+@router.post("/upload-cre")
+async def upload_cre_csv(
     file: UploadFile = File(...),
     property_id: Optional[int] = None,
     db: Session = Depends(get_db),

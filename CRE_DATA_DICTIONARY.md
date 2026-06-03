@@ -1,9 +1,9 @@
-# CoStar Export Column Reference
+# CRE Data Export Column Reference
 
-Column names as they appear in CoStar CSV exports (verified against CoStar Pro).
-Used by `routers/comps.py` to drive the upload-costar endpoint.
+Column names as they appear in CRE platform CSV exports.
+Used by `routers/comps.py` to drive the upload-cre endpoint.
 
-> **Note:** CoStar occasionally renames columns between product versions.
+> **Note:** CRE platforms occasionally rename columns between product versions.
 > If an import produces zero results, open the CSV and compare header row
 > against the names below, then update the aliases in `comps.py`.
 
@@ -25,9 +25,9 @@ If neither signature matches, the file is rejected with an error.
 
 ## Sale Comps Export
 
-CoStar product: **Property Sales**
+Export type: **Sale Comps**
 
-| CoStar Column | Aliases | Comp field | Notes |
+| Source Column | Aliases | Comp field | Notes |
 |---|---|---|---|
 | `Building Address` | `Property Address`, `Address` | `address` | Street only |
 | `City` | | `city` | |
@@ -50,15 +50,15 @@ CoStar product: **Property Sales**
 | `Days On Market` | | `notes` | |
 | `Verified` | `Confirmed` | `notes` | |
 
-`source` is set to `"CoStar Sale Comp"`.
+`source` is set to `"CRE Import"`.
 
 ---
 
 ## Lease Comps Export
 
-CoStar product: **Space Leases**
+Export type: **Lease Comps**
 
-| CoStar Column | Aliases | Comp field | Notes |
+| Source Column | Aliases | Comp field | Notes |
 |---|---|---|---|
 | `Building Address` | `Property Address`, `Address` | `address` | |
 | `City` | | `city` | |
@@ -82,7 +82,7 @@ CoStar product: **Space Leases**
 | `Submarket` | | `notes` | |
 | `Verified` | `Confirmed` | `notes` | |
 
-`source` is set to `"CoStar Lease Comp"`.
+`source` is set to `"CRE Import"`.
 `sale_price` and `cap_rate` are left `null` (not applicable to leases).
 
 ---
@@ -147,7 +147,7 @@ The frontend shows this diff and requires confirmation before the PUT fires.
 
 ## Fields Not in the Comp Model
 
-The following CoStar columns are intentionally skipped. Add them to the
+The following source columns are intentionally skipped. Add them to the
 `Comp` model and a migration if you need them later.
 
 | Column | Reason skipped |

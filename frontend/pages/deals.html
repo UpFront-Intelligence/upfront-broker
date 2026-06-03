@@ -617,7 +617,7 @@
           </div>`).join('')
       : `<div class="rel-empty">No activity logged</div>`;
 
-    const DOC_ICONS = {'LOI':'📄','PSA':'📋','Lease':'📝','BOV':'📊','Flyer':'📰','CoStar Export':'📦','Other':'📎'};
+    const DOC_ICONS = {'LOI':'📄','PSA':'📋','Lease':'📝','BOV':'📊','Flyer':'📰','CRE Export':'📦','Other':'📎'};
     const docsHtml = documents.length
       ? documents.map(doc => `
           <div class="rel-card" ${doc.file_url?`onclick="window.open('${doc.file_url}','_blank')"`:''}>

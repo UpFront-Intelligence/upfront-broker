@@ -38,7 +38,7 @@ class Document(Base):
     deal_id     = Column(Integer, ForeignKey("deals.id"),       nullable=True)
 
     name        = Column(String, nullable=False)
-    doc_type    = Column(String)  # LOI, PSA, Lease, BOV, Flyer, CoStar Export, Other
+    doc_type    = Column(String)  # LOI, PSA, Lease, BOV, Flyer, CRE Export, Other
     file_url    = Column(String)
     file_size   = Column(Integer)   # bytes
     uploaded_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -109,7 +109,7 @@ class Comp(Base):
     cap_rate        = Column(Float)
     sale_date       = Column(Date)
     year_built      = Column(Integer)
-    source          = Column(String, default="Manual")  # CoStar Upload, Manual
+    source          = Column(String, default="Manual")  # CRE Import, Manual
     notes           = Column(Text)
     created_at      = Column(DateTime(timezone=True), server_default=func.now())
 

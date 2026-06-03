@@ -45,7 +45,7 @@ upfront-broker/
 │   │   ├── activities.py    # /api/activities — log calls, emails, tours
 │   │   ├── documents.py     # /api/documents — file references
 │   │   ├── portal.py        # /api/portal — buyer/seller portal
-│   │   └── comps.py         # /api/comps — manual + CoStar CSV upload
+│   │   └── comps.py         # /api/comps — manual + CRE data import
 │   └── requirements.txt
 ├── frontend/
 │   ├── css/
@@ -275,7 +275,7 @@ uvicorn main:app --reload --port 8000
 - [x] accounts.html   — list view + add/edit modal + detail panel
 - [x] deals.html      — kanban + list + map views, commission math, detail panel
 - [x] portal.html     — client-facing portal (buyer + seller), email gate, section logging
-- [ ] comps.html      — comp table + CoStar CSV upload
+- [ ] comps.html      — comp table + CRE data import
 - [ ] GitHub init + Render deploy
 
 ---

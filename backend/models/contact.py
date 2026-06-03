@@ -21,7 +21,7 @@ class Contact(Base):
 
     # Classification
     contact_type = Column(String)  # Owner, Buyer, Tenant, Attorney, Lender, Broker
-    source       = Column(String)  # Referral, CoStar, Cold Call, etc.
+    source       = Column(String)  # Referral, CRE Platform, Cold Call, etc.
     tags         = Column(ARRAY(String), default=[])
 
     # Notes
