@@ -165,21 +165,23 @@ def google_callback(
     db.commit()
     db.refresh(user)
 
-    jwt_token     = create_access_token({"sub": user.id})
-    needs_profile = is_new or not user.company
+    jwt_token = create_access_token({"sub": user.id})
 
-    # Redirect to the bridge endpoint — it stores the JWT in localStorage,
-    # then sends the browser to the dashboard or profile-completion form.
-    params: dict = {"token": jwt_token}
-    if needs_profile:
-        params["new"]   = "1"
-        params["name"]  = name
-        params["email"] = email
-
-    return RedirectResponse(
-        f"{FRONTEND_BRIDGE}?{urllib.parse.urlencode(params)}",
-        status_code=302,
+    # Set the JWT as a readable cookie so it survives the redirect to the
+    # dashboard without any bridge page or localStorage write timing issues.
+    # httponly=False — JS must be able to read it to migrate to localStorage.
+    # dashboard.html copies it to localStorage then expires the cookie.
+    response = RedirectResponse("/pages/dashboard.html", status_code=302)
+    response.set_cookie(
+        key="ufb_token",
+        value=jwt_token,
+        httponly=False,
+        samesite="lax",
+        secure=False,   # set True in production (HTTPS); False allows local dev
+        max_age=60 * 60 * 24 * 30,  # 30 days — matches JWT expiry
+        path="/",
     )
+    return response
 
 
 @router.get("/complete")

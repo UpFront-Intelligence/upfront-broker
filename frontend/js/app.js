@@ -1,10 +1,22 @@
 // ── UpFront Broker — Shared Utilities ──────────────────────────
 
+// Cookie helper — used by API.token() to pick up the JWT set by the
+// OAuth callback before it has been migrated to localStorage.
+function getCookie(name) {
+  const match = document.cookie.match(
+    new RegExp('(?:^|; )' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '=([^;]*)')
+  );
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 const API = (() => {
   const BASE = '';  // same origin
 
   function token() {
-    return localStorage.getItem('ufb_token');
+    // Cookie is set by the OAuth callback and lives only until dashboard
+    // migrates it to localStorage. Checking cookie first ensures the very
+    // first API call (GET /auth/me in the IIFE) is authenticated.
+    return getCookie('ufb_token') || localStorage.getItem('ufb_token');
   }
 
   function headers() {
