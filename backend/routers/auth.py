@@ -188,8 +188,12 @@ def auth_landing(token: str = Query("")):
 
     html = f"""<!DOCTYPE html><html><head></head><body>
 <script>
-localStorage.setItem('ufb_token', {json.dumps(token)});
-window.location.replace('/pages/dashboard.html');
+document.addEventListener('DOMContentLoaded', function() {{
+  localStorage.setItem('ufb_token', {json.dumps(token)});
+  setTimeout(function() {{
+    window.location.replace('/pages/dashboard.html');
+  }}, 100);
+}});
 </script>
 </body></html>"""
     return HTMLResponse(html, headers={"Cache-Control": "no-store"})
