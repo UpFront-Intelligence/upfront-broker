@@ -186,7 +186,7 @@ def google_callback(
         value=jwt_token,
         httponly=False,
         samesite="lax",
-        secure=False,   # set True in production (HTTPS); False allows local dev
+        secure=True,    # HTTPS only — required for browsers to set the cookie on Render
         max_age=60 * 60 * 24 * 30,  # 30 days — matches JWT expiry
         path="/",
     )
