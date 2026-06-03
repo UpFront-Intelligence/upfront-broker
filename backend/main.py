@@ -1,8 +1,7 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from starlette.middleware.base import BaseHTTPMiddleware
 import os
 
 from routers import contacts, accounts, properties, deals, activities, documents, portal, comps, auth
@@ -11,19 +10,6 @@ from routers import contacts, accounts, properties, deals, activities, documents
 # create_all is intentionally absent — it conflicts with migration-managed schema.
 
 app = FastAPI(title="UpFront Broker API", version="1.0.0")
-
-
-class NoCacheHTMLMiddleware(BaseHTTPMiddleware):
-    """Prevent browsers from caching any .html response."""
-    async def dispatch(self, request: Request, call_next):
-        response = await call_next(request)
-        if request.url.path.endswith(".html") or request.url.path in ("/", "/portal"):
-            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
-            response.headers["Pragma"] = "no-cache"
-        return response
-
-
-app.add_middleware(NoCacheHTMLMiddleware)
 
 # CORS
 app.add_middleware(
@@ -45,19 +31,54 @@ app.include_router(documents.router,    prefix="/api/documents",    tags=["docum
 app.include_router(portal.router,       prefix="/api/portal",       tags=["portal"])
 app.include_router(comps.router,        prefix="/api/comps",        tags=["comps"])
 
-# Serve frontend static files
+# ── Static assets (CSS + JS) — cacheable ─────────────────────────────────────
 frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend")
+pages_path    = os.path.join(frontend_path, "pages")
+
 app.mount("/static", StaticFiles(directory=os.path.join(frontend_path, "css"), html=False), name="css")
-app.mount("/js", StaticFiles(directory=os.path.join(frontend_path, "js"), html=False), name="js")
-app.mount("/pages", StaticFiles(directory=os.path.join(frontend_path, "pages"), html=False), name="pages")
+app.mount("/js",     StaticFiles(directory=os.path.join(frontend_path, "js"),  html=False), name="js")
+
+# ── HTML pages — never cached ─────────────────────────────────────────────────
+# StaticFiles cannot set response headers reliably; explicit FileResponse routes
+# guarantee every HTML page carries Cache-Control: no-store on every request.
+
+_NO_CACHE = {
+    "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+    "Pragma":  "no-cache",
+    "Expires": "0",
+}
+
+def _page(name: str) -> FileResponse:
+    return FileResponse(os.path.join(pages_path, name), headers=_NO_CACHE)
+
+@app.get("/pages/login.html")
+async def page_login():      return _page("login.html")
+
+@app.get("/pages/dashboard.html")
+async def page_dashboard():  return _page("dashboard.html")
+
+@app.get("/pages/properties.html")
+async def page_properties(): return _page("properties.html")
+
+@app.get("/pages/contacts.html")
+async def page_contacts():   return _page("contacts.html")
+
+@app.get("/pages/accounts.html")
+async def page_accounts():   return _page("accounts.html")
+
+@app.get("/pages/deals.html")
+async def page_deals():      return _page("deals.html")
+
+@app.get("/pages/portal.html")
+async def page_portal():     return _page("portal.html")
 
 @app.get("/")
-async def serve_frontend():
-    return FileResponse(os.path.join(frontend_path, "index.html"))
+async def serve_root():
+    return FileResponse(os.path.join(frontend_path, "index.html"), headers=_NO_CACHE)
 
 @app.get("/portal/{token}")
 async def serve_portal(token: str):
-    return FileResponse(os.path.join(frontend_path, "pages", "portal.html"))
+    return _page("portal.html")
 
 @app.get("/health")
 async def health():
