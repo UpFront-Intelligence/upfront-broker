@@ -1,25 +1,26 @@
 """
 Google OAuth 2.0 authentication flow
 ─────────────────────────────────────
-GET  /api/auth/google/login   → redirects browser to Google
-GET  /api/auth/callback       → receives code, issues JWT, redirects to login.html
-GET  /api/auth/me             → returns current user (JWT required)
-PUT  /api/auth/me             → updates profile fields (JWT required)
+GET  /api/auth/google          → redirects browser to Google consent screen
+GET  /api/auth/google/callback → receives code, issues JWT, redirects to login.html
+GET  /api/auth/me              → returns current user (JWT required)
+PUT  /api/auth/me              → updates profile fields (JWT required)
 
 First-time flow
 ───────────────
 callback detects new user or missing company → redirects to
   /pages/login.html?token=JWT&new=1&name=...&email=...
-login.html shows profile-completion form → PUT /api/auth/me
-  {full_name, company} → stored → redirect to dashboard
+login.html shows profile-completion form (First, Last, Work Email, Company)
+  → PUT /api/auth/me {full_name, company} → redirect to dashboard
 
 Setup notes
 ───────────
 1. Create OAuth 2.0 credentials at console.cloud.google.com
 2. Add authorised redirect URI:
-     http://localhost:8000/api/auth/callback        (local dev)
-     https://YOUR-APP.onrender.com/api/auth/callback (Render)
-3. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, CALLBACK_URL in .env / Render dashboard
+     http://localhost:8000/api/auth/google/callback        (local dev)
+     https://YOUR-APP.onrender.com/api/auth/google/callback (Render)
+3. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET — CALLBACK_URL is auto-derived
+   from Render's RENDER_EXTERNAL_URL; no need to set it manually on Render.
 """
 import os
 import urllib.parse
@@ -40,7 +41,11 @@ router = APIRouter()
 # ── Google OAuth config ────────────────────────────────────────────────────
 GOOGLE_CLIENT_ID     = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
-CALLBACK_URL         = os.getenv("CALLBACK_URL", "http://localhost:8000/api/auth/callback")
+
+# Auto-derive callback URL from Render's RENDER_EXTERNAL_URL when deployed;
+# falls back to localhost for local dev; CALLBACK_URL env var overrides both.
+_base        = os.getenv("RENDER_EXTERNAL_URL", "http://localhost:8000").rstrip("/")
+CALLBACK_URL = os.getenv("CALLBACK_URL", f"{_base}/api/auth/google/callback")
 
 GOOGLE_AUTH_URL  = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -73,7 +78,7 @@ class UserResponse(BaseModel):
 
 
 # ── Routes ─────────────────────────────────────────────────────────────────
-@router.get("/google/login")
+@router.get("/google")
 def google_login():
     """Redirect the browser to Google's OAuth consent screen."""
     if not GOOGLE_CLIENT_ID:
@@ -92,7 +97,7 @@ def google_login():
     return RedirectResponse(url)
 
 
-@router.get("/callback")
+@router.get("/google/callback")
 def google_callback(
     code:  str = Query(None),
     state: str = Query(None),
