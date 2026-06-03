@@ -11,6 +11,15 @@ services:
           property: connectionString
       - key: SECRET
         generateValue: true
+      # Set these manually in the Render dashboard after first deploy:
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      # Set to: https://YOUR-APP.onrender.com/api/auth/callback
+      # Also add this URL as an authorised redirect URI in Google Cloud Console
+      - key: CALLBACK_URL
+        sync: false
 
 databases:
   - name: upfront-broker-db

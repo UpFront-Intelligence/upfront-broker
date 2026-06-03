@@ -1,74 +1,184 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+"""
+Google OAuth 2.0 authentication flow
+─────────────────────────────────────
+GET  /api/auth/google/login   → redirects browser to Google
+GET  /api/auth/callback       → receives code, issues JWT, redirects to login.html
+GET  /api/auth/me             → returns current user (JWT required)
+PUT  /api/auth/me             → updates profile fields (JWT required)
+
+First-time flow
+───────────────
+callback detects new user or missing company → redirects to
+  /pages/login.html?token=JWT&new=1&name=...&email=...
+login.html shows profile-completion form → PUT /api/auth/me
+  {full_name, company} → stored → redirect to dashboard
+
+Setup notes
+───────────
+1. Create OAuth 2.0 credentials at console.cloud.google.com
+2. Add authorised redirect URI:
+     http://localhost:8000/api/auth/callback        (local dev)
+     https://YOUR-APP.onrender.com/api/auth/callback (Render)
+3. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, CALLBACK_URL in .env / Render dashboard
+"""
+import os
+import urllib.parse
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import RedirectResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, EmailStr
+
+from authlib.integrations.requests_client import OAuth2Session
 from database import get_db
 from models.user import User
-from auth_utils import hash_password, verify_password, create_access_token, get_current_user
+from auth_utils import create_access_token, get_current_user
 
 router = APIRouter()
 
-class RegisterRequest(BaseModel):
-    email: str
-    password: str
-    full_name: str
-    company: str = None
-    phone: str = None
+# ── Google OAuth config ────────────────────────────────────────────────────
+GOOGLE_CLIENT_ID     = os.getenv("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
+CALLBACK_URL         = os.getenv("CALLBACK_URL", "http://localhost:8000/api/auth/callback")
 
-class LoginRequest(BaseModel):
-    email: str
-    password: str
+GOOGLE_AUTH_URL  = "https://accounts.google.com/o/oauth2/v2/auth"
+GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+GOOGLE_USERINFO  = "https://www.googleapis.com/oauth2/v3/userinfo"
 
+FRONTEND_LOGIN = "/pages/login.html"
+
+_ERROR_MESSAGES = {
+    "gmail_only":     "UpFront Broker requires a Gmail account (@gmail.com) for v1.",
+    "auth_failed":    "Google sign-in failed. Please try again.",
+    "auth_cancelled": "Sign-in was cancelled.",
+    "no_credentials": "Google OAuth credentials are not configured.",
+}
+
+
+# ── Pydantic response ──────────────────────────────────────────────────────
 class UserResponse(BaseModel):
     id: int
     email: str
-    full_name: str
-    company: str = None
-    phone: str = None
-    photo_url: str = None
-    license_number: str = None
-    territory: str = None
+    full_name: Optional[str]
+    company: Optional[str]
+    phone: Optional[str]
+    photo_url: Optional[str]
+    license_number: Optional[str]
+    territory: Optional[str]
     is_admin: bool
 
     class Config:
         from_attributes = True
 
-@router.post("/register")
-def register(req: RegisterRequest, db: Session = Depends(get_db)):
-    existing = db.query(User).filter(User.email == req.email.lower()).first()
-    if existing:
-        raise HTTPException(status_code=400, detail="Email already registered")
 
-    user = User(
-        email=req.email.lower(),
-        hashed_password=hash_password(req.password),
-        full_name=req.full_name,
-        company=req.company,
-        phone=req.phone
+# ── Routes ─────────────────────────────────────────────────────────────────
+@router.get("/google/login")
+def google_login():
+    """Redirect the browser to Google's OAuth consent screen."""
+    if not GOOGLE_CLIENT_ID:
+        return RedirectResponse(f"{FRONTEND_LOGIN}?error=no_credentials")
+
+    client = OAuth2Session(
+        client_id=GOOGLE_CLIENT_ID,
+        redirect_uri=CALLBACK_URL,
+        scope="openid email profile",
     )
-    db.add(user)
+    url, _ = client.create_authorization_url(
+        GOOGLE_AUTH_URL,
+        access_type="offline",
+        prompt="select_account",
+    )
+    return RedirectResponse(url)
+
+
+@router.get("/callback")
+def google_callback(
+    code:  str = Query(None),
+    state: str = Query(None),
+    error: str = Query(None),
+    db:    Session = Depends(get_db),
+):
+    """Receive the OAuth code, verify it, upsert the user, issue a JWT."""
+    if error or not code:
+        return RedirectResponse(f"{FRONTEND_LOGIN}?error=auth_cancelled")
+
+    # Exchange code for tokens
+    client = OAuth2Session(
+        client_id=GOOGLE_CLIENT_ID,
+        client_secret=GOOGLE_CLIENT_SECRET,
+        redirect_uri=CALLBACK_URL,
+    )
+    try:
+        client.fetch_token(GOOGLE_TOKEN_URL, code=code)
+    except Exception:
+        return RedirectResponse(f"{FRONTEND_LOGIN}?error=auth_failed")
+
+    # Fetch user profile from Google
+    try:
+        info = client.get(GOOGLE_USERINFO).json()
+    except Exception:
+        return RedirectResponse(f"{FRONTEND_LOGIN}?error=auth_failed")
+
+    google_id = info.get("sub", "")
+    email     = (info.get("email") or "").strip().lower()
+    name      = (info.get("name") or "").strip()
+    picture   = info.get("picture")
+
+    if not google_id or not email:
+        return RedirectResponse(f"{FRONTEND_LOGIN}?error=auth_failed")
+
+    # v1: Gmail accounts only
+    if not email.endswith("@gmail.com"):
+        return RedirectResponse(f"{FRONTEND_LOGIN}?error=gmail_only")
+
+    # Find or create the user (try google_id first, fall back to email)
+    user = (
+        db.query(User).filter(User.google_id == google_id).first()
+        or db.query(User).filter(User.email == email).first()
+    )
+    is_new = user is None
+
+    if is_new:
+        user = User(
+            email=email,
+            google_id=google_id,
+            full_name=name,
+            photo_url=picture,
+            hashed_password=None,
+        )
+        db.add(user)
+    else:
+        if not user.google_id:
+            user.google_id = google_id
+        if not user.photo_url and picture:
+            user.photo_url = picture
     db.commit()
     db.refresh(user)
 
-    token = create_access_token({"sub": user.id})
-    return {"access_token": token, "token_type": "bearer", "user": UserResponse.from_orm(user)}
+    jwt_token     = create_access_token({"sub": user.id})
+    needs_profile = is_new or not user.company
 
-@router.post("/login")
-def login(req: LoginRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == req.email.lower()).first()
-    if not user or not verify_password(req.password, user.hashed_password):
-        raise HTTPException(status_code=401, detail="Invalid email or password")
-    if not user.is_active:
-        raise HTTPException(status_code=403, detail="Account suspended")
+    params: dict = {"token": jwt_token}
+    if needs_profile:
+        params["new"]   = "1"
+        params["name"]  = name
+        params["email"] = email
 
-    token = create_access_token({"sub": user.id})
-    return {"access_token": token, "token_type": "bearer", "user": UserResponse.from_orm(user)}
+    return RedirectResponse(f"{FRONTEND_LOGIN}?{urllib.parse.urlencode(params)}")
+
 
 @router.get("/me", response_model=UserResponse)
 def me(current_user: User = Depends(get_current_user)):
     return current_user
 
+
 @router.put("/me", response_model=UserResponse)
-def update_me(updates: dict, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def update_me(
+    updates: dict,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     allowed = ["full_name", "company", "phone", "photo_url", "license_number", "territory"]
     for key, val in updates.items():
         if key in allowed:

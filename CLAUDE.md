@@ -13,7 +13,7 @@ Built from scratch with lessons learned from UpFront (AI-SalesWizard).
 ## Tech Stack
 - **Backend:** FastAPI (Python) + SQLAlchemy ORM + Alembic migrations
 - **Database:** PostgreSQL (Render managed DB)
-- **Auth:** JWT (python-jose) + bcrypt (passlib)
+- **Auth:** Google OAuth 2.0 (authlib) + JWT (python-jose) — Gmail accounts only (v1)
 - **Frontend:** Vanilla JS (ES6+), multi-file, no framework
 - **Fonts:** DM Sans (body) + DM Serif Display (headings) via Google Fonts
 - **Deploy:** Render via render.yaml
@@ -227,8 +227,12 @@ Modal.closeOnOverlay('modal-id');
 
 ## Environment Variables
 ```
-DATABASE_URL   — PostgreSQL connection string (Render injects automatically)
-SECRET         — JWT signing key (Render generates on deploy)
+DATABASE_URL          — PostgreSQL connection string (Render injects automatically)
+SECRET                — JWT signing key (Render generates on deploy)
+GOOGLE_CLIENT_ID      — From Google Cloud Console → APIs & Services → Credentials
+GOOGLE_CLIENT_SECRET  — Same
+CALLBACK_URL          — https://YOUR-APP.onrender.com/api/auth/callback
+                        Must also be added as an Authorised Redirect URI in Google Cloud Console
 ```
 
 Local `.env` file has defaults for dev. Never commit real credentials.
