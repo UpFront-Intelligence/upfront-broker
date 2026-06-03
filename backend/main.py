@@ -2,23 +2,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from contextlib import asynccontextmanager
 import os
 
-from database import engine, Base
 from routers import contacts, accounts, properties, deals, activities, documents, portal, comps, auth
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Create all tables on startup
-    Base.metadata.create_all(bind=engine)
-    yield
+# Table creation is handled exclusively by Alembic (alembic upgrade head on startup).
+# create_all is intentionally absent — it conflicts with migration-managed schema.
 
-app = FastAPI(
-    title="UpFront Broker API",
-    version="1.0.0",
-    lifespan=lifespan
-)
+app = FastAPI(title="UpFront Broker API", version="1.0.0")
 
 # CORS
 app.add_middleware(
