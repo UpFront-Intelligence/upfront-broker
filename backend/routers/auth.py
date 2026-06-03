@@ -22,12 +22,13 @@ Setup notes
 3. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET — CALLBACK_URL is auto-derived
    from Render's RENDER_EXTERNAL_URL; no need to set it manually on Render.
 """
+import json
 import os
 import urllib.parse
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -51,7 +52,8 @@ GOOGLE_AUTH_URL  = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_USERINFO  = "https://www.googleapis.com/oauth2/v3/userinfo"
 
-FRONTEND_LOGIN = "/pages/login.html"
+FRONTEND_LOGIN   = "/pages/login.html"
+FRONTEND_BRIDGE  = "/api/auth/complete"   # bridge endpoint — stores JWT then redirects
 
 _ERROR_MESSAGES = {
 
@@ -160,13 +162,50 @@ def google_callback(
     jwt_token     = create_access_token({"sub": user.id})
     needs_profile = is_new or not user.company
 
+    # Redirect to the bridge endpoint — it stores the JWT in localStorage,
+    # then sends the browser to the dashboard or profile-completion form.
     params: dict = {"token": jwt_token}
     if needs_profile:
         params["new"]   = "1"
         params["name"]  = name
         params["email"] = email
 
-    return RedirectResponse(f"{FRONTEND_LOGIN}?{urllib.parse.urlencode(params)}")
+    return RedirectResponse(
+        f"{FRONTEND_BRIDGE}?{urllib.parse.urlencode(params)}",
+        status_code=302,
+    )
+
+
+@router.get("/complete")
+def auth_complete(
+    token: str = Query(""),
+    new:   str = Query(""),
+    name:  str = Query(""),
+    email: str = Query(""),
+    error: str = Query(""),
+):
+    """
+    OAuth bridge — stores the JWT in localStorage then redirects the browser.
+
+    Serving this as a proper FastAPI route (not StaticFiles) guarantees
+    query parameters are never stripped by a static-file redirect.
+    Uses json.dumps() to safely embed values into the inline script.
+    """
+    if error or not token:
+        dest = f"{FRONTEND_LOGIN}?error={urllib.parse.quote(error or 'auth_failed')}"
+    elif new == "1":
+        qs = urllib.parse.urlencode({"new": "1", "name": name, "email": email})
+        dest = f"{FRONTEND_LOGIN}?{qs}"
+    else:
+        dest = "/pages/dashboard.html"
+
+    html = f"""<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>Signing in…</title></head>
+<body><script>
+try {{ localStorage.setItem('ufb_token', {json.dumps(token)}); }} catch(e) {{}}
+window.location.replace({json.dumps(dest)});
+</script></body></html>"""
+    return HTMLResponse(html)
 
 
 @router.get("/me", response_model=UserResponse)

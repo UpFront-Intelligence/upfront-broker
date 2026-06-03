@@ -249,17 +249,22 @@
 
   <script src="/js/app.js"></script>
   <script>
-    const params    = new URLSearchParams(window.location.search);
-    const token     = params.get('token');
-    const isNew     = params.get('new') === '1';
-    const oauthErr  = params.get('error');
-    const gName     = params.get('name')  || '';
-    const gEmail    = params.get('email') || '';
+    // Token is stored in localStorage by /api/auth/complete (bridge) before
+    // the browser arrives here. This page only needs to handle three cases:
+    //   ?new=1&name=...&email=... → show profile completion form
+    //   ?error=...               → show error on sign-in view
+    //   (no params)              → already logged in or fresh visit
+
+    const params   = new URLSearchParams(window.location.search);
+    const isNew    = params.get('new') === '1';
+    const oauthErr = params.get('error');
+    const gName    = params.get('name')  || '';
+    const gEmail   = params.get('email') || '';
 
     const ERROR_TEXT = {
       auth_failed:    'Google sign-in failed. Please try again.',
       auth_cancelled: 'Sign-in was cancelled.',
-      no_credentials: 'Google OAuth is not configured yet. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.',
+      no_credentials: 'Google OAuth is not configured yet. Contact your administrator.',
     };
 
     function showView(name) {
@@ -307,42 +312,34 @@
       }
     }
 
-    // ── Handle OAuth return ────────────────────────────────────────────────
+    // ── Route on arrival ──────────────────────────────────────────────────
     if (oauthErr) {
+      // OAuth error returned from backend
       showError(ERROR_TEXT[oauthErr] || 'Sign-in failed. Please try again.');
       showView('signin');
 
-    } else if (token && isNew) {
-      // New user — store token, show profile completion
-      localStorage.setItem('ufb_token', token);
-      // Clear the token from the URL so a refresh doesn't re-trigger
+    } else if (isNew && API.token()) {
+      // New user: token already in localStorage (stored by bridge).
+      // Show profile completion form pre-filled from Google data.
       window.history.replaceState({}, '', '/pages/login.html');
-
-      // Pre-fill fields from Google
       const parts = gName.split(' ');
       document.getElementById('prof-first').value = parts[0] || '';
       document.getElementById('prof-last').value  = parts.slice(1).join(' ') || '';
       document.getElementById('prof-email').value = gEmail;
       showView('profile');
 
-    } else if (token) {
-      // Returning user — store token and redirect
-      localStorage.setItem('ufb_token', token);
-      window.history.replaceState({}, '', '/pages/login.html');
+    } else if (API.token()) {
+      // Returning user: token already in localStorage (stored by bridge or
+      // a previous session). Fetch profile and go to dashboard.
       showView('loading');
-
       API.get('/auth/me').then(user => {
         Auth.setUser(user);
         window.location.href = '/pages/dashboard.html';
       }).catch(() => {
         localStorage.removeItem('ufb_token');
-        showError('Session error. Please sign in again.');
+        showError('Session expired. Please sign in again.');
         showView('signin');
       });
-
-    } else if (API.token()) {
-      // Already logged in
-      window.location.href = '/pages/dashboard.html';
 
     } else {
       showView('signin');
