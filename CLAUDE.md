@@ -278,7 +278,7 @@ uvicorn main:app --reload --port 8000
 - [x] portal.html     — client-facing portal (buyer + seller), email gate, section logging
 - [x] import.html     — 5-step CSV/XLSX wizard, fuzzy field mapping, duplicate detection
 - [ ] comps.html      — comp table + CRE data import
-- [ ] finder.html     — Property Finder (see below)
+- [x] finder.html     — Property Finder (Oakland County ArcGIS, zip search, parcel map, Add to Pipeline)
 - [ ] GitHub init + Render deploy
 
 ## Property Finder (next feature)
