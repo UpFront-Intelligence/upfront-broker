@@ -40,7 +40,8 @@ SYNONYMS = {
                                 "building sf","size","gla","rentable area"],
         "sf_land":             ["sf land","land sf","land area sf","land size","lot size sf",
                                 "land square feet","lot sf","acreage sf","land area"],
-        "asking_price":        ["asking price","list price","price","sale price","asking"],
+        "asking_price":        ["asking price","list price","total price","sale price",
+                                "list","offer price","asking total"],
         "asking_price_per_sf": ["asking price per sf","asking psf","price per sf","$/sf",
                                 "price/sf","asking $/sf","list price psf","per sf","psf"],
         "year_built":          ["year built","year","built","year constructed"],
@@ -268,6 +269,9 @@ async def execute_import(
                                        "reason": f"{mapped.get('address')}, {mapped.get('city')} already exists"})
                     skipped += 1
                     continue
+                # Auto-populate name from address if not mapped
+                if not mapped.get("name"):
+                    mapped["name"] = mapped.get("address", "")
                 db.add(Property(**{k: v for k, v in mapped.items() if k in valid},
                                 owner_id=current_user.id))
 
