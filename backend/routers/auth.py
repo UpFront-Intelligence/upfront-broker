@@ -186,16 +186,13 @@ def auth_landing(token: str = Query("")):
     if not token:
         return RedirectResponse(f"{FRONTEND_LOGIN}?error=auth_failed", status_code=302)
 
-    html = f"""<!DOCTYPE html><html><head></head><body>
-<script>
-document.addEventListener('DOMContentLoaded', function() {{
-  localStorage.setItem('ufb_token', {json.dumps(token)});
-  setTimeout(function() {{
-    window.location.replace('/pages/dashboard.html');
-  }}, 100);
-}});
-</script>
-</body></html>"""
+    html = f"""<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="refresh" content="0;url=/pages/dashboard.html#t={token}">
+</head>
+<body></body>
+</html>"""
     return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
 

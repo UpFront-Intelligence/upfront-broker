@@ -259,9 +259,16 @@
 
   <script src="/js/app.js"></script>
   <script>
+    // Extract token from hash set by /api/auth/landing meta refresh.
+    // Runs synchronously before any auth check or API call.
+    const _hash = window.location.hash;
+    if (_hash.startsWith('#t=')) {
+      const _tok = _hash.slice(3);
+      localStorage.setItem('ufb_token', _tok);
+      history.replaceState(null, '', window.location.pathname);
+    }
+
     (async () => {
-    // The landing page (/api/auth/landing) writes ufb_token directly to
-    // localStorage before navigating here — no cookie migration needed.
     if (!Auth.requireAuth()) return;
     renderSidebar('dashboard');
 
