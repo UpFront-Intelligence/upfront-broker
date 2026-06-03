@@ -165,12 +165,16 @@ def google_callback(
     client = OAuth2Session(client_id=GOOGLE_CLIENT_ID, client_secret=GOOGLE_CLIENT_SECRET,
                            redirect_uri=CALLBACK_URL)
     try:
-        client.fetch_token(GOOGLE_TOKEN_URL, code=code)
+        token_response = client.fetch_token(GOOGLE_TOKEN_URL, code=code)
+        if not token_response or not token_response.get("access_token"):
+            return RedirectResponse(f"{FRONTEND_LOGIN}?error=auth_failed")
     except Exception:
         return RedirectResponse(f"{FRONTEND_LOGIN}?error=auth_failed")
 
     try:
         info = client.get(GOOGLE_USERINFO).json()
+        if not info or "sub" not in info:
+            return RedirectResponse(f"{FRONTEND_LOGIN}?error=auth_failed")
     except Exception:
         return RedirectResponse(f"{FRONTEND_LOGIN}?error=auth_failed")
 
