@@ -259,7 +259,27 @@
 
   <script src="/js/app.js"></script>
   <script>
-    if (!Auth.requireAuth()) throw new Error('Not authenticated');
+    (async () => {
+    // ── Step 1: Extract token from hash fragment (OAuth bridge redirect) ──
+    // Must happen before Auth.requireAuth() so the token is in localStorage
+    // before any auth check or API call fires.
+    const _hash = window.location.hash;
+    if (_hash.startsWith('#token=')) {
+      const _token = _hash.slice(7);
+      localStorage.setItem('ufb_token', _token);
+      // Clear the hash so the token doesn't leak into browser history
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+      // Fetch and cache the user object immediately
+      try {
+        const _res = await fetch('/api/auth/me', {
+          headers: { 'Authorization': 'Bearer ' + _token, 'Content-Type': 'application/json' }
+        });
+        if (_res.ok) localStorage.setItem('ufb_user', JSON.stringify(await _res.json()));
+      } catch(_e) {}
+    }
+
+    // ── Step 2: Standard auth gate ────────────────────────────────────────
+    if (!Auth.requireAuth()) return;
     renderSidebar('dashboard');
 
     // Welcome message
@@ -405,6 +425,7 @@
     }
 
     loadDashboard();
+    })(); // end async IIFE
   </script>
 </body>
 </html>

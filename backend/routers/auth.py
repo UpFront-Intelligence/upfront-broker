@@ -200,25 +200,14 @@ def auth_complete(
     if error or not token:
         dest = f"{FRONTEND_LOGIN}?error={urllib.parse.quote(error or 'auth_failed')}"
     else:
-        # Both new and returning users go straight to dashboard.
-        # Profile completion (company, etc.) is handled via a settings page.
-        dest = "/pages/dashboard.html"
+        # Pass token as a URL hash fragment — hash is never sent to the server
+        # and survives client-side navigation reliably across all browsers.
+        # dashboard.html extracts it, writes localStorage, then loads.
+        dest = f"/pages/dashboard.html#token={token}"
 
     html = f"""<!DOCTYPE html>
 <html><head><meta charset="UTF-8"><title>Signing in…</title></head>
-<body>
-<script>
-var _token = {json.dumps(token)};
-var _dest  = {json.dumps(dest)};
-try {{
-  window.localStorage.setItem('ufb_token', _token);
-  console.log('[UpFront] bridge: token stored, length=' + _token.length);
-}} catch (e) {{
-  console.error('[UpFront] bridge: localStorage write failed:', e);
-}}
-setTimeout(function () {{ window.location.replace(_dest); }}, 100);
-</script>
-</body></html>"""
+<body><script>window.location.replace({json.dumps(dest)});</script></body></html>"""
     return HTMLResponse(html, headers={
         "Cache-Control": "no-store, no-cache, must-revalidate",
         "Pragma": "no-cache",
