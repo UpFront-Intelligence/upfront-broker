@@ -27,8 +27,8 @@ import os
 import urllib.parse
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -80,15 +80,6 @@ class UserResponse(BaseModel):
 
 
 # ── Routes ─────────────────────────────────────────────────────────────────
-@router.get("/debug-cookie")
-def debug_cookie(request: Request):
-    """Temporary diagnostic — returns every cookie the browser sent."""
-    return JSONResponse({
-        "cookies_received": dict(request.cookies),
-        "cookie_header_raw": request.headers.get("cookie", "(none)"),
-    })
-
-
 @router.get("/google")
 def google_login():
     """Redirect the browser to Google's OAuth consent screen."""

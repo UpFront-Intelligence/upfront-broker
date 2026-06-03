@@ -423,21 +423,6 @@
       </div>`;
     }
 
-    // ── TEMPORARY DIAGNOSTICS — remove after auth is confirmed working ──
-    console.group('[UpFront auth debug]');
-    console.log('document.cookie     :', document.cookie || '(empty)');
-    console.log('localStorage token  :', localStorage.getItem('ufb_token') ? 'present (length=' + localStorage.getItem('ufb_token').length + ')' : 'null');
-    console.log('API.token()         :', API.token() ? 'present (length=' + API.token().length + ')' : 'null');
-    try {
-      const _dbgRes = await fetch('/api/auth/debug-cookie');
-      const _dbgJson = await _dbgRes.json();
-      console.log('server sees cookies:', JSON.stringify(_dbgJson));
-    } catch(_dbgErr) {
-      console.log('debug-cookie fetch failed:', _dbgErr.message);
-    }
-    console.groupEnd();
-    // ── END DIAGNOSTICS ──────────────────────────────────────────────────
-
     loadDashboard();
     })(); // end async IIFE
   </script>

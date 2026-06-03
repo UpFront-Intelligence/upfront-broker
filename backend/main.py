@@ -1,7 +1,8 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 import os
 
 from routers import contacts, accounts, properties, deals, activities, documents, portal, comps, auth
@@ -10,6 +11,19 @@ from routers import contacts, accounts, properties, deals, activities, documents
 # create_all is intentionally absent — it conflicts with migration-managed schema.
 
 app = FastAPI(title="UpFront Broker API", version="1.0.0")
+
+
+class NoCacheHTMLMiddleware(BaseHTTPMiddleware):
+    """Prevent browsers from caching any .html response."""
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        if request.url.path.endswith(".html") or request.url.path in ("/", "/portal"):
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+        return response
+
+
+app.add_middleware(NoCacheHTMLMiddleware)
 
 # CORS
 app.add_middleware(
