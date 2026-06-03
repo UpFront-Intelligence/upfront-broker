@@ -285,6 +285,16 @@
     }
 
     async function completeProfile() {
+      // Belt-and-suspenders: confirm token is in localStorage before hitting the API.
+      // The bridge stores it 100ms before navigating here, but this guards against
+      // any edge case where the write didn't land.
+      const storedToken = window.localStorage.getItem('ufb_token');
+      if (!storedToken) {
+        showProfileError('Session error — token missing. Please sign in again.');
+        setTimeout(() => { window.location.href = '/pages/login.html'; }, 1500);
+        return;
+      }
+
       const first   = document.getElementById('prof-first').value.trim();
       const last    = document.getElementById('prof-last').value.trim();
       const company = document.getElementById('prof-company').value.trim();

@@ -201,11 +201,23 @@ def auth_complete(
 
     html = f"""<!DOCTYPE html>
 <html><head><meta charset="UTF-8"><title>Signing in…</title></head>
-<body><script>
-try {{ localStorage.setItem('ufb_token', {json.dumps(token)}); }} catch(e) {{}}
-window.location.replace({json.dumps(dest)});
-</script></body></html>"""
-    return HTMLResponse(html)
+<body>
+<script>
+var _token = {json.dumps(token)};
+var _dest  = {json.dumps(dest)};
+try {{
+  window.localStorage.setItem('ufb_token', _token);
+  console.log('[UpFront] bridge: token stored, length=' + _token.length);
+}} catch (e) {{
+  console.error('[UpFront] bridge: localStorage write failed:', e);
+}}
+setTimeout(function () {{ window.location.replace(_dest); }}, 100);
+</script>
+</body></html>"""
+    return HTMLResponse(html, headers={
+        "Cache-Control": "no-store, no-cache, must-revalidate",
+        "Pragma": "no-cache",
+    })
 
 
 @router.get("/me", response_model=UserResponse)
