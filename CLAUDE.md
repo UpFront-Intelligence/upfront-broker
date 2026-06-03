@@ -276,8 +276,34 @@ uvicorn main:app --reload --port 8000
 - [x] accounts.html   — list view + add/edit modal + detail panel
 - [x] deals.html      — kanban + list + map views, commission math, detail panel
 - [x] portal.html     — client-facing portal (buyer + seller), email gate, section logging
+- [x] import.html     — 5-step CSV/XLSX wizard, fuzzy field mapping, duplicate detection
 - [ ] comps.html      — comp table + CRE data import
+- [ ] finder.html     — Property Finder (see below)
 - [ ] GitHub init + Render deploy
+
+## Property Finder (next feature)
+Market-facing property discovery tool powered by Oakland County ArcGIS public data.
+
+**Core flow:**
+1. Broker enters a zip code (or clicks a map area)
+2. App queries Oakland County ArcGIS REST API for all parcels in that zip
+3. Results rendered as parcel overlays on a Leaflet map
+4. Each parcel is clickable — shows assessor card (owner, address, SF, year built,
+   assessed value, tax, zoning, legal description)
+5. "Add to Pipeline" button on each parcel card → pre-fills a new Property record
+   and optionally creates a Prospecting deal in one click
+
+**ArcGIS source:**  `MICHIGAN_PUBLIC_RECORDS.md` — Oakland County endpoint
+**Map:**            Leaflet.js (already used in deals.html)
+**Dedup:**          Check against existing properties by parcel_id before adding
+**Enrichment:**     Feeds the ENRICHMENT_CACHE table (see Data Privacy Architecture)
+**Route:**          `/pages/finder.html` + `GET /api/finder/parcels?zip={zip}`
+
+**Key decisions to make before building:**
+- Zip code → ArcGIS bounding box vs. ArcGIS `where ZIPCODE='48226'` filter
+- How many parcels to show (cap at ~500 for map performance)
+- Whether parcel overlays use actual geometry or centroid points
+- "Add to Pipeline" flow: modal or direct create?
 
 ---
 
