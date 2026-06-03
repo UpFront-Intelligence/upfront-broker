@@ -71,7 +71,7 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
     db.add(user)
     db.commit()
     db.refresh(user)
-    token = create_access_token({"sub": user.id})
+    token = create_access_token({"sub": str(user.id)})
     return {"access_token": token, "token_type": "bearer",
             "user": UserResponse.model_validate(user)}
 
@@ -83,7 +83,7 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Account suspended")
-    token = create_access_token({"sub": user.id})
+    token = create_access_token({"sub": str(user.id)})
     return {"access_token": token, "token_type": "bearer",
             "user": UserResponse.model_validate(user)}
 
@@ -209,7 +209,7 @@ def google_callback(
     db.commit()
     db.refresh(user)
 
-    jwt_token = create_access_token({"sub": user.id})
+    jwt_token = create_access_token({"sub": str(user.id)})
     user_data = {
         "id":             user.id,
         "email":          user.email,
