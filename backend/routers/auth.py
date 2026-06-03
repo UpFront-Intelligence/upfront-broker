@@ -167,31 +167,33 @@ def google_callback(
 
     jwt_token = create_access_token({"sub": user.id})
 
-    # Redirect to the landing page — token is baked into the HTML server-side,
-    # no cookies, no hash fragments, no JS URL parsing needed.
-    return RedirectResponse(
-        f"/api/auth/landing?token={urllib.parse.quote(jwt_token, safe='')}",
-        status_code=302,
-    )
+    # Build the user object that app.js stores as 'ufb_user'.
+    user_data = {
+        "id":             user.id,
+        "email":          user.email,
+        "full_name":      user.full_name,
+        "company":        user.company,
+        "phone":          user.phone,
+        "photo_url":      user.photo_url,
+        "license_number": user.license_number,
+        "territory":      user.territory,
+        "is_admin":       user.is_admin,
+    }
 
-
-@router.get("/landing")
-def auth_landing(token: str = Query("")):
-    """
-    Serves a FastAPI-rendered HTML page (never StaticFiles) that writes the
-    JWT directly into localStorage via an inline script, then navigates to
-    the dashboard. The token is embedded server-side by Python — the browser
-    receives a fully baked page with no URL params left to read.
-    """
-    if not token:
-        return RedirectResponse(f"{FRONTEND_LOGIN}?error=auth_failed", status_code=302)
-
+    # Return the final page directly — no redirect, no intermediate page.
+    # Both localStorage writes happen synchronously in this page's script
+    # before window.location.replace fires.  The browser never navigates
+    # away until the writes are complete.
     html = f"""<!DOCTYPE html>
 <html>
-<head>
-<meta http-equiv="refresh" content="0;url=/pages/dashboard.html#t={token}">
-</head>
-<body></body>
+<head><title>UpFront Broker</title></head>
+<body>
+<script>
+localStorage.setItem('ufb_token', {json.dumps(jwt_token)});
+localStorage.setItem('ufb_user', JSON.stringify({json.dumps(user_data)}));
+window.location.replace('/pages/dashboard.html');
+</script>
+</body>
 </html>"""
     return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
