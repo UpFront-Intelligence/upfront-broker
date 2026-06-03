@@ -176,21 +176,32 @@ def google_callback(
 
     jwt_token = create_access_token({"sub": user.id})
 
-    # Set the JWT as a readable cookie so it survives the redirect to the
-    # dashboard without any bridge page or localStorage write timing issues.
-    # httponly=False — JS must be able to read it to migrate to localStorage.
-    # dashboard.html copies it to localStorage then expires the cookie.
-    response = RedirectResponse("/pages/dashboard.html", status_code=302)
-    response.set_cookie(
-        key="ufb_token",
-        value=jwt_token,
-        httponly=False,
-        samesite="lax",
-        secure=True,    # HTTPS only — required for browsers to set the cookie on Render
-        max_age=60 * 60 * 24 * 30,  # 30 days — matches JWT expiry
-        path="/",
+    # Redirect to the landing page — token is baked into the HTML server-side,
+    # no cookies, no hash fragments, no JS URL parsing needed.
+    return RedirectResponse(
+        f"/api/auth/landing?token={urllib.parse.quote(jwt_token, safe='')}",
+        status_code=302,
     )
-    return response
+
+
+@router.get("/landing")
+def auth_landing(token: str = Query("")):
+    """
+    Serves a FastAPI-rendered HTML page (never StaticFiles) that writes the
+    JWT directly into localStorage via an inline script, then navigates to
+    the dashboard. The token is embedded server-side by Python — the browser
+    receives a fully baked page with no URL params left to read.
+    """
+    if not token:
+        return RedirectResponse(f"{FRONTEND_LOGIN}?error=auth_failed", status_code=302)
+
+    html = f"""<!DOCTYPE html><html><head></head><body>
+<script>
+localStorage.setItem('ufb_token', {json.dumps(token)});
+window.location.replace('/pages/dashboard.html');
+</script>
+</body></html>"""
+    return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
 
 @router.get("/complete")
