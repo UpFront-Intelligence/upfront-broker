@@ -258,16 +258,23 @@
   </div>
 
   <script src="/js/app.js"></script>
-  <script>
-    console.log('HASH:', window.location.hash);
-    console.log('TOKEN:', localStorage.getItem('ufb_token'));
-    const _hash = window.location.hash;
-    if (_hash.startsWith('#t=')) {
-      localStorage.setItem('ufb_token', _hash.slice(3));
-      history.replaceState(null, '', location.pathname);
-    }
 
-    if (!Auth.requireAuth()) throw new Error('Not authenticated');
+  <!-- SYNC: extract hash token into localStorage before anything async runs -->
+  <script>
+    (function() {
+      var h = window.location.hash;
+      if (h && h.indexOf('#t=') === 0) {
+        var tok = h.slice(3);
+        localStorage.setItem('ufb_token', tok);
+        history.replaceState(null, '', window.location.pathname);
+      }
+    })();
+  </script>
+
+  <!-- ASYNC: dashboard logic — runs after sync block fully completes -->
+  <script>
+    (async function() {
+    if (!Auth.requireAuth()) return;
     renderSidebar('dashboard');
 
     // Welcome message
@@ -413,6 +420,7 @@
     }
 
     loadDashboard();
+    })();
   </script>
 </body>
 </html>
