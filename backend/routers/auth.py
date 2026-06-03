@@ -54,7 +54,7 @@ GOOGLE_USERINFO  = "https://www.googleapis.com/oauth2/v3/userinfo"
 FRONTEND_LOGIN = "/pages/login.html"
 
 _ERROR_MESSAGES = {
-    "gmail_only":     "UpFront Broker requires a Gmail account (@gmail.com) for v1.",
+
     "auth_failed":    "Google sign-in failed. Please try again.",
     "auth_cancelled": "Sign-in was cancelled.",
     "no_credentials": "Google OAuth credentials are not configured.",
@@ -132,10 +132,6 @@ def google_callback(
 
     if not google_id or not email:
         return RedirectResponse(f"{FRONTEND_LOGIN}?error=auth_failed")
-
-    # v1: Gmail accounts only
-    if not email.endswith("@gmail.com"):
-        return RedirectResponse(f"{FRONTEND_LOGIN}?error=gmail_only")
 
     # Find or create the user (try google_id first, fall back to email)
     user = (
