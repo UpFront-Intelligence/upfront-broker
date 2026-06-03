@@ -259,7 +259,6 @@
 
   <script src="/js/app.js"></script>
   <script>
-    // ufb_token and ufb_user are set directly by /api/auth/google/callback.
     if (!Auth.requireAuth()) throw new Error('Not authenticated');
     renderSidebar('dashboard');
 

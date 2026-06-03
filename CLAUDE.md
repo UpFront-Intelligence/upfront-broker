@@ -13,7 +13,8 @@ Built from scratch with lessons learned from UpFront (AI-SalesWizard).
 ## Tech Stack
 - **Backend:** FastAPI (Python) + SQLAlchemy ORM + Alembic migrations
 - **Database:** PostgreSQL (Render managed DB)
-- **Auth:** Google OAuth 2.0 (authlib) + JWT (python-jose) — Gmail accounts only (v1)
+- **Auth:** Email/password (bcrypt + passlib) + JWT (python-jose)
+  — Google OAuth code is present but commented out; restore after product is live
 - **Frontend:** Vanilla JS (ES6+), multi-file, no framework
 - **Fonts:** DM Sans (body) + DM Serif Display (headings) via Google Fonts
 - **Deploy:** Render via render.yaml

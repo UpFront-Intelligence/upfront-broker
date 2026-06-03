@@ -1,11 +1,22 @@
 from datetime import datetime, timedelta
 from typing import Optional
 from jose import JWTError, jwt
+from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from database import get_db
 import os
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+def hash_password(password: str) -> str:
+    return pwd_context.hash(password)
+
+
+def verify_password(plain: str, hashed: str) -> bool:
+    return pwd_context.verify(plain, hashed)
 
 SECRET_KEY             = os.getenv("SECRET", "upfront-broker-dev-secret-change-in-prod")
 ALGORITHM              = "HS256"

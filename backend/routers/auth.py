@@ -1,30 +1,18 @@
 """
-Google OAuth 2.0 authentication flow
-─────────────────────────────────────
-GET  /api/auth/google          → redirects browser to Google consent screen
-GET  /api/auth/google/callback → receives code, issues JWT, redirects to login.html
-GET  /api/auth/me              → returns current user (JWT required)
-PUT  /api/auth/me              → updates profile fields (JWT required)
+Email / password authentication (active)
+─────────────────────────────────────────
+POST /api/auth/register  → create account, return JWT
+POST /api/auth/login     → verify password, return JWT
+GET  /api/auth/me        → return current user (JWT required)
+PUT  /api/auth/me        → update profile fields (JWT required)
 
-First-time flow
-───────────────
-callback detects new user or missing company → redirects to
-  /pages/login.html?token=JWT&new=1&name=...&email=...
-login.html shows profile-completion form (First, Last, Work Email, Company)
-  → PUT /api/auth/me {full_name, company} → redirect to dashboard
-
-Setup notes
-───────────
-1. Create OAuth 2.0 credentials at console.cloud.google.com
-2. Add authorised redirect URI:
-     http://localhost:8000/api/auth/google/callback        (local dev)
-     https://YOUR-APP.onrender.com/api/auth/google/callback (Render)
-3. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET — CALLBACK_URL is auto-derived
-   from Render's RENDER_EXTERNAL_URL; no need to set it manually on Render.
+Google OAuth 2.0 (commented out — restore after product is live)
+─────────────────────────────────────────────────────────────────
+See the commented block below. Re-enable by uncommenting and setting
+GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET in the environment.
 """
 import json
 import os
-import urllib.parse
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -32,38 +20,28 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from authlib.integrations.requests_client import OAuth2Session
 from database import get_db
 from models.user import User
-from auth_utils import create_access_token, get_current_user
+from auth_utils import create_access_token, get_current_user, hash_password, verify_password
 
 router = APIRouter()
 
-# ── Google OAuth config ────────────────────────────────────────────────────
-GOOGLE_CLIENT_ID     = os.getenv("GOOGLE_CLIENT_ID", "")
-GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
-
-# Auto-derive callback URL from Render's RENDER_EXTERNAL_URL when deployed;
-# falls back to localhost for local dev; CALLBACK_URL env var overrides both.
-_base        = os.getenv("RENDER_EXTERNAL_URL", "http://localhost:8000").rstrip("/")
-CALLBACK_URL = os.getenv("CALLBACK_URL", f"{_base}/api/auth/google/callback")
-
-GOOGLE_AUTH_URL  = "https://accounts.google.com/o/oauth2/v2/auth"
-GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
-GOOGLE_USERINFO  = "https://www.googleapis.com/oauth2/v3/userinfo"
-
-FRONTEND_LOGIN   = "/pages/login.html"
-FRONTEND_BRIDGE  = "/api/auth/complete"   # bridge endpoint — stores JWT then redirects
-
-_ERROR_MESSAGES = {
-
-    "auth_failed":    "Google sign-in failed. Please try again.",
-    "auth_cancelled": "Sign-in was cancelled.",
-    "no_credentials": "Google OAuth credentials are not configured.",
-}
+FRONTEND_LOGIN = "/pages/login.html"
 
 
-# ── Pydantic response ──────────────────────────────────────────────────────
+# ── Pydantic schemas ───────────────────────────────────────────────────────
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
+    full_name: str
+    company: Optional[str] = None
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
 class UserResponse(BaseModel):
     id: int
     email: str
@@ -79,155 +57,35 @@ class UserResponse(BaseModel):
         from_attributes = True
 
 
-# ── Routes ─────────────────────────────────────────────────────────────────
-@router.get("/google")
-def google_login():
-    """Redirect the browser to Google's OAuth consent screen."""
-    if not GOOGLE_CLIENT_ID:
-        return RedirectResponse(f"{FRONTEND_LOGIN}?error=no_credentials")
-
-    client = OAuth2Session(
-        client_id=GOOGLE_CLIENT_ID,
-        redirect_uri=CALLBACK_URL,
-        scope="openid email profile",
+# ── Email / password routes ────────────────────────────────────────────────
+@router.post("/register")
+def register(req: RegisterRequest, db: Session = Depends(get_db)):
+    if db.query(User).filter(User.email == req.email.lower()).first():
+        raise HTTPException(status_code=400, detail="Email already registered")
+    user = User(
+        email=req.email.lower(),
+        hashed_password=hash_password(req.password),
+        full_name=req.full_name,
+        company=req.company,
     )
-    url, _ = client.create_authorization_url(
-        GOOGLE_AUTH_URL,
-        access_type="offline",
-        prompt="select_account",
-    )
-    return RedirectResponse(url)
-
-
-@router.get("/google/callback")
-def google_callback(
-    code:  str = Query(None),
-    state: str = Query(None),
-    error: str = Query(None),
-    db:    Session = Depends(get_db),
-):
-    """Receive the OAuth code, verify it, upsert the user, issue a JWT."""
-    if error or not code:
-        return RedirectResponse(f"{FRONTEND_LOGIN}?error=auth_cancelled")
-
-    # Exchange code for tokens
-    client = OAuth2Session(
-        client_id=GOOGLE_CLIENT_ID,
-        client_secret=GOOGLE_CLIENT_SECRET,
-        redirect_uri=CALLBACK_URL,
-    )
-    try:
-        client.fetch_token(GOOGLE_TOKEN_URL, code=code)
-    except Exception:
-        return RedirectResponse(f"{FRONTEND_LOGIN}?error=auth_failed")
-
-    # Fetch user profile from Google
-    try:
-        info = client.get(GOOGLE_USERINFO).json()
-    except Exception:
-        return RedirectResponse(f"{FRONTEND_LOGIN}?error=auth_failed")
-
-    google_id = info.get("sub", "")
-    email     = (info.get("email") or "").strip().lower()
-    name      = (info.get("name") or "").strip()
-    picture   = info.get("picture")
-
-    if not google_id or not email:
-        return RedirectResponse(f"{FRONTEND_LOGIN}?error=auth_failed")
-
-    # Find or create the user (try google_id first, fall back to email)
-    user = (
-        db.query(User).filter(User.google_id == google_id).first()
-        or db.query(User).filter(User.email == email).first()
-    )
-    is_new = user is None
-
-    if is_new:
-        # Parse Google display name into first/last; store full_name.
-        # Company left empty — broker can fill it from settings later.
-        parts = name.split(" ", 1)
-        first = parts[0]
-        last  = parts[1] if len(parts) > 1 else ""
-        user = User(
-            email=email,
-            google_id=google_id,
-            full_name=f"{first} {last}".strip(),
-            company="",
-            photo_url=picture,
-            hashed_password=None,
-        )
-        db.add(user)
-    else:
-        if not user.google_id:
-            user.google_id = google_id
-        if not user.photo_url and picture:
-            user.photo_url = picture
+    db.add(user)
     db.commit()
     db.refresh(user)
-
-    jwt_token = create_access_token({"sub": user.id})
-
-    # Build the user object that app.js stores as 'ufb_user'.
-    user_data = {
-        "id":             user.id,
-        "email":          user.email,
-        "full_name":      user.full_name,
-        "company":        user.company,
-        "phone":          user.phone,
-        "photo_url":      user.photo_url,
-        "license_number": user.license_number,
-        "territory":      user.territory,
-        "is_admin":       user.is_admin,
-    }
-
-    # Return the final page directly — no redirect, no intermediate page.
-    # Both localStorage writes happen synchronously in this page's script
-    # before window.location.replace fires.  The browser never navigates
-    # away until the writes are complete.
-    html = f"""<!DOCTYPE html>
-<html>
-<head><title>UpFront Broker</title></head>
-<body>
-<script>
-localStorage.setItem('ufb_token', {json.dumps(jwt_token)});
-localStorage.setItem('ufb_user', JSON.stringify({json.dumps(user_data)}));
-window.location.replace('/pages/dashboard.html');
-</script>
-</body>
-</html>"""
-    return HTMLResponse(html, headers={"Cache-Control": "no-store"})
+    token = create_access_token({"sub": user.id})
+    return {"access_token": token, "token_type": "bearer",
+            "user": UserResponse.model_validate(user)}
 
 
-@router.get("/complete")
-def auth_complete(
-    token: str = Query(""),
-    new:   str = Query(""),
-    name:  str = Query(""),
-    email: str = Query(""),
-    error: str = Query(""),
-):
-    """
-    OAuth bridge — stores the JWT in localStorage then redirects the browser.
-
-    Serving this as a proper FastAPI route (not StaticFiles) guarantees
-    query parameters are never stripped by a static-file redirect.
-    Uses json.dumps() to safely embed values into the inline script.
-    """
-    if error or not token:
-        dest = f"{FRONTEND_LOGIN}?error={urllib.parse.quote(error or 'auth_failed')}"
-    else:
-        # Pass token as a URL hash fragment — hash is never sent to the server
-        # and survives client-side navigation reliably across all browsers.
-        # dashboard.html extracts it, writes localStorage, then loads.
-        dest = f"/pages/dashboard.html#token={token}"
-
-    html = f"""<!DOCTYPE html>
-<html><head><meta charset="UTF-8"><title>Signing in…</title></head>
-<body><script>window.location.replace({json.dumps(dest)});</script></body></html>"""
-    return HTMLResponse(html, headers={
-        "Cache-Control": "no-store, no-cache, must-revalidate",
-        "Pragma": "no-cache",
-    })
+@router.post("/login")
+def login(req: LoginRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == req.email.lower()).first()
+    if not user or not user.hashed_password or not verify_password(req.password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="Account suspended")
+    token = create_access_token({"sub": user.id})
+    return {"access_token": token, "token_type": "bearer",
+            "user": UserResponse.model_validate(user)}
 
 
 @router.get("/me", response_model=UserResponse)
@@ -248,3 +106,82 @@ def update_me(
     db.commit()
     db.refresh(current_user)
     return current_user
+
+
+# ── Google OAuth 2.0 (commented out — restore after product is live) ────────
+#
+# To re-enable:
+#   1. pip install authlib requests  (already in requirements.txt)
+#   2. Set GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET in .env / Render dashboard
+#   3. Add authorised redirect URI in Google Cloud Console:
+#        http://localhost:8000/api/auth/google/callback
+#        https://YOUR-APP.onrender.com/api/auth/google/callback
+#   4. Uncomment the block below
+#
+# from authlib.integrations.requests_client import OAuth2Session
+#
+# GOOGLE_CLIENT_ID     = os.getenv("GOOGLE_CLIENT_ID", "")
+# GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
+# _base        = os.getenv("RENDER_EXTERNAL_URL", "http://localhost:8000").rstrip("/")
+# CALLBACK_URL = os.getenv("CALLBACK_URL", f"{_base}/api/auth/google/callback")
+# GOOGLE_AUTH_URL  = "https://accounts.google.com/o/oauth2/v2/auth"
+# GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+# GOOGLE_USERINFO  = "https://www.googleapis.com/oauth2/v3/userinfo"
+#
+# @router.get("/google")
+# def google_login():
+#     if not GOOGLE_CLIENT_ID:
+#         return RedirectResponse(f"{FRONTEND_LOGIN}?error=no_credentials")
+#     client = OAuth2Session(client_id=GOOGLE_CLIENT_ID, redirect_uri=CALLBACK_URL,
+#                            scope="openid email profile")
+#     url, _ = client.create_authorization_url(GOOGLE_AUTH_URL, access_type="offline",
+#                                               prompt="select_account")
+#     return RedirectResponse(url)
+#
+# @router.get("/google/callback")
+# def google_callback(code: str = Query(None), state: str = Query(None),
+#                     error: str = Query(None), db: Session = Depends(get_db)):
+#     if error or not code:
+#         return RedirectResponse(f"{FRONTEND_LOGIN}?error=auth_cancelled")
+#     client = OAuth2Session(client_id=GOOGLE_CLIENT_ID, client_secret=GOOGLE_CLIENT_SECRET,
+#                            redirect_uri=CALLBACK_URL)
+#     try:
+#         client.fetch_token(GOOGLE_TOKEN_URL, code=code)
+#     except Exception:
+#         return RedirectResponse(f"{FRONTEND_LOGIN}?error=auth_failed")
+#     try:
+#         info = client.get(GOOGLE_USERINFO).json()
+#     except Exception:
+#         return RedirectResponse(f"{FRONTEND_LOGIN}?error=auth_failed")
+#     google_id = info.get("sub", "")
+#     email     = (info.get("email") or "").strip().lower()
+#     name      = (info.get("name") or "").strip()
+#     picture   = info.get("picture")
+#     if not google_id or not email:
+#         return RedirectResponse(f"{FRONTEND_LOGIN}?error=auth_failed")
+#     user = (db.query(User).filter(User.google_id == google_id).first()
+#             or db.query(User).filter(User.email == email).first())
+#     is_new = user is None
+#     if is_new:
+#         parts = name.split(" ", 1)
+#         user = User(email=email, google_id=google_id,
+#                     full_name=f"{parts[0]} {parts[1] if len(parts)>1 else ''}".strip(),
+#                     company="", photo_url=picture, hashed_password=None)
+#         db.add(user)
+#     else:
+#         if not user.google_id: user.google_id = google_id
+#         if not user.photo_url and picture: user.photo_url = picture
+#     db.commit()
+#     db.refresh(user)
+#     jwt_token = create_access_token({"sub": user.id})
+#     user_data = {"id": user.id, "email": user.email, "full_name": user.full_name,
+#                  "company": user.company, "phone": user.phone, "photo_url": user.photo_url,
+#                  "license_number": user.license_number, "territory": user.territory,
+#                  "is_admin": user.is_admin}
+#     html = f"""<!DOCTYPE html><html><head><title>UpFront Broker</title></head><body>
+# <script>
+# localStorage.setItem('ufb_token', {json.dumps(jwt_token)});
+# localStorage.setItem('ufb_user', JSON.stringify({json.dumps(user_data)}));
+# window.location.replace('/pages/dashboard.html');
+# </script></body></html>"""
+#     return HTMLResponse(html, headers={"Cache-Control": "no-store"})
