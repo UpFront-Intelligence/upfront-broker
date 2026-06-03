@@ -219,6 +219,9 @@ function renderSidebar(activePage) {
         <div class="nav-item ${activePage==='comps'?'active':''}" data-page="comps" onclick="navigate('comps')">
           <span class="nav-icon">≡</span> Comps
         </div>
+        <div class="nav-item ${activePage==='import'?'active':''}" data-page="import" onclick="navigate('import')">
+          <span class="nav-icon">⇪</span> Import
+        </div>
         <div class="nav-item ${activePage==='portal'?'active':''}" data-page="portal" onclick="navigate('portal')">
           <span class="nav-icon">⊕</span> Client Portal
         </div>

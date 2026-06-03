@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UpFront Broker — Import</title>
+  <link rel="stylesheet" href="/static/main.css">
+  <style>
+    /* ── Step indicator ── */
+    .step-bar { display:flex; align-items:center; gap:0; margin-bottom:28px; }
+    .step-dot {
+      width:28px; height:28px; border-radius:50%; border:2px solid var(--cream-dark);
+      background:#fff; display:flex; align-items:center; justify-content:center;
+      font-size:12px; font-weight:600; color:var(--stone); flex-shrink:0; z-index:1;
+    }
+    .step-dot.active { background:var(--navy); border-color:var(--navy); color:#fff; }
+    .step-dot.done   { background:var(--green); border-color:var(--green); color:#fff; }
+    .step-line { flex:1; height:2px; background:var(--cream-dark); }
+    .step-line.done { background:var(--green); }
+    .step-label {
+      font-size:10.5px; font-weight:600; text-transform:uppercase; letter-spacing:0.06em;
+      color:var(--stone); text-align:center; margin-top:6px;
+    }
+    .step-col { display:flex; flex-direction:column; align-items:center; }
+
+    /* ── Record type cards ── */
+    .type-cards { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-top:24px; }
+    .type-card {
+      border:2px solid var(--cream-dark); border-radius:var(--radius-lg);
+      padding:24px 20px; text-align:center; cursor:pointer; transition:all 0.15s;
+      background:#fff;
+    }
+    .type-card:hover { border-color:var(--navy); box-shadow:var(--shadow-hover); }
+    .type-card.selected { border-color:var(--gold); background:rgba(201,148,58,0.06); }
+    .type-card-icon { font-size:28px; margin-bottom:10px; }
+    .type-card-name { font-family:var(--font-serif); font-size:15px; color:var(--navy); }
+    .type-card-sub  { font-size:12px; color:var(--stone); margin-top:4px; }
+
+    /* ── Drop zone ── */
+    .drop-zone {
+      border:2px dashed var(--cream-dark); border-radius:var(--radius-lg);
+      padding:48px 24px; text-align:center; cursor:pointer; transition:all 0.2s;
+      background:#fff; margin-top:20px;
+    }
+    .drop-zone.dragover { border-color:var(--gold); background:rgba(201,148,58,0.04); }
+    .drop-zone-icon { font-size:36px; margin-bottom:12px; opacity:0.5; }
+    .drop-zone-text { font-size:14px; color:var(--stone); line-height:1.6; }
+    .drop-zone-sub  { font-size:12px; color:var(--stone-light); margin-top:6px; }
+
+    /* ── Preview table ── */
+    .preview-wrap { overflow-x:auto; margin-top:16px; border:1px solid var(--cream-dark); border-radius:var(--radius); }
+    .preview-table { width:100%; border-collapse:collapse; font-size:12px; }
+    .preview-table th { background:var(--cream); padding:8px 10px; text-align:left; font-weight:600; color:var(--stone); border-bottom:1px solid var(--cream-dark); white-space:nowrap; }
+    .preview-table td { padding:7px 10px; border-bottom:1px solid var(--cream-dark); white-space:nowrap; max-width:160px; overflow:hidden; text-overflow:ellipsis; }
+    .preview-table tr:last-child td { border-bottom:none; }
+
+    /* ── Mapping table ── */
+    .map-table { width:100%; border-collapse:collapse; font-size:13px; }
+    .map-table th { text-align:left; padding:8px 12px; font-size:10.5px; font-weight:600; letter-spacing:0.07em; text-transform:uppercase; color:var(--stone); border-bottom:1px solid var(--cream-dark); }
+    .map-table td { padding:9px 12px; border-bottom:1px solid var(--cream-dark); vertical-align:middle; }
+    .map-table tr:last-child td { border-bottom:none; }
+    .conf-high   { background:var(--green-light); color:var(--green); padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; }
+    .conf-medium { background:var(--amber-light); color:var(--amber); padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; }
+    .conf-none   { background:var(--cream-dark);  color:var(--stone); padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; }
+    .sample-val  { font-size:11.5px; color:var(--stone-light); font-family:var(--font-mono); }
+
+    /* ── Review summary ── */
+    .review-stat { display:flex; align-items:center; justify-content:space-between; padding:12px 0; border-bottom:1px solid var(--cream-dark); }
+    .review-stat:last-child { border-bottom:none; }
+    .review-stat-label { font-size:13.5px; color:var(--ink); }
+    .review-stat-val   { font-family:var(--font-mono); font-size:15px; font-weight:600; color:var(--navy); }
+
+    /* ── Results ── */
+    .result-row { display:flex; align-items:center; gap:14px; padding:14px 18px; border-radius:var(--radius); margin-bottom:10px; }
+    .result-row.green  { background:var(--green-light); }
+    .result-row.amber  { background:var(--amber-light); }
+    .result-row.stone  { background:var(--cream-dark);  }
+    .result-row.red    { background:var(--red-light);   }
+    .result-icon { font-size:22px; flex-shrink:0; }
+    .result-num  { font-family:var(--font-mono); font-size:24px; font-weight:700; }
+    .result-label { font-size:13px; color:var(--stone); }
+
+    @media (max-width:900px) { .type-cards { grid-template-columns:repeat(2,1fr); } }
+  </style>
+</head>
+<body>
+<div id="sidebar"></div>
+
+<div id="main">
+  <div id="topbar">
+    <div class="topbar-title">Import Records</div>
+    <div class="topbar-actions">
+      <button class="btn btn-ghost btn-sm" id="btn-back" onclick="prevStep()" style="display:none">← Back</button>
+    </div>
+  </div>
+
+  <div id="page-content" class="fade-in">
+    <!-- Step indicator -->
+    <div class="step-bar" id="step-bar"></div>
+
+    <!-- Step 1: Record type -->
+    <div id="step-1">
+      <div class="page-header" style="margin-bottom:4px">
+        <div>
+          <div class="page-title">What are you importing?</div>
+          <div class="page-sub">Select the record type that matches your spreadsheet.</div>
+        </div>
+      </div>
+      <div class="type-cards">
+        <div class="type-card" onclick="selectType('property')" id="tc-property">
+          <div class="type-card-icon">🏢</div>
+          <div class="type-card-name">Properties</div>
+          <div class="type-card-sub">Addresses, SF, price, cap rate</div>
+        </div>
+        <div class="type-card" onclick="selectType('contact')" id="tc-contact">
+          <div class="type-card-icon">◎</div>
+          <div class="type-card-name">Contacts</div>
+          <div class="type-card-sub">Names, emails, phone numbers</div>
+        </div>
+        <div class="type-card" onclick="selectType('account')" id="tc-account">
+          <div class="type-card-icon">◻</div>
+          <div class="type-card-name">Accounts</div>
+          <div class="type-card-sub">LLCs, entities, companies</div>
+        </div>
+        <div class="type-card" onclick="selectType('deal')" id="tc-deal">
+          <div class="type-card-icon">◆</div>
+          <div class="type-card-name">Deals</div>
+          <div class="type-card-sub">Preview only — linking required</div>
+        </div>
+      </div>
+      <div style="margin-top:24px;text-align:right">
+        <button class="btn btn-primary" id="btn-next-1" onclick="goStep(2)" disabled>
+          Choose File →
+        </button>
+      </div>
+    </div>
+
+    <!-- Step 2: Upload -->
+    <div id="step-2" style="display:none">
+      <div class="page-header" style="margin-bottom:4px">
+        <div>
+          <div class="page-title">Upload your file</div>
+          <div class="page-sub">CSV or XLSX, max 10 MB. First row must be column headers.</div>
+        </div>
+      </div>
+      <div class="drop-zone" id="drop-zone" onclick="document.getElementById('file-input').click()"
+           ondragover="event.preventDefault();this.classList.add('dragover')"
+           ondragleave="this.classList.remove('dragover')"
+           ondrop="handleDrop(event)">
+        <div class="drop-zone-icon">📂</div>
+        <div class="drop-zone-text"><strong>Click to choose</strong> or drag &amp; drop here</div>
+        <div class="drop-zone-sub">CSV or XLSX · Max 10 MB</div>
+      </div>
+      <input type="file" id="file-input" accept=".csv,.xlsx" style="display:none" onchange="handleFile(this.files[0])">
+      <div id="file-info" style="margin-top:12px;font-size:13px;color:var(--stone)"></div>
+      <div id="preview-area" style="display:none">
+        <div style="margin-top:20px;font-size:11px;font-weight:600;letter-spacing:0.07em;text-transform:uppercase;color:var(--stone);margin-bottom:6px">
+          Preview (first 3 rows)
+        </div>
+        <div class="preview-wrap"><table class="preview-table" id="preview-table"></table></div>
+        <div style="margin-top:20px;text-align:right">
+          <button class="btn btn-primary" onclick="goStep(3)">Map Fields →</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 3: Map fields -->
+    <div id="step-3" style="display:none">
+      <div class="page-header" style="margin-bottom:4px">
+        <div>
+          <div class="page-title">Map your columns</div>
+          <div class="page-sub">Green = auto-mapped. Amber = suggested — confirm. Gray = unmapped — choose or skip.</div>
+        </div>
+      </div>
+      <div class="card" style="margin-top:16px">
+        <div class="table-wrap">
+          <table class="map-table">
+            <thead><tr>
+              <th>Your Column</th>
+              <th>Sample Value</th>
+              <th>Confidence</th>
+              <th>Maps To</th>
+            </tr></thead>
+            <tbody id="map-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div style="margin-top:20px;text-align:right">
+        <button class="btn btn-primary" onclick="goStep(4)">Review Import →</button>
+      </div>
+    </div>
+
+    <!-- Step 4: Review -->
+    <div id="step-4" style="display:none">
+      <div class="page-header" style="margin-bottom:4px">
+        <div>
+          <div class="page-title">Ready to import</div>
+          <div class="page-sub">Review the summary and confirm.</div>
+        </div>
+      </div>
+      <div class="card" style="margin-top:16px;max-width:520px">
+        <div class="card-body" id="review-summary"></div>
+      </div>
+      <div style="margin-top:24px;display:flex;gap:12px;align-items:center">
+        <button class="btn btn-primary btn-lg" id="btn-import" onclick="runImport()">Import Records</button>
+        <div id="import-spinner" style="display:none"><div class="spinner"></div> Importing…</div>
+      </div>
+    </div>
+
+    <!-- Step 5: Results -->
+    <div id="step-5" style="display:none">
+      <div class="page-header" style="margin-bottom:20px">
+        <div>
+          <div class="page-title">Import complete</div>
+          <div class="page-sub" id="results-sub"></div>
+        </div>
+      </div>
+      <div id="results-cards" style="max-width:560px"></div>
+      <div id="btn-download-wrap" style="margin-top:20px;display:none">
+        <button class="btn btn-outline" onclick="downloadErrorReport()">⬇ Download Error Report</button>
+      </div>
+      <div style="margin-top:24px;display:flex;gap:12px">
+        <button class="btn btn-primary" onclick="navigate('import')">Import Another File</button>
+        <button class="btn btn-outline" id="btn-view-records" onclick="viewRecords()">View Records →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/js/app.js"></script>
+<script>
+  if (!Auth.requireAuth()) throw new Error('Not authenticated');
+  renderSidebar('import');
+
+  const STEPS = ['Record Type','Upload File','Map Fields','Review','Results'];
+  const TYPE_LABELS = { property:'properties', contact:'contacts', account:'accounts', deal:'deals' };
+
+  let currentStep  = 1;
+  let selectedType = null;
+  let uploadedFile = null;
+  let previewData  = null;   // response from /api/import/preview
+  let importResult = null;   // response from /api/import/execute
+
+  // ── Step bar ───────────────────────────────────────────────────────────────
+  function renderStepBar() {
+    const bar = document.getElementById('step-bar');
+    const cols = STEPS.map((label, i) => {
+      const n = i + 1;
+      const cls = n < currentStep ? 'done' : n === currentStep ? 'active' : '';
+      return `<div class="step-col">
+        <div class="step-dot ${cls}">${n < currentStep ? '✓' : n}</div>
+        <div class="step-label" style="color:${n===currentStep?'var(--navy)':'var(--stone-light)'}">${label}</div>
+      </div>${i < STEPS.length-1 ? `<div class="step-line${n < currentStep?' done':''}"></div>` : ''}`;
+    }).join('');
+    bar.innerHTML = cols;
+  }
+
+  function goStep(n) {
+    document.getElementById(`step-${currentStep}`).style.display = 'none';
+    currentStep = n;
+    document.getElementById(`step-${n}`).style.display = 'block';
+    document.getElementById('btn-back').style.display = n > 1 && n < 5 ? '' : 'none';
+    renderStepBar();
+    if (n === 3) renderMappingTable();
+    if (n === 4) renderReviewSummary();
+    window.scrollTo(0, 0);
+  }
+
+  function prevStep() { if (currentStep > 1) goStep(currentStep - 1); }
+
+  renderStepBar();
+
+  // ── Step 1 ─────────────────────────────────────────────────────────────────
+  function selectType(type) {
+    selectedType = type;
+    document.querySelectorAll('.type-card').forEach(c => c.classList.remove('selected'));
+    document.getElementById(`tc-${type}`).classList.add('selected');
+    document.getElementById('btn-next-1').disabled = false;
+  }
+
+  // ── Step 2 ─────────────────────────────────────────────────────────────────
+  function handleDrop(e) {
+    e.preventDefault();
+    document.getElementById('drop-zone').classList.remove('dragover');
+    const f = e.dataTransfer.files[0];
+    if (f) handleFile(f);
+  }
+
+  async function handleFile(file) {
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) { Toast.error('File exceeds 10 MB limit'); return; }
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (!['csv','xlsx'].includes(ext)) { Toast.error('Only CSV and XLSX files are supported'); return; }
+
+    uploadedFile = file;
+    document.getElementById('file-info').textContent = `${file.name} — ${(file.size/1024).toFixed(1)} KB`;
+    document.getElementById('preview-area').style.display = 'none';
+    document.getElementById('drop-zone').style.opacity = '0.5';
+
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('record_type', selectedType);
+
+    try {
+      previewData = await apiForm('/import/preview', fd);
+      renderPreview();
+      document.getElementById('preview-area').style.display = 'block';
+    } catch(e) {
+      Toast.error('Preview failed: ' + e.message);
+    } finally {
+      document.getElementById('drop-zone').style.opacity = '1';
+    }
+  }
+
+  function renderPreview() {
+    const { headers, preview_rows } = previewData;
+    const tbl = document.getElementById('preview-table');
+    tbl.innerHTML =
+      `<thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead>` +
+      `<tbody>${preview_rows.map(row =>
+        `<tr>${headers.map(h => `<td title="${row[h]||''}">${row[h]||'—'}</td>`).join('')}</tr>`
+      ).join('')}</tbody>`;
+  }
+
+  // ── Step 3 ─────────────────────────────────────────────────────────────────
+  function renderMappingTable() {
+    const { headers, preview_rows, suggested_mapping, available_fields } = previewData;
+    const sample = preview_rows[0] || {};
+    const tbody = document.getElementById('map-tbody');
+
+    const options = ['_skip', ...available_fields]
+      .map(f => `<option value="${f}">${f === '_skip' ? '— skip this column —' : f.replace(/_/g,' ')}</option>`)
+      .join('');
+
+    tbody.innerHTML = headers.map(h => {
+      const m = suggested_mapping[h] || { field: null, score: 0, confidence: 'none' };
+      const confBadge = m.confidence === 'high'   ? `<span class="conf-high">High ${m.score}%</span>`
+                      : m.confidence === 'medium' ? `<span class="conf-medium">Medium ${m.score}%</span>`
+                      :                             `<span class="conf-none">Unmapped</span>`;
+      const sel = `<select class="form-control" style="font-size:12.5px;padding:5px 8px"
+                     data-col="${h}" onchange="updateMapping('${h}',this.value)">
+                     ${options}
+                   </select>`;
+      const rowStyle = m.confidence === 'high'   ? 'background:rgba(45,125,79,0.04)'
+                     : m.confidence === 'medium' ? 'background:rgba(196,124,32,0.04)'
+                     : '';
+      return `<tr style="${rowStyle}">
+        <td style="font-weight:500">${h}</td>
+        <td><span class="sample-val">${sample[h] || ''}</span></td>
+        <td>${confBadge}</td>
+        <td>${sel}</td>
+      </tr>`;
+    }).join('');
+
+    // Pre-select suggested values
+    headers.forEach(h => {
+      const m = suggested_mapping[h];
+      const sel = tbody.querySelector(`select[data-col="${h}"]`);
+      if (sel && m?.field) sel.value = m.field;
+    });
+  }
+
+  function updateMapping(col, val) {
+    // Mapping is read live from the selects in goStep(4)
+  }
+
+  function getConfirmedMapping() {
+    const mapping = {};
+    document.querySelectorAll('#map-tbody select').forEach(sel => {
+      mapping[sel.dataset.col] = sel.value;
+    });
+    return mapping;
+  }
+
+  // ── Step 4 ─────────────────────────────────────────────────────────────────
+  function renderReviewSummary() {
+    const mapping = getConfirmedMapping();
+    const mapped  = Object.values(mapping).filter(v => v && v !== '_skip').length;
+    const skipped = Object.values(mapping).filter(v => v === '_skip').length;
+    document.getElementById('review-summary').innerHTML = `
+      <div class="review-stat">
+        <span class="review-stat-label">Record type</span>
+        <span class="review-stat-val" style="font-family:var(--font-body);font-size:14px">${selectedType}</span>
+      </div>
+      <div class="review-stat">
+        <span class="review-stat-label">Total rows in file</span>
+        <span class="review-stat-val">${previewData.total_rows}</span>
+      </div>
+      <div class="review-stat">
+        <span class="review-stat-label">Columns mapped</span>
+        <span class="review-stat-val">${mapped}</span>
+      </div>
+      <div class="review-stat">
+        <span class="review-stat-label">Columns skipped</span>
+        <span class="review-stat-val">${skipped}</span>
+      </div>
+      <div class="review-stat">
+        <span class="review-stat-label">Source file</span>
+        <span class="review-stat-val" style="font-family:var(--font-body);font-size:13px">${uploadedFile.name}</span>
+      </div>`;
+  }
+
+  async function runImport() {
+    document.getElementById('btn-import').style.display = 'none';
+    document.getElementById('import-spinner').style.display = 'flex';
+
+    const fd = new FormData();
+    fd.append('file', uploadedFile);
+    fd.append('record_type', selectedType);
+    fd.append('mapping', JSON.stringify(getConfirmedMapping()));
+
+    try {
+      importResult = await apiForm('/import/execute', fd);
+      goStep(5);
+      renderResults();
+    } catch(e) {
+      Toast.error('Import failed: ' + e.message);
+      document.getElementById('btn-import').style.display = '';
+      document.getElementById('import-spinner').style.display = 'none';
+    }
+  }
+
+  // ── Step 5 ─────────────────────────────────────────────────────────────────
+  function renderResults() {
+    const { imported, skipped, flagged, flagged_rows, duplicates, errors } = importResult;
+    document.getElementById('results-sub').textContent =
+      `${imported} record${imported !== 1 ? 's' : ''} imported from ${uploadedFile.name}`;
+
+    document.getElementById('results-cards').innerHTML = `
+      <div class="result-row green">
+        <span class="result-icon">✓</span>
+        <div><div class="result-num">${imported}</div><div class="result-label">Records imported</div></div>
+      </div>
+      <div class="result-row stone">
+        <span class="result-icon">⊘</span>
+        <div><div class="result-num">${skipped}</div><div class="result-label">Duplicates skipped</div></div>
+      </div>
+      <div class="result-row amber">
+        <span class="result-icon">⚠</span>
+        <div><div class="result-num">${flagged}</div><div class="result-label">Rows flagged (missing required fields or deal linking)</div></div>
+      </div>
+      ${errors.length ? `<div class="result-row red">
+        <span class="result-icon">✕</span>
+        <div><div class="result-num">${errors.length}</div><div class="result-label">Errors</div></div>
+      </div>` : ''}`;
+
+    const allIssues = [...(flagged_rows || []), ...(errors || [])];
+    if (allIssues.length) {
+      document.getElementById('btn-download-wrap').style.display = 'block';
+    }
+    document.getElementById('btn-view-records').dataset.type = selectedType;
+  }
+
+  function viewRecords() {
+    navigate(TYPE_LABELS[selectedType] || 'dashboard');
+  }
+
+  function downloadErrorReport() {
+    const { flagged_rows, errors } = importResult;
+    const rows = [...(flagged_rows || []), ...(errors || [])];
+    if (!rows.length) return;
+
+    // Build CSV from flagged data
+    const dataKeys = Object.keys(rows[0]?.data || rows[0] || {}).filter(k => k !== 'reason');
+    const headers  = [...dataKeys, 'reason', 'row'];
+    const lines    = [headers.join(',')];
+    rows.forEach(r => {
+      const vals = dataKeys.map(k => JSON.stringify((r.data || r)[k] || ''));
+      vals.push(JSON.stringify(r.reason || ''));
+      vals.push(r.row || '');
+      lines.push(vals.join(','));
+    });
+
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url; a.download = 'import_errors.csv'; a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // ── Auth-aware FormData fetch ──────────────────────────────────────────────
+  async function apiForm(path, formData) {
+    const token = localStorage.getItem('ufb_token');
+    const res = await fetch(`/api${path}`, {
+      method: 'POST',
+      headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+      body: formData,
+    });
+    if (res.status === 401) { Auth.logout(); return null; }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: 'Request failed' }));
+      throw new Error(err.detail || 'Request failed');
+    }
+    return res.json();
+  }
+</script>
+</body>
+</html>
