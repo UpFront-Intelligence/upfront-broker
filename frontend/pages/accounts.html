@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UpFront Broker — Accounts</title>
+  <link rel="stylesheet" href="/static/main.css">
+  <style>
+    #page-content { transition: padding-right 0.25s ease; }
+    #page-content.panel-open { padding-right: 448px; }
+
+    /* ── Detail panel ── */
+    #detail-panel {
+      position: fixed; top: 56px; right: 0; bottom: 0; width: 420px;
+      background: #fff; border-left: 1px solid var(--cream-dark);
+      box-shadow: -4px 0 24px rgba(0,0,0,0.09);
+      z-index: 200; transform: translateX(100%);
+      transition: transform 0.25s ease; display: flex; flex-direction: column;
+    }
+    #detail-panel.open { transform: translateX(0); }
+
+    .panel-header { padding: 16px 20px 0; flex-shrink: 0; }
+    .panel-icon-row { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
+    .entity-icon {
+      width: 44px; height: 44px; border-radius: var(--radius);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; font-weight: 700; color: #fff; flex-shrink: 0;
+      font-family: var(--font-mono); letter-spacing: -0.5px;
+    }
+    .panel-name { font-family: var(--font-serif); font-size: 15px; color: var(--navy); line-height: 1.3; }
+    .panel-addr { font-size: 12px; color: var(--stone); margin-top: 3px; }
+    .panel-actions { display: flex; align-items: center; gap: 8px; padding-bottom: 12px; }
+
+    /* Tabs */
+    .panel-tabs { display: flex; border-bottom: 1px solid var(--cream-dark); flex-shrink: 0; }
+    .panel-tab {
+      flex: 1; padding: 10px 8px; text-align: center; font-size: 12px; font-weight: 500;
+      color: var(--stone); cursor: pointer; border-bottom: 2px solid transparent;
+      transition: all 0.15s; user-select: none;
+    }
+    .panel-tab:hover { color: var(--navy); }
+    .panel-tab.active { color: var(--navy); border-bottom-color: var(--gold); }
+
+    .panel-body { flex: 1; overflow-y: auto; padding: 16px 20px 24px; display: none; }
+    .panel-body.active { display: block; }
+    .panel-section { margin-bottom: 20px; }
+    .panel-section-title {
+      font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase;
+      color: var(--stone); border-bottom: 1px solid var(--cream-dark);
+      padding-bottom: 6px; margin-bottom: 10px;
+    }
+    .panel-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; }
+    .pf.full { grid-column: 1 / -1; }
+    .pf-label { font-size: 10px; font-weight: 600; color: var(--stone); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px; }
+    .pf-value { font-size: 13px; color: var(--ink); }
+    .pf-value a { color: var(--blue); text-decoration: none; }
+    .pf-value a:hover { text-decoration: underline; }
+
+    /* Related */
+    .rel-card {
+      border: 1px solid var(--cream-dark); border-radius: var(--radius);
+      padding: 11px 14px; margin-bottom: 8px; cursor: pointer; transition: background 0.1s;
+    }
+    .rel-card:hover { background: var(--cream); }
+    .rel-card:last-child { margin-bottom: 0; }
+    .rel-empty { font-size: 12.5px; color: var(--stone); padding: 2px 0; }
+
+    /* Table */
+    .data-table tbody tr.row-active { background: var(--cream-dark) !important; }
+    .acct-cell { display: flex; align-items: center; gap: 10px; }
+    .acct-icon {
+      width: 32px; height: 32px; border-radius: 5px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 700; color: #fff; flex-shrink: 0;
+      font-family: var(--font-mono);
+    }
+    .acct-name { font-weight: 500; color: var(--ink); font-size: 13px; }
+    .acct-sub  { font-size: 11.5px; color: var(--stone); }
+
+    /* Modal */
+    #account-modal .modal { width: 560px; }
+    .form-divider {
+      font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase;
+      color: var(--stone); border-bottom: 1px solid var(--cream-dark);
+      padding-bottom: 6px; margin: 20px 0 14px;
+    }
+    .form-divider:first-child { margin-top: 0; }
+  </style>
+</head>
+<body>
+<div id="sidebar"></div>
+
+<div id="main">
+  <div id="topbar">
+    <div class="topbar-title">Accounts</div>
+    <div class="topbar-actions">
+      <div class="topbar-search">
+        <span>⌕</span>
+        <input type="text" id="search-input" placeholder="Search accounts…" oninput="applyFilters()">
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="openModal()">+ Add Account</button>
+    </div>
+  </div>
+
+  <div id="page-content" class="fade-in">
+    <div class="page-header" style="margin-bottom:12px">
+      <div>
+        <div class="page-title">Accounts</div>
+        <div class="page-sub" id="count-label">Loading…</div>
+      </div>
+    </div>
+
+    <div class="filter-bar" id="type-filters" style="margin-bottom:16px"></div>
+
+    <div class="card">
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Account</th><th>Type</th><th>Location</th>
+              <th>Email</th><th>Phone</th><th>Added</th>
+            </tr>
+          </thead>
+          <tbody id="acct-tbody">
+            <tr><td colspan="6" style="text-align:center;padding:44px"><div class="spinner"></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Detail Panel -->
+<div id="detail-panel">
+  <div class="panel-header">
+    <div class="panel-icon-row">
+      <div class="entity-icon" id="p-icon"></div>
+      <div style="flex:1;min-width:0">
+        <div class="panel-name" id="p-name"></div>
+        <div class="panel-addr" id="p-sub"></div>
+      </div>
+      <button class="btn btn-ghost" style="padding:4px 8px;font-size:16px;line-height:1" onclick="closePanel()">✕</button>
+    </div>
+    <div class="panel-actions">
+      <span id="p-type" class="badge"></span>
+      <div style="flex:1"></div>
+      <button class="btn btn-outline btn-sm" id="p-edit">Edit</button>
+      <button class="btn btn-sm" id="p-delete" style="background:var(--red-light);color:var(--red)">Delete</button>
+    </div>
+  </div>
+
+  <div class="panel-tabs">
+    <div class="panel-tab active" data-tab="info" onclick="switchTab('info')">Details</div>
+    <div class="panel-tab" data-tab="related" onclick="switchTab('related')">Contacts · Properties · Deals</div>
+  </div>
+
+  <div id="tab-info" class="panel-body active"></div>
+  <div id="tab-related" class="panel-body"></div>
+</div>
+
+<!-- Add / Edit Modal -->
+<div id="account-modal" class="modal-overlay">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="modal-title">Add Account</div>
+      <button class="modal-close" onclick="Modal.close('account-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-divider">Entity</div>
+      <div class="form-group"><label class="form-label">Entity Name <span style="color:var(--red)">*</span></label>
+        <input id="f-name" class="form-control" placeholder="Oak Street Investments LLC"></div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label class="form-label">Entity Type</label>
+          <select id="f-type" class="form-control"><option value="">— Select —</option>
+            <option>LLC</option><option>Corp</option><option>Trust</option>
+            <option>Individual</option><option>REIT</option><option>Partnership</option>
+          </select></div>
+        <div class="form-group"><label class="form-label">EIN / Tax ID</label>
+          <input id="f-ein" class="form-control" placeholder="12-3456789"></div>
+      </div>
+      <div class="form-group"><label class="form-label">Website</label>
+        <input id="f-website" class="form-control" placeholder="https://example.com"></div>
+
+      <div class="form-divider">Contact Info</div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label class="form-label">Email</label>
+          <input id="f-email" class="form-control" type="email" placeholder="contact@entity.com"></div>
+        <div class="form-group"><label class="form-label">Phone</label>
+          <input id="f-phone" class="form-control" placeholder="(313) 555-0100"></div>
+      </div>
+      <div class="form-group"><label class="form-label">Street Address</label>
+        <input id="f-address" class="form-control" placeholder="123 Main St"></div>
+      <div class="form-row cols-3">
+        <div class="form-group"><label class="form-label">City</label>
+          <input id="f-city" class="form-control" placeholder="Detroit"></div>
+        <div class="form-group"><label class="form-label">State</label>
+          <input id="f-state" class="form-control" placeholder="MI" maxlength="2"></div>
+        <div class="form-group"><label class="form-label">Zip</label>
+          <input id="f-zip" class="form-control" placeholder="48226"></div>
+      </div>
+
+      <div class="form-divider">Notes</div>
+      <div class="form-group"><label class="form-label">Notes</label>
+        <textarea id="f-notes" class="form-control" rows="3" placeholder="Investment focus, principals, history…"></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="Modal.close('account-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveAccount()">Save Account</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/app.js"></script>
+<script>
+  if (!Auth.requireAuth()) throw new Error('Not authenticated');
+  renderSidebar('accounts');
+  Modal.closeOnOverlay('account-modal');
+
+  const ENTITY_TYPES = ['LLC','Corp','Trust','Individual','REIT','Partnership'];
+  const TYPE_CLASS = {
+    'LLC':'badge-navy','Corp':'badge-blue','Trust':'badge-amber',
+    'Individual':'badge-green','REIT':'badge-gold','Partnership':'badge-stone',
+  };
+  const CONTACT_TYPE_CLASS = {
+    'Owner':'badge-navy','Buyer':'badge-green','Tenant':'badge-blue',
+    'Attorney':'badge-stone','Lender':'badge-amber','Broker':'badge-gold',
+  };
+
+  let accounts = [];
+  let activeType = '';
+  let editingId = null, openId = null, relatedLoaded = false;
+
+  // ── Filters ────────────────────────────────────────────────────────────────
+  function buildFilters() {
+    document.getElementById('type-filters').innerHTML =
+      ['', ...ENTITY_TYPES].map(t => `<div class="filter-pill${t===activeType?' active':''}" onclick="setType('${t}')">
+        ${t||'All Types'}</div>`).join('');
+  }
+
+  function setType(t) { activeType = t; buildFilters(); applyFilters(); }
+
+  function applyFilters() {
+    const q = (document.getElementById('search-input').value || '').toLowerCase();
+    let list = accounts;
+    if (activeType) list = list.filter(a => a.entity_type === activeType);
+    if (q) list = list.filter(a =>
+      (a.name||'').toLowerCase().includes(q) ||
+      (a.city||'').toLowerCase().includes(q) ||
+      (a.email||'').toLowerCase().includes(q)
+    );
+    renderTable(list);
+    document.getElementById('count-label').textContent =
+      `${list.length} account${list.length !== 1 ? 's' : ''}`;
+  }
+
+  // ── Table ──────────────────────────────────────────────────────────────────
+  function entityInitials(name) {
+    return (name || '??').substring(0, 2).toUpperCase();
+  }
+
+  function renderTable(rows) {
+    const tbody = document.getElementById('acct-tbody');
+    if (!rows.length) {
+      tbody.innerHTML = `<tr><td colspan="6"><div class="empty-state">
+        <div class="empty-icon">◻</div>
+        <div class="empty-title">No accounts found</div>
+        <div class="empty-sub">Add your first account or adjust your filters</div>
+      </div></td></tr>`;
+      return;
+    }
+    tbody.innerHTML = rows.map(a => `
+      <tr data-id="${a.id}" class="${openId===a.id?'row-active':''}" onclick="openPanel(${a.id})">
+        <td><div class="acct-cell">
+          <div class="acct-icon" style="background:${avatarColor(a.name)}">${entityInitials(a.name)}</div>
+          <div>
+            <div class="acct-name">${a.name}</div>
+            ${a.city?`<div class="acct-sub">${a.city}, ${a.state}</div>`:''}
+          </div>
+        </div></td>
+        <td>${a.entity_type?`<span class="badge ${TYPE_CLASS[a.entity_type]||'badge-stone'}">${a.entity_type}</span>`:'—'}</td>
+        <td style="font-size:12.5px;color:var(--stone)">${a.city&&a.state?a.city+', '+a.state:'—'}</td>
+        <td style="font-size:12.5px">${a.email?`<a href="mailto:${a.email}" onclick="event.stopPropagation()">${a.email}</a>`:'—'}</td>
+        <td style="font-size:12.5px">${a.phone||'—'}</td>
+        <td style="font-size:12px;color:var(--stone-light)">${Fmt.dateShort(a.created_at)}</td>
+      </tr>`).join('');
+  }
+
+  async function loadAccounts() {
+    try {
+      accounts = await API.get('/accounts/');
+      buildFilters();
+      applyFilters();
+    } catch(e) { Toast.error('Failed to load: ' + e.message); }
+  }
+
+  // ── Panel ──────────────────────────────────────────────────────────────────
+  function openPanel(id) {
+    const a = accounts.find(x => x.id === id);
+    if (!a) return;
+    openId = id;
+    relatedLoaded = false;
+
+    document.querySelectorAll('#acct-tbody tr').forEach(tr =>
+      tr.classList.toggle('row-active', +tr.dataset.id === id));
+
+    const icon = document.getElementById('p-icon');
+    icon.textContent = entityInitials(a.name);
+    icon.style.background = avatarColor(a.name);
+
+    document.getElementById('p-name').textContent = a.name;
+    document.getElementById('p-sub').textContent =
+      [a.entity_type, a.city && a.state ? a.city+', '+a.state : null].filter(Boolean).join(' · ') || '';
+
+    const tb = document.getElementById('p-type');
+    tb.className = `badge ${TYPE_CLASS[a.entity_type]||'badge-stone'}`;
+    tb.textContent = a.entity_type || 'Entity';
+
+    document.getElementById('p-edit').onclick   = () => openModal(a);
+    document.getElementById('p-delete').onclick = () => deleteAccount(a.id);
+
+    document.getElementById('tab-info').innerHTML = renderInfoTab(a);
+    document.getElementById('tab-related').innerHTML =
+      '<div style="text-align:center;padding:36px"><div class="spinner"></div></div>';
+
+    switchTab('info');
+    document.getElementById('detail-panel').classList.add('open');
+    document.getElementById('page-content').classList.add('panel-open');
+  }
+
+  function closePanel() {
+    openId = null;
+    document.getElementById('detail-panel').classList.remove('open');
+    document.getElementById('page-content').classList.remove('panel-open');
+    document.querySelectorAll('#acct-tbody tr').forEach(tr => tr.classList.remove('row-active'));
+  }
+
+  function switchTab(name) {
+    document.querySelectorAll('.panel-tab').forEach(t =>
+      t.classList.toggle('active', t.dataset.tab === name));
+    document.querySelectorAll('.panel-body').forEach(b =>
+      b.classList.toggle('active', b.id === 'tab-'+name));
+    if (name === 'related' && !relatedLoaded) loadRelated();
+  }
+
+  // ── Details tab ───────────────────────────────────────────────────────────
+  function pf(label, val, cls) {
+    return `<div class="pf${cls?' '+cls:''}"><div class="pf-label">${label}</div><div class="pf-value">${val||'—'}</div></div>`;
+  }
+
+  function renderInfoTab(a) {
+    const addr = [a.address, a.city && a.state ? a.city+', '+a.state+(a.zip?' '+a.zip:'') : null]
+      .filter(Boolean).join(', ');
+    return `
+      <div class="panel-section">
+        <div class="panel-section-title">Entity</div>
+        <div class="panel-grid">
+          ${pf('Type', a.entity_type)} ${pf('EIN', a.ein)}
+          ${a.website ? pf('Website', `<a href="${a.website}" target="_blank" rel="noopener">${a.website.replace(/^https?:\/\//,'')}</a>`, 'full') : ''}
+        </div>
+      </div>
+      <div class="panel-section">
+        <div class="panel-section-title">Contact Info</div>
+        <div class="panel-grid">
+          ${pf('Email', a.email ? `<a href="mailto:${a.email}">${a.email}</a>` : null, 'full')}
+          ${pf('Phone', a.phone)}
+          ${addr ? pf('Address', addr, 'full') : ''}
+        </div>
+      </div>
+      ${a.notes ? `
+      <div class="panel-section">
+        <div class="panel-section-title">Notes</div>
+        <div style="font-size:13px;color:var(--ink);line-height:1.65;white-space:pre-wrap">${a.notes}</div>
+      </div>` : ''}
+      <div style="margin-top:4px;font-size:11px;color:var(--stone-light)">
+        Added ${Fmt.date(a.created_at)}${a.updated_at?' · Updated '+Fmt.date(a.updated_at):''}
+      </div>`;
+  }
+
+  // ── Related tab ───────────────────────────────────────────────────────────
+  async function loadRelated() {
+    const a = accounts.find(x => x.id === openId);
+    if (!a) return;
+    relatedLoaded = true;
+    try {
+      const [contacts, properties, deals] = await Promise.all([
+        API.get(`/accounts/${a.id}/contacts`),
+        API.get(`/properties/?account_id=${a.id}`),
+        API.get(`/deals/?account_id=${a.id}`),
+      ]);
+      document.getElementById('tab-related').innerHTML = renderRelatedTab(contacts, properties, deals);
+    } catch(e) {
+      document.getElementById('tab-related').innerHTML =
+        `<div style="padding:20px;font-size:12.5px;color:var(--stone)">Failed to load: ${e.message}</div>`;
+    }
+  }
+
+  function renderRelatedTab(contacts, properties, deals) {
+    // Contacts
+    const contactsHtml = contacts.length
+      ? contacts.map(c => `
+          <div class="rel-card" onclick="navigate('contacts')">
+            <div style="display:flex;align-items:center;gap:10px">
+              <div style="width:32px;height:32px;border-radius:50%;background:${avatarColor(c.first_name+c.last_name)};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:#fff;flex-shrink:0">${Fmt.initials(c.first_name,c.last_name)}</div>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:13px;font-weight:500;color:var(--ink)">${c.first_name} ${c.last_name}</div>
+                <div style="font-size:11.5px;color:var(--stone);margin-top:2px">
+                  ${c.role?'<strong>'+c.role+'</strong>':''}${c.is_primary?' · Primary':''}${c.title?' · '+c.title:''}
+                  ${c.contact_type?` <span class="badge ${CONTACT_TYPE_CLASS[c.contact_type]||'badge-stone'}" style="font-size:10px">${c.contact_type}</span>`:''}
+                </div>
+              </div>
+              <span style="color:var(--stone-light)">→</span>
+            </div>
+          </div>`).join('')
+      : `<div class="rel-empty">No linked contacts</div>`;
+
+    // Properties
+    const propsHtml = properties.length
+      ? properties.map(p => `
+          <div class="rel-card" onclick="navigate('properties')">
+            <div style="display:flex;align-items:center;gap:8px">
+              <div style="width:30px;height:30px;border-radius:5px;background:var(--cream-dark);display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0">${Fmt.propType(p.property_type)}</div>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:13px;font-weight:500;color:var(--ink)">${p.name||p.address}</div>
+                <div style="font-size:11.5px;color:var(--stone);margin-top:2px">${p.city}, ${p.state}${p.property_type?' · '+p.property_type:''}</div>
+              </div>
+              <div style="text-align:right;flex-shrink:0">
+                ${p.asking_price?`<div style="font-family:var(--font-mono);font-size:12px;color:var(--navy);font-weight:500">${Fmt.currency(p.asking_price)}</div>`:''}
+                <div><span class="badge ${p.status==='Active'?'badge-green':p.status==='Sold'?'badge-navy':'badge-stone'}" style="font-size:10px">${p.status||'Active'}</span></div>
+              </div>
+            </div>
+          </div>`).join('')
+      : `<div class="rel-empty">No properties owned</div>`;
+
+    // Deals
+    const dealsHtml = deals.length
+      ? deals.map(d => `
+          <div class="rel-card" onclick="navigate('deals')">
+            <div style="display:flex;align-items:center;gap:8px">
+              <div style="flex:1;min-width:0">
+                <div style="font-size:13px;font-weight:500;color:var(--ink)">${d.name}</div>
+                <div style="font-size:11.5px;color:var(--stone);margin-top:2px">${d.deal_type||'Deal'}</div>
+              </div>
+              <div style="text-align:right;flex-shrink:0">
+                <div><span class="stage-pill ${Fmt.stageClass(d.stage)}">${d.stage}</span></div>
+                ${d.our_commission?`<div style="font-family:var(--font-mono);font-size:12px;color:var(--green);margin-top:4px">${Fmt.currency(d.our_commission)}</div>`:''}
+              </div>
+            </div>
+          </div>`).join('')
+      : `<div class="rel-empty">No deals yet</div>`;
+
+    return `
+      <div class="panel-section">
+        <div class="panel-section-title">Contacts${contacts.length?' ('+contacts.length+')':''}</div>
+        ${contactsHtml}
+      </div>
+      <div class="panel-section">
+        <div class="panel-section-title">Properties${properties.length?' ('+properties.length+')':''}</div>
+        ${propsHtml}
+      </div>
+      <div class="panel-section">
+        <div class="panel-section-title">Deals${deals.length?' ('+deals.length+')':''}</div>
+        ${dealsHtml}
+      </div>`;
+  }
+
+  // ── Modal ─────────────────────────────────────────────────────────────────
+  function openModal(account) {
+    editingId = account?.id ?? null;
+    document.getElementById('modal-title').textContent = account ? 'Edit Account' : 'Add Account';
+    const ids = ['f-name','f-type','f-ein','f-website','f-email','f-phone',
+                 'f-address','f-city','f-state','f-zip','f-notes'];
+    if (account) {
+      const map = {
+        'f-name':a=>a.name,'f-type':a=>a.entity_type,'f-ein':a=>a.ein,
+        'f-website':a=>a.website,'f-email':a=>a.email,'f-phone':a=>a.phone,
+        'f-address':a=>a.address,'f-city':a=>a.city,'f-state':a=>a.state,
+        'f-zip':a=>a.zip,'f-notes':a=>a.notes,
+      };
+      Object.entries(map).forEach(([id, fn]) => {
+        const el = document.getElementById(id);
+        if (el) el.value = fn(account) ?? '';
+      });
+    } else {
+      ids.forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    }
+    Modal.open('account-modal');
+  }
+
+  async function saveAccount() {
+    const g = id => document.getElementById(id)?.value.trim() || '';
+    if (!g('f-name')) { Toast.error('Entity name is required'); return; }
+    const payload = {
+      name:        g('f-name'),
+      entity_type: g('f-type')||null,
+      ein:         g('f-ein')||null,
+      website:     g('f-website')||null,
+      email:       g('f-email')||null,
+      phone:       g('f-phone')||null,
+      address:     g('f-address')||null,
+      city:        g('f-city')||null,
+      state:       g('f-state').toUpperCase()||null,
+      zip:         g('f-zip')||null,
+      notes:       g('f-notes')||null,
+    };
+    try {
+      if (editingId) {
+        const saved = await API.put(`/accounts/${editingId}`, payload);
+        const idx = accounts.findIndex(a => a.id === editingId);
+        if (idx >= 0) accounts[idx] = saved;
+        if (openId === editingId) { relatedLoaded = false; openPanel(editingId); }
+        Toast.success('Account updated');
+      } else {
+        const saved = await API.post('/accounts/', payload);
+        accounts.push(saved);
+        Toast.success('Account added');
+      }
+      Modal.close('account-modal');
+      applyFilters();
+    } catch(e) { Toast.error(e.message); }
+  }
+
+  async function deleteAccount(id) {
+    if (!confirm('Delete this account? This cannot be undone.')) return;
+    try {
+      await API.delete(`/accounts/${id}`);
+      accounts = accounts.filter(a => a.id !== id);
+      closePanel(); applyFilters();
+      Toast.success('Account deleted');
+    } catch(e) { Toast.error(e.message); }
+  }
+
+  loadAccounts();
+</script>
+</body>
+</html>

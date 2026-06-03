@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UpFront Broker — Contacts</title>
+  <link rel="stylesheet" href="/static/main.css">
+  <style>
+    #page-content { transition: padding-right 0.25s ease; }
+    #page-content.panel-open { padding-right: 448px; }
+
+    /* ── Detail panel ── */
+    #detail-panel {
+      position: fixed; top: 56px; right: 0; bottom: 0; width: 420px;
+      background: #fff; border-left: 1px solid var(--cream-dark);
+      box-shadow: -4px 0 24px rgba(0,0,0,0.09);
+      z-index: 200; transform: translateX(100%);
+      transition: transform 0.25s ease; display: flex; flex-direction: column;
+    }
+    #detail-panel.open { transform: translateX(0); }
+
+    .panel-header { padding: 16px 20px 0; flex-shrink: 0; }
+    .panel-icon-row { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
+    .panel-avatar {
+      width: 44px; height: 44px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 15px; font-weight: 600; color: #fff;
+      flex-shrink: 0; font-family: var(--font-body);
+    }
+    .panel-name { font-family: var(--font-serif); font-size: 15px; color: var(--navy); line-height: 1.3; }
+    .panel-addr { font-size: 12px; color: var(--stone); margin-top: 3px; }
+    .panel-actions { display: flex; align-items: center; gap: 8px; padding-bottom: 12px; }
+
+    /* Tabs */
+    .panel-tabs { display: flex; border-bottom: 1px solid var(--cream-dark); flex-shrink: 0; }
+    .panel-tab {
+      flex: 1; padding: 10px 8px; text-align: center; font-size: 12px; font-weight: 500;
+      color: var(--stone); cursor: pointer; border-bottom: 2px solid transparent;
+      transition: all 0.15s; user-select: none;
+    }
+    .panel-tab:hover { color: var(--navy); }
+    .panel-tab.active { color: var(--navy); border-bottom-color: var(--gold); }
+
+    .panel-body { flex: 1; overflow-y: auto; padding: 16px 20px 24px; display: none; }
+    .panel-body.active { display: block; }
+    .panel-section { margin-bottom: 20px; }
+    .panel-section-title {
+      font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase;
+      color: var(--stone); border-bottom: 1px solid var(--cream-dark);
+      padding-bottom: 6px; margin-bottom: 10px;
+    }
+    .panel-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; }
+    .pf.full { grid-column: 1 / -1; }
+    .pf-label { font-size: 10px; font-weight: 600; color: var(--stone); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px; }
+    .pf-value { font-size: 13px; color: var(--ink); }
+    .pf-value a { color: var(--blue); text-decoration: none; }
+    .pf-value a:hover { text-decoration: underline; }
+
+    /* Related */
+    .rel-card {
+      border: 1px solid var(--cream-dark); border-radius: var(--radius);
+      padding: 11px 14px; margin-bottom: 8px; cursor: pointer; transition: background 0.1s;
+    }
+    .rel-card:hover { background: var(--cream); }
+    .rel-card:last-child { margin-bottom: 0; }
+    .rel-empty { font-size: 12.5px; color: var(--stone); padding: 2px 0; }
+
+    .act-row { display: flex; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--cream-dark); }
+    .act-row:last-child { border-bottom: none; }
+    .act-dot { width: 26px; height: 26px; border-radius: 50%; background: var(--cream-dark); display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; margin-top: 1px; }
+    .act-body { flex: 1; min-width: 0; }
+    .act-text { font-size: 12.5px; color: var(--ink); line-height: 1.4; }
+    .act-time { font-size: 11px; color: var(--stone-light); margin-top: 1px; }
+
+    /* Table */
+    .data-table tbody tr.row-active { background: var(--cream-dark) !important; }
+    .contact-cell { display: flex; align-items: center; gap: 10px; }
+    .c-avatar {
+      width: 32px; height: 32px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 600; color: #fff; flex-shrink: 0;
+    }
+    .c-name { font-weight: 500; color: var(--ink); font-size: 13px; }
+    .c-sub  { font-size: 11.5px; color: var(--stone); }
+
+    /* Modal */
+    #contact-modal .modal { width: 560px; }
+    .form-divider {
+      font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase;
+      color: var(--stone); border-bottom: 1px solid var(--cream-dark);
+      padding-bottom: 6px; margin: 20px 0 14px;
+    }
+    .form-divider:first-child { margin-top: 0; }
+  </style>
+</head>
+<body>
+<div id="sidebar"></div>
+
+<div id="main">
+  <div id="topbar">
+    <div class="topbar-title">Contacts</div>
+    <div class="topbar-actions">
+      <div class="topbar-search">
+        <span>⌕</span>
+        <input type="text" id="search-input" placeholder="Search contacts…" oninput="applyFilters()">
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="openModal()">+ Add Contact</button>
+    </div>
+  </div>
+
+  <div id="page-content" class="fade-in">
+    <div class="page-header" style="margin-bottom:12px">
+      <div>
+        <div class="page-title">Contacts</div>
+        <div class="page-sub" id="count-label">Loading…</div>
+      </div>
+    </div>
+
+    <div class="filter-bar" id="type-filters" style="margin-bottom:16px"></div>
+
+    <div class="card">
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Contact</th><th>Type</th><th>Title</th>
+              <th>Email</th><th>Phone</th><th>Added</th>
+            </tr>
+          </thead>
+          <tbody id="contact-tbody">
+            <tr><td colspan="6" style="text-align:center;padding:44px"><div class="spinner"></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Detail Panel -->
+<div id="detail-panel">
+  <div class="panel-header">
+    <div class="panel-icon-row">
+      <div class="panel-avatar" id="p-avatar"></div>
+      <div style="flex:1;min-width:0">
+        <div class="panel-name" id="p-name"></div>
+        <div class="panel-addr" id="p-sub"></div>
+      </div>
+      <button class="btn btn-ghost" style="padding:4px 8px;font-size:16px;line-height:1" onclick="closePanel()">✕</button>
+    </div>
+    <div class="panel-actions">
+      <span id="p-type" class="badge"></span>
+      <div style="flex:1"></div>
+      <button class="btn btn-outline btn-sm" id="p-edit">Edit</button>
+      <button class="btn btn-sm" id="p-delete" style="background:var(--red-light);color:var(--red)">Delete</button>
+    </div>
+  </div>
+
+  <div class="panel-tabs">
+    <div class="panel-tab active" data-tab="info" onclick="switchTab('info')">Details</div>
+    <div class="panel-tab" data-tab="related" onclick="switchTab('related')">Accounts · Deals · Activity</div>
+  </div>
+
+  <div id="tab-info" class="panel-body active"></div>
+  <div id="tab-related" class="panel-body"></div>
+</div>
+
+<!-- Add / Edit Modal -->
+<div id="contact-modal" class="modal-overlay">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="modal-title">Add Contact</div>
+      <button class="modal-close" onclick="Modal.close('contact-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-divider">Identity</div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label class="form-label">First Name <span style="color:var(--red)">*</span></label><input id="f-first" class="form-control" placeholder="John"></div>
+        <div class="form-group"><label class="form-label">Last Name <span style="color:var(--red)">*</span></label><input id="f-last" class="form-control" placeholder="Smith"></div>
+      </div>
+      <div class="form-group"><label class="form-label">Title / Role</label>
+        <input id="f-title" class="form-control" placeholder="Principal, Managing Partner, VP Acquisitions…"></div>
+
+      <div class="form-divider">Contact Info</div>
+      <div class="form-row cols-3">
+        <div class="form-group"><label class="form-label">Email</label><input id="f-email" class="form-control" type="email" placeholder="john@firm.com"></div>
+        <div class="form-group"><label class="form-label">Phone</label><input id="f-phone" class="form-control" placeholder="(313) 555-0100"></div>
+        <div class="form-group"><label class="form-label">Mobile</label><input id="f-mobile" class="form-control" placeholder="(313) 555-0101"></div>
+      </div>
+      <div class="form-group"><label class="form-label">LinkedIn URL</label>
+        <input id="f-linkedin" class="form-control" placeholder="https://linkedin.com/in/johnsmith"></div>
+
+      <div class="form-divider">Classification</div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label class="form-label">Contact Type</label>
+          <select id="f-type" class="form-control"><option value="">— Select —</option>
+            <option>Owner</option><option>Buyer</option><option>Tenant</option>
+            <option>Attorney</option><option>Lender</option><option>Broker</option>
+          </select></div>
+        <div class="form-group"><label class="form-label">Source</label>
+          <select id="f-source" class="form-control"><option value="">— Select —</option>
+            <option>Referral</option><option>CoStar</option><option>Cold Call</option>
+            <option>Networking</option><option>LinkedIn</option><option>Loopnet</option>
+            <option>Website</option><option>Other</option>
+          </select></div>
+      </div>
+      <div class="form-group"><label class="form-label">Tags <span style="font-weight:400;color:var(--stone-light)">(comma-separated)</span></label>
+        <input id="f-tags" class="form-control" placeholder="investor, detroit, multifamily"></div>
+
+      <div class="form-divider">Notes</div>
+      <div class="form-group"><label class="form-label">Notes</label>
+        <textarea id="f-notes" class="form-control" rows="4" placeholder="Background, relationship history, preferences…"></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="Modal.close('contact-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveContact()">Save Contact</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/app.js"></script>
+<script>
+  if (!Auth.requireAuth()) throw new Error('Not authenticated');
+  renderSidebar('contacts');
+  Modal.closeOnOverlay('contact-modal');
+
+  const TYPES = ['Owner','Buyer','Tenant','Attorney','Lender','Broker'];
+  const TYPE_CLASS = {
+    'Owner':'badge-navy','Buyer':'badge-green','Tenant':'badge-blue',
+    'Attorney':'badge-stone','Lender':'badge-amber','Broker':'badge-gold',
+  };
+  const ACT_ICONS = { 'Call':'📞','Email':'✉️','Meeting':'🤝','Tour':'🏢','Offer':'📋','LOI':'📄','Contract':'✍️','Note':'📝' };
+
+  let contacts = [];
+  let activeType = '';
+  let editingId = null, openId = null, relatedLoaded = false;
+
+  // ── Filters ────────────────────────────────────────────────────────────────
+  function buildFilters() {
+    document.getElementById('type-filters').innerHTML =
+      ['', ...TYPES].map(t => `<div class="filter-pill${t===activeType?' active':''}" onclick="setType('${t}')">
+        ${t||'All Types'}</div>`).join('');
+  }
+
+  function setType(t) { activeType = t; buildFilters(); applyFilters(); }
+
+  function applyFilters() {
+    const q = (document.getElementById('search-input').value || '').toLowerCase();
+    let list = contacts;
+    if (activeType) list = list.filter(c => c.contact_type === activeType);
+    if (q) list = list.filter(c =>
+      (c.first_name+' '+c.last_name).toLowerCase().includes(q) ||
+      (c.email||'').toLowerCase().includes(q) ||
+      (c.title||'').toLowerCase().includes(q)
+    );
+    renderTable(list);
+    document.getElementById('count-label').textContent =
+      `${list.length} contact${list.length !== 1 ? 's' : ''}`;
+  }
+
+  // ── Table ──────────────────────────────────────────────────────────────────
+  function renderTable(rows) {
+    const tbody = document.getElementById('contact-tbody');
+    if (!rows.length) {
+      tbody.innerHTML = `<tr><td colspan="6"><div class="empty-state">
+        <div class="empty-icon">◎</div>
+        <div class="empty-title">No contacts found</div>
+        <div class="empty-sub">Add your first contact or adjust your filters</div>
+      </div></td></tr>`;
+      return;
+    }
+    tbody.innerHTML = rows.map(c => {
+      const initials = Fmt.initials(c.first_name, c.last_name);
+      const color    = avatarColor(c.first_name + c.last_name);
+      return `
+      <tr data-id="${c.id}" class="${openId===c.id?'row-active':''}" onclick="openPanel(${c.id})">
+        <td><div class="contact-cell">
+          <div class="c-avatar" style="background:${color}">${initials}</div>
+          <div>
+            <div class="c-name">${c.first_name} ${c.last_name}</div>
+            ${c.title?`<div class="c-sub">${c.title}</div>`:''}
+          </div>
+        </div></td>
+        <td>${c.contact_type?`<span class="badge ${TYPE_CLASS[c.contact_type]||'badge-stone'}">${c.contact_type}</span>`:'—'}</td>
+        <td style="font-size:12.5px;color:var(--stone)">${c.title||'—'}</td>
+        <td style="font-size:12.5px">${c.email?`<a href="mailto:${c.email}" onclick="event.stopPropagation()">${c.email}</a>`:'—'}</td>
+        <td style="font-size:12.5px">${c.phone||c.mobile||'—'}</td>
+        <td style="font-size:12px;color:var(--stone-light)">${Fmt.dateShort(c.created_at)}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  async function loadContacts() {
+    try {
+      contacts = await API.get('/contacts/');
+      buildFilters();
+      applyFilters();
+    } catch(e) { Toast.error('Failed to load: ' + e.message); }
+  }
+
+  // ── Panel ──────────────────────────────────────────────────────────────────
+  function openPanel(id) {
+    const c = contacts.find(x => x.id === id);
+    if (!c) return;
+    openId = id;
+    relatedLoaded = false;
+
+    document.querySelectorAll('#contact-tbody tr').forEach(tr =>
+      tr.classList.toggle('row-active', +tr.dataset.id === id));
+
+    const color = avatarColor(c.first_name + c.last_name);
+    const av = document.getElementById('p-avatar');
+    av.textContent  = Fmt.initials(c.first_name, c.last_name);
+    av.style.background = color;
+
+    document.getElementById('p-name').textContent = `${c.first_name} ${c.last_name}`;
+    document.getElementById('p-sub').textContent  = [c.title, c.source].filter(Boolean).join(' · ') || '';
+
+    const tb = document.getElementById('p-type');
+    if (c.contact_type) {
+      tb.className = `badge ${TYPE_CLASS[c.contact_type]||'badge-stone'}`;
+      tb.textContent = c.contact_type;
+    } else {
+      tb.className = 'badge badge-stone';
+      tb.textContent = 'Contact';
+    }
+
+    document.getElementById('p-edit').onclick   = () => openModal(c);
+    document.getElementById('p-delete').onclick = () => deleteContact(c.id);
+
+    document.getElementById('tab-info').innerHTML = renderInfoTab(c);
+    document.getElementById('tab-related').innerHTML =
+      '<div style="text-align:center;padding:36px"><div class="spinner"></div></div>';
+
+    switchTab('info');
+    document.getElementById('detail-panel').classList.add('open');
+    document.getElementById('page-content').classList.add('panel-open');
+  }
+
+  function closePanel() {
+    openId = null;
+    document.getElementById('detail-panel').classList.remove('open');
+    document.getElementById('page-content').classList.remove('panel-open');
+    document.querySelectorAll('#contact-tbody tr').forEach(tr => tr.classList.remove('row-active'));
+  }
+
+  function switchTab(name) {
+    document.querySelectorAll('.panel-tab').forEach(t =>
+      t.classList.toggle('active', t.dataset.tab === name));
+    document.querySelectorAll('.panel-body').forEach(b =>
+      b.classList.toggle('active', b.id === 'tab-'+name));
+    if (name === 'related' && !relatedLoaded) loadRelated();
+  }
+
+  // ── Details tab ───────────────────────────────────────────────────────────
+  function pf(label, val, cls) {
+    return `<div class="pf${cls?' '+cls:''}"><div class="pf-label">${label}</div><div class="pf-value">${val||'—'}</div></div>`;
+  }
+
+  function renderInfoTab(c) {
+    const tagsHtml = (c.tags||[]).length
+      ? (c.tags||[]).map(t => `<span class="badge badge-stone" style="margin:0 4px 4px 0">${t}</span>`).join('')
+      : null;
+    return `
+      <div class="panel-section">
+        <div class="panel-section-title">Contact Info</div>
+        <div class="panel-grid">
+          ${pf('Email',  c.email  ? `<a href="mailto:${c.email}">${c.email}</a>` : null, 'full')}
+          ${pf('Phone',  c.phone)}
+          ${pf('Mobile', c.mobile)}
+          ${c.linkedin ? pf('LinkedIn', `<a href="${c.linkedin}" target="_blank" rel="noopener">View Profile →</a>`, 'full') : ''}
+        </div>
+      </div>
+      <div class="panel-section">
+        <div class="panel-section-title">Classification</div>
+        <div class="panel-grid">
+          ${pf('Type',   c.contact_type)}
+          ${pf('Source', c.source)}
+          ${tagsHtml ? `<div class="pf full"><div class="pf-label">Tags</div><div class="pf-value" style="padding-top:2px">${tagsHtml}</div></div>` : ''}
+        </div>
+      </div>
+      ${c.notes ? `
+      <div class="panel-section">
+        <div class="panel-section-title">Notes</div>
+        <div style="font-size:13px;color:var(--ink);line-height:1.65;white-space:pre-wrap">${c.notes}</div>
+      </div>` : ''}
+      <div style="margin-top:4px;font-size:11px;color:var(--stone-light)">
+        Added ${Fmt.date(c.created_at)}${c.updated_at?' · Updated '+Fmt.date(c.updated_at):''}
+      </div>`;
+  }
+
+  // ── Related tab ───────────────────────────────────────────────────────────
+  async function loadRelated() {
+    const c = contacts.find(x => x.id === openId);
+    if (!c) return;
+    relatedLoaded = true;
+    try {
+      const [accounts, deals, activities] = await Promise.all([
+        API.get(`/contacts/${c.id}/accounts`),
+        API.get(`/deals/?contact_id=${c.id}`),
+        API.get(`/activities/?contact_id=${c.id}`),
+      ]);
+      document.getElementById('tab-related').innerHTML = renderRelatedTab(accounts, deals, activities);
+    } catch(e) {
+      document.getElementById('tab-related').innerHTML =
+        `<div style="padding:20px;font-size:12.5px;color:var(--stone)">Failed to load: ${e.message}</div>`;
+    }
+  }
+
+  function renderRelatedTab(accounts, deals, activities) {
+    // Accounts
+    const accountsHtml = accounts.length
+      ? accounts.map(a => `
+          <div class="rel-card" onclick="navigate('accounts')">
+            <div style="display:flex;align-items:center;gap:8px">
+              <div style="flex:1;min-width:0">
+                <div style="font-size:13px;font-weight:500;color:var(--ink)">${a.name}</div>
+                <div style="font-size:11.5px;color:var(--stone);margin-top:2px">
+                  ${a.entity_type||'Entity'}${a.role?' · <strong>'+a.role+'</strong>':''}${a.is_primary?' · Primary':''}
+                  ${a.city?' · '+a.city+', '+a.state:''}
+                </div>
+              </div>
+              <span style="color:var(--stone-light)">→</span>
+            </div>
+          </div>`).join('')
+      : `<div class="rel-empty">No linked accounts</div>`;
+
+    // Deals
+    const dealsHtml = deals.length
+      ? deals.map(d => `
+          <div class="rel-card" onclick="navigate('deals')">
+            <div style="display:flex;align-items:center;gap:8px">
+              <div style="flex:1;min-width:0">
+                <div style="font-size:13px;font-weight:500;color:var(--ink)">${d.name}</div>
+                <div style="font-size:11.5px;color:var(--stone);margin-top:2px">${d.deal_type||'Deal'}</div>
+              </div>
+              <div style="text-align:right;flex-shrink:0">
+                <div><span class="stage-pill ${Fmt.stageClass(d.stage)}">${d.stage}</span></div>
+                ${d.our_commission?`<div style="font-family:var(--font-mono);font-size:12px;color:var(--green);margin-top:4px">${Fmt.currency(d.our_commission)}</div>`:''}
+              </div>
+            </div>
+          </div>`).join('')
+      : `<div class="rel-empty">No deals yet</div>`;
+
+    // Activity
+    const actHtml = activities.length
+      ? activities.slice(0,8).map(a => `
+          <div class="act-row">
+            <div class="act-dot">${ACT_ICONS[a.activity_type]||'●'}</div>
+            <div class="act-body">
+              <div class="act-text"><strong>${a.activity_type}</strong>${a.subject?' — '+a.subject:''}</div>
+              ${a.notes?`<div class="act-time" style="font-size:12px;color:var(--stone)">${a.notes.substring(0,60)}${a.notes.length>60?'…':''}</div>`:''}
+              <div class="act-time">${Fmt.date(a.activity_date||a.created_at)}</div>
+            </div>
+          </div>`).join('')
+      : `<div class="rel-empty">No activity logged</div>`;
+
+    return `
+      <div class="panel-section">
+        <div class="panel-section-title">Linked Accounts${accounts.length?' ('+accounts.length+')':''}</div>
+        ${accountsHtml}
+      </div>
+      <div class="panel-section">
+        <div class="panel-section-title">Deals${deals.length?' ('+deals.length+')':''}</div>
+        ${dealsHtml}
+      </div>
+      <div class="panel-section">
+        <div class="panel-section-title">Activity${activities.length?' ('+activities.length+')':''}</div>
+        ${actHtml}
+      </div>`;
+  }
+
+  // ── Modal ─────────────────────────────────────────────────────────────────
+  function openModal(contact) {
+    editingId = contact?.id ?? null;
+    document.getElementById('modal-title').textContent = contact ? 'Edit Contact' : 'Add Contact';
+    const ids = ['f-first','f-last','f-title','f-email','f-phone','f-mobile',
+                 'f-linkedin','f-type','f-source','f-tags','f-notes'];
+    if (contact) {
+      const map = {
+        'f-first':c=>c.first_name,'f-last':c=>c.last_name,'f-title':c=>c.title,
+        'f-email':c=>c.email,'f-phone':c=>c.phone,'f-mobile':c=>c.mobile,
+        'f-linkedin':c=>c.linkedin,'f-type':c=>c.contact_type,'f-source':c=>c.source,
+        'f-tags':c=>(c.tags||[]).join(', '),'f-notes':c=>c.notes,
+      };
+      Object.entries(map).forEach(([id, fn]) => {
+        const el = document.getElementById(id);
+        if (el) el.value = fn(contact) ?? '';
+      });
+    } else {
+      ids.forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    }
+    Modal.open('contact-modal');
+  }
+
+  async function saveContact() {
+    const g = id => document.getElementById(id)?.value.trim() || '';
+    if (!g('f-first') || !g('f-last')) {
+      Toast.error('First and last name are required'); return;
+    }
+    const payload = {
+      first_name:   g('f-first'),
+      last_name:    g('f-last'),
+      title:        g('f-title')||null,
+      email:        g('f-email')||null,
+      phone:        g('f-phone')||null,
+      mobile:       g('f-mobile')||null,
+      linkedin:     g('f-linkedin')||null,
+      contact_type: g('f-type')||null,
+      source:       g('f-source')||null,
+      tags:         g('f-tags') ? g('f-tags').split(',').map(t=>t.trim()).filter(Boolean) : [],
+      notes:        g('f-notes')||null,
+    };
+    try {
+      if (editingId) {
+        const saved = await API.put(`/contacts/${editingId}`, payload);
+        const idx = contacts.findIndex(c => c.id === editingId);
+        if (idx >= 0) contacts[idx] = saved;
+        if (openId === editingId) { relatedLoaded = false; openPanel(editingId); }
+        Toast.success('Contact updated');
+      } else {
+        const saved = await API.post('/contacts/', payload);
+        contacts.push(saved);
+        Toast.success('Contact added');
+      }
+      Modal.close('contact-modal');
+      applyFilters();
+    } catch(e) { Toast.error(e.message); }
+  }
+
+  async function deleteContact(id) {
+    if (!confirm('Delete this contact? This cannot be undone.')) return;
+    try {
+      await API.delete(`/contacts/${id}`);
+      contacts = contacts.filter(c => c.id !== id);
+      closePanel(); applyFilters();
+      Toast.success('Contact deleted');
+    } catch(e) { Toast.error(e.message); }
+  }
+
+  loadContacts();
+</script>
+</body>
+</html>

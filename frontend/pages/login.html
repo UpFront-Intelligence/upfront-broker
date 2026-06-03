@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UpFront Broker — Sign In</title>
+  <link rel="stylesheet" href="/static/main.css">
+  <style>
+    body {
+      background: var(--navy);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      overflow: auto;
+    }
+
+    .login-wrap {
+      display: flex;
+      width: 900px;
+      max-width: 98vw;
+      min-height: 540px;
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 30px 80px rgba(0,0,0,0.4);
+    }
+
+    .login-left {
+      flex: 1;
+      background: linear-gradient(145deg, var(--navy-mid) 0%, var(--navy-light) 100%);
+      padding: 52px 44px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      border-right: 1px solid var(--navy-border);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .login-left::before {
+      content: '';
+      position: absolute;
+      top: -80px; right: -80px;
+      width: 300px; height: 300px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(201,148,58,0.12) 0%, transparent 70%);
+    }
+
+    .login-brand { position: relative; }
+
+    .login-brand .wordmark {
+      font-family: var(--font-serif);
+      font-size: 28px;
+      color: #fff;
+    }
+    .login-brand .wordmark span { color: var(--gold); font-style: italic; }
+
+    .login-brand .tagline {
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--stone);
+      margin-top: 6px;
+    }
+
+    .login-headline {
+      position: relative;
+    }
+
+    .login-headline h2 {
+      font-family: var(--font-serif);
+      font-size: 32px;
+      color: #fff;
+      line-height: 1.25;
+      letter-spacing: -0.3px;
+    }
+
+    .login-headline h2 em {
+      color: var(--gold);
+      font-style: italic;
+    }
+
+    .login-headline p {
+      color: var(--stone-light);
+      font-size: 14px;
+      margin-top: 12px;
+      line-height: 1.6;
+    }
+
+    .login-features {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      position: relative;
+    }
+
+    .login-feature {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 12.5px;
+      color: var(--stone-light);
+    }
+
+    .login-feature::before {
+      content: '';
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--gold);
+      flex-shrink: 0;
+    }
+
+    .login-right {
+      width: 380px;
+      background: #fff;
+      padding: 52px 44px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    .login-form-title {
+      font-family: var(--font-serif);
+      font-size: 22px;
+      color: var(--navy);
+      margin-bottom: 6px;
+    }
+
+    .login-form-sub {
+      font-size: 13px;
+      color: var(--stone);
+      margin-bottom: 28px;
+    }
+
+    .login-tabs {
+      display: flex;
+      gap: 0;
+      margin-bottom: 24px;
+      border-bottom: 1px solid var(--cream-dark);
+    }
+
+    .login-tab {
+      flex: 1;
+      text-align: center;
+      padding: 8px 0;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--stone);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+      transition: all 0.15s;
+    }
+
+    .login-tab.active {
+      color: var(--navy);
+      border-bottom-color: var(--navy);
+    }
+
+    .login-error {
+      background: var(--red-light);
+      color: var(--red);
+      padding: 10px 14px;
+      border-radius: var(--radius);
+      font-size: 13px;
+      margin-bottom: 16px;
+      display: none;
+    }
+
+    .login-error.show { display: block; }
+
+    .btn-login {
+      width: 100%;
+      padding: 11px;
+      background: var(--navy);
+      color: #fff;
+      border: none;
+      border-radius: var(--radius);
+      font-family: var(--font-body);
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s;
+      margin-top: 8px;
+    }
+
+    .btn-login:hover { background: var(--navy-light); }
+    .btn-login:disabled { opacity: 0.6; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+  <div class="login-wrap">
+    <div class="login-left">
+      <div class="login-brand">
+        <div class="wordmark">UpFront <span>Broker</span></div>
+        <div class="tagline">Commercial Real Estate Intelligence</div>
+      </div>
+      <div class="login-headline">
+        <h2>Your deals.<br><em>Your data.</em><br>Nobody else's.</h2>
+        <p>Built for independent commercial brokers who want a professional edge without sharing their book of business with their office.</p>
+      </div>
+      <div class="login-features">
+        <div class="login-feature">Properties, Contacts & Deals — all connected</div>
+        <div class="login-feature">Client Portal with reporting for buyers & sellers</div>
+        <div class="login-feature">CoStar comp uploads & commission tracking</div>
+        <div class="login-feature">Your data. Fully portable. Always yours.</div>
+      </div>
+    </div>
+
+    <div class="login-right">
+      <div class="login-form-title">Welcome back</div>
+      <div class="login-form-sub">Sign in to your UpFront Broker account</div>
+
+      <div class="login-tabs">
+        <div class="login-tab active" id="tab-login" onclick="switchTab('login')">Sign In</div>
+        <div class="login-tab" id="tab-register" onclick="switchTab('register')">Register</div>
+      </div>
+
+      <div id="error-msg" class="login-error"></div>
+
+      <!-- Login Form -->
+      <div id="form-login">
+        <div class="form-group">
+          <label class="form-label">Email</label>
+          <input type="email" id="login-email" class="form-control" placeholder="you@brokerage.com" autocomplete="email">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Password</label>
+          <input type="password" id="login-password" class="form-control" placeholder="••••••••" autocomplete="current-password">
+        </div>
+        <button class="btn-login" id="btn-login" onclick="doLogin()">Sign In</button>
+      </div>
+
+      <!-- Register Form -->
+      <div id="form-register" style="display:none">
+        <div class="form-row cols-2">
+          <div class="form-group">
+            <label class="form-label">First Name</label>
+            <input type="text" id="reg-first" class="form-control" placeholder="Michael">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Last Name</label>
+            <input type="text" id="reg-last" class="form-control" placeholder="Weinstein">
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Email</label>
+          <input type="email" id="reg-email" class="form-control" placeholder="you@brokerage.com">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Brokerage / Company</label>
+          <input type="text" id="reg-company" class="form-control" placeholder="CBRE, JLL, Independent...">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Password</label>
+          <input type="password" id="reg-password" class="form-control" placeholder="8+ characters">
+        </div>
+        <button class="btn-login" id="btn-register" onclick="doRegister()">Create Account</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/app.js"></script>
+  <script>
+    // Redirect if already logged in
+    if (API.token()) window.location.href = '/pages/dashboard.html';
+
+    function switchTab(tab) {
+      document.getElementById('tab-login').classList.toggle('active', tab === 'login');
+      document.getElementById('tab-register').classList.toggle('active', tab === 'register');
+      document.getElementById('form-login').style.display = tab === 'login' ? 'block' : 'none';
+      document.getElementById('form-register').style.display = tab === 'register' ? 'block' : 'none';
+      showError('');
+    }
+
+    function showError(msg) {
+      const el = document.getElementById('error-msg');
+      el.textContent = msg;
+      el.classList.toggle('show', !!msg);
+    }
+
+    function setLoading(btnId, loading) {
+      const btn = document.getElementById(btnId);
+      btn.disabled = loading;
+      btn.textContent = loading ? 'Please wait...' : (btnId === 'btn-login' ? 'Sign In' : 'Create Account');
+    }
+
+    async function doLogin() {
+      const email    = document.getElementById('login-email').value.trim();
+      const password = document.getElementById('login-password').value;
+      if (!email || !password) { showError('Please fill in all fields.'); return; }
+      setLoading('btn-login', true);
+      try {
+        const data = await API.post('/auth/login', { email, password });
+        localStorage.setItem('ufb_token', data.access_token);
+        Auth.setUser(data.user);
+        window.location.href = '/pages/dashboard.html';
+      } catch (e) {
+        showError(e.message);
+        setLoading('btn-login', false);
+      }
+    }
+
+    async function doRegister() {
+      const first    = document.getElementById('reg-first').value.trim();
+      const last     = document.getElementById('reg-last').value.trim();
+      const email    = document.getElementById('reg-email').value.trim();
+      const company  = document.getElementById('reg-company').value.trim();
+      const password = document.getElementById('reg-password').value;
+      if (!first || !last || !email || !password) { showError('Please fill in all fields.'); return; }
+      if (password.length < 8) { showError('Password must be at least 8 characters.'); return; }
+      setLoading('btn-register', true);
+      try {
+        const data = await API.post('/auth/register', {
+          email, password,
+          full_name: `${first} ${last}`,
+          company
+        });
+        localStorage.setItem('ufb_token', data.access_token);
+        Auth.setUser(data.user);
+        window.location.href = '/pages/dashboard.html';
+      } catch (e) {
+        showError(e.message);
+        setLoading('btn-register', false);
+      }
+    }
+
+    // Enter key support
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        if (document.getElementById('form-login').style.display !== 'none') doLogin();
+        else doRegister();
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UpFront Broker — Deals</title>
+  <link rel="stylesheet" href="/static/main.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <style>
+    #page-content { transition: padding-right 0.25s ease; }
+    #page-content.panel-open { padding-right: 448px; }
+
+    /* ── View toggle ── */
+    .view-toggle { display: flex; border: 1px solid var(--cream-dark); border-radius: var(--radius); overflow: hidden; }
+    .view-btn { padding: 6px 14px; font-size: 12.5px; font-weight: 500; border: none; background: #fff; color: var(--stone); cursor: pointer; transition: all 0.15s; white-space: nowrap; }
+    .view-btn.active { background: var(--navy); color: #fff; }
+    .view-btn:not(:last-child) { border-right: 1px solid var(--cream-dark); }
+
+    /* ── Kanban ── */
+    #kanban-view { overflow-x: auto; padding-bottom: 20px; }
+    .kanban-board { display: flex; gap: 12px; align-items: flex-start; min-width: max-content; }
+    .kanban-col {
+      width: 228px; min-width: 228px; background: var(--cream);
+      border-radius: var(--radius-lg); border: 1px solid var(--cream-dark);
+    }
+    .kanban-col.drag-over { outline: 2px dashed var(--gold); outline-offset: -2px; }
+    .kanban-col-header {
+      padding: 10px 12px 8px; border-bottom: 1px solid var(--cream-dark);
+      display: flex; align-items: center; gap: 6px;
+    }
+    .k-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .k-stage { font-size: 12px; font-weight: 600; color: var(--navy); flex: 1; }
+    .k-count { font-size: 11px; font-family: var(--font-mono); color: var(--stone); background: var(--cream-dark); padding: 1px 6px; border-radius: 10px; }
+    .k-total { font-size: 11px; font-family: var(--font-mono); color: var(--green); margin-left: auto; }
+    .kanban-cards { padding: 8px; min-height: 60px; }
+    .deal-card {
+      background: #fff; border: 1px solid var(--cream-dark); border-radius: var(--radius);
+      padding: 10px 12px; margin-bottom: 8px; cursor: pointer;
+      transition: box-shadow 0.15s; user-select: none;
+    }
+    .deal-card:hover { box-shadow: var(--shadow-hover); }
+    .deal-card.dragging { opacity: 0.35; }
+    .deal-card:last-child { margin-bottom: 0; }
+    .dc-name { font-size: 12.5px; font-weight: 600; color: var(--ink); margin-bottom: 3px; }
+    .dc-prop { font-size: 11.5px; color: var(--stone); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .dc-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 6px; }
+    .dc-type { font-size: 10.5px; color: var(--stone); }
+    .dc-comm { font-family: var(--font-mono); font-size: 11.5px; color: var(--green); font-weight: 500; }
+    .dc-date { font-size: 10.5px; color: var(--stone-light); }
+
+    /* ── List view ── */
+    #list-view th { cursor: pointer; }
+    #list-view th.sort-asc::after  { content: ' ↑'; color: var(--gold); }
+    #list-view th.sort-desc::after { content: ' ↓'; color: var(--gold); }
+    .data-table tbody tr.row-active { background: var(--cream-dark) !important; }
+
+    /* ── Map view ── */
+    #map-view { border-radius: var(--radius-lg); overflow: hidden; border: 1px solid var(--cream-dark); }
+    #leaflet-map { height: calc(100vh - 196px); min-height: 400px; }
+    .lf-popup { font-family: var(--font-body); min-width: 200px; }
+    .lf-popup-name { font-weight: 600; font-size: 13px; margin-bottom: 4px; }
+    .lf-popup-addr { font-size: 12px; color: #666; margin-bottom: 8px; }
+    .lf-popup-foot { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+    .lf-popup-btn { width: 100%; padding: 7px; background: var(--navy); color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-family: var(--font-body); }
+
+    /* ── Detail panel ── */
+    #detail-panel {
+      position: fixed; top: 56px; right: 0; bottom: 0; width: 420px;
+      background: #fff; border-left: 1px solid var(--cream-dark);
+      box-shadow: -4px 0 24px rgba(0,0,0,0.09);
+      z-index: 200; transform: translateX(100%);
+      transition: transform 0.25s ease; display: flex; flex-direction: column;
+    }
+    #detail-panel.open { transform: translateX(0); }
+    .panel-header { padding: 16px 20px 0; flex-shrink: 0; }
+    .panel-icon-row { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
+    .deal-stage-icon {
+      width: 44px; height: 44px; border-radius: var(--radius);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px; flex-shrink: 0;
+    }
+    .panel-name { font-family: var(--font-serif); font-size: 15px; color: var(--navy); line-height: 1.3; }
+    .panel-addr { font-size: 12px; color: var(--stone); margin-top: 3px; }
+    .panel-actions { display: flex; align-items: center; gap: 8px; padding-bottom: 12px; }
+    .panel-tabs { display: flex; border-bottom: 1px solid var(--cream-dark); flex-shrink: 0; }
+    .panel-tab {
+      flex: 1; padding: 10px 8px; text-align: center; font-size: 12px; font-weight: 500;
+      color: var(--stone); cursor: pointer; border-bottom: 2px solid transparent;
+      transition: all 0.15s; user-select: none;
+    }
+    .panel-tab:hover { color: var(--navy); }
+    .panel-tab.active { color: var(--navy); border-bottom-color: var(--gold); }
+    .panel-body { flex: 1; overflow-y: auto; padding: 16px 20px 24px; display: none; }
+    .panel-body.active { display: block; }
+    .panel-section { margin-bottom: 20px; }
+    .panel-section-title {
+      font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase;
+      color: var(--stone); border-bottom: 1px solid var(--cream-dark);
+      padding-bottom: 6px; margin-bottom: 10px;
+    }
+    .panel-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; }
+    .pf.full { grid-column: 1 / -1; }
+    .pf-label { font-size: 10px; font-weight: 600; color: var(--stone); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px; }
+    .pf-value { font-size: 13px; color: var(--ink); }
+    .pf-value.green { color: var(--green); font-family: var(--font-mono); font-weight: 600; }
+    .pf-value.mono  { font-family: var(--font-mono); }
+    .rel-card { border: 1px solid var(--cream-dark); border-radius: var(--radius); padding: 11px 14px; margin-bottom: 8px; cursor: pointer; transition: background 0.1s; }
+    .rel-card:hover { background: var(--cream); }
+    .rel-card:last-child { margin-bottom: 0; }
+    .rel-empty { font-size: 12.5px; color: var(--stone); padding: 2px 0; }
+    .act-row { display: flex; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--cream-dark); }
+    .act-row:last-child { border-bottom: none; }
+    .act-dot { width: 26px; height: 26px; border-radius: 50%; background: var(--cream-dark); display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; margin-top: 1px; }
+    .act-body { flex: 1; min-width: 0; }
+    .act-text { font-size: 12.5px; color: var(--ink); line-height: 1.4; }
+    .act-time { font-size: 11px; color: var(--stone-light); margin-top: 1px; }
+
+    /* ── Modal ── */
+    #deal-modal .modal { width: 640px; }
+    .form-divider { font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--stone); border-bottom: 1px solid var(--cream-dark); padding-bottom: 6px; margin: 20px 0 14px; }
+    .form-divider:first-child { margin-top: 0; }
+    .comm-calc { font-size: 12.5px; color: var(--green); font-family: var(--font-mono); padding: 8px 10px; background: var(--green-light); border-radius: var(--radius); margin-top: 6px; display: none; }
+    #lease-fields, #cobroke-fields { display: none; }
+  </style>
+</head>
+<body>
+<div id="sidebar"></div>
+
+<div id="main">
+  <div id="topbar">
+    <div class="topbar-title">Deals</div>
+    <div class="topbar-actions">
+      <div class="view-toggle">
+        <button class="view-btn active" data-view="kanban" onclick="setView('kanban')">▦ Kanban</button>
+        <button class="view-btn" data-view="list"   onclick="setView('list')">☰ List</button>
+        <button class="view-btn" data-view="map"    onclick="setView('map')">◎ Map</button>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="openModal()">+ New Deal</button>
+    </div>
+  </div>
+
+  <div id="page-content" class="fade-in">
+    <div class="page-header" style="margin-bottom:12px">
+      <div>
+        <div class="page-title">Deals</div>
+        <div class="page-sub" id="count-label">Loading…</div>
+      </div>
+    </div>
+
+    <div class="filter-bar" id="type-filters" style="margin-bottom:16px"></div>
+
+    <div id="kanban-view"><div class="kanban-board" id="kanban-board"></div></div>
+
+    <div id="list-view" style="display:none">
+      <div class="card">
+        <div class="table-wrap">
+          <table class="data-table" id="list-table">
+            <thead id="list-thead">
+              <tr>
+                <th data-col="name"            onclick="sortBy('name')">Deal</th>
+                <th data-col="property_id"     onclick="sortBy('property_id')">Property</th>
+                <th data-col="deal_type"       onclick="sortBy('deal_type')">Type</th>
+                <th data-col="stage"           onclick="sortBy('stage')">Stage</th>
+                <th data-col="list_price"      onclick="sortBy('list_price')">Price</th>
+                <th data-col="our_commission"  onclick="sortBy('our_commission')">Commission</th>
+                <th data-col="projected_close" onclick="sortBy('projected_close')">Close</th>
+              </tr>
+            </thead>
+            <tbody id="list-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div id="map-view" style="display:none">
+      <div id="leaflet-map"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Detail Panel -->
+<div id="detail-panel">
+  <div class="panel-header">
+    <div class="panel-icon-row">
+      <div class="deal-stage-icon" id="p-icon"></div>
+      <div style="flex:1;min-width:0">
+        <div class="panel-name" id="p-name"></div>
+        <div class="panel-addr" id="p-sub"></div>
+      </div>
+      <button class="btn btn-ghost" style="padding:4px 8px;font-size:16px;line-height:1" onclick="closePanel()">✕</button>
+    </div>
+    <div class="panel-actions">
+      <span id="p-stage" class="stage-pill"></span>
+      <div style="flex:1"></div>
+      <button class="btn btn-outline btn-sm" id="p-edit">Edit</button>
+      <button class="btn btn-sm" id="p-delete" style="background:var(--red-light);color:var(--red)">Delete</button>
+    </div>
+  </div>
+  <div class="panel-tabs">
+    <div class="panel-tab active" data-tab="info"    onclick="switchTab('info')">Details</div>
+    <div class="panel-tab"        data-tab="related" onclick="switchTab('related')">Contacts · Activity · Docs</div>
+  </div>
+  <div id="tab-info"    class="panel-body active"></div>
+  <div id="tab-related" class="panel-body"></div>
+</div>
+
+<!-- Add / Edit Modal -->
+<div id="deal-modal" class="modal-overlay">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="modal-title">New Deal</div>
+      <button class="modal-close" onclick="Modal.close('deal-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-divider">Deal</div>
+      <div class="form-group"><label class="form-label">Deal Name <span style="color:var(--red)">*</span></label>
+        <input id="f-name" class="form-control" placeholder="123 Main St — Acquisition"></div>
+      <div class="form-group"><label class="form-label">Property <span style="color:var(--red)">*</span></label>
+        <select id="f-property" class="form-control"><option value="">— Select Property —</option></select></div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label class="form-label">Deal Type</label>
+          <select id="f-deal-type" class="form-control" onchange="onTypeChange()">
+            <option value="">— Select —</option>
+            <option>Listing</option><option>Buyer Rep</option>
+            <option>Lease - Landlord</option><option>Lease - Tenant</option>
+          </select></div>
+        <div class="form-group"><label class="form-label">Stage</label>
+          <select id="f-stage" class="form-control">
+            <option>Prospecting</option><option>Pitching</option>
+            <option>Active Listing</option><option>Under Contract</option>
+            <option>Closed</option><option>Dead</option>
+          </select></div>
+      </div>
+
+      <div class="form-divider">Financials</div>
+      <div id="sale-fields">
+        <div class="form-row cols-2">
+          <div class="form-group"><label class="form-label">List Price</label><input id="f-list-price" class="form-control" type="number" placeholder="2500000" oninput="calcComm()"></div>
+          <div class="form-group"><label class="form-label">Sale Price</label><input id="f-sale-price" class="form-control" type="number" placeholder="2350000" oninput="calcComm()"></div>
+        </div>
+      </div>
+      <div id="lease-fields">
+        <div class="form-row cols-3">
+          <div class="form-group"><label class="form-label">Lease Rate ($/SF/yr)</label><input id="f-lease-rate" class="form-control" type="number" step="0.01" placeholder="18.00" oninput="calcComm()"></div>
+          <div class="form-group"><label class="form-label">Leased SF</label><input id="f-lease-sf" class="form-control" type="number" placeholder="5000" oninput="calcComm()"></div>
+          <div class="form-group"><label class="form-label">Term (months)</label><input id="f-lease-term" class="form-control" type="number" placeholder="60" oninput="calcComm()"></div>
+        </div>
+      </div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label class="form-label">Commission %</label><input id="f-comm-pct" class="form-control" type="number" step="0.01" placeholder="6.00" oninput="calcComm()"></div>
+        <div class="form-group"><label class="form-label">Our Split %</label><input id="f-split-pct" class="form-control" type="number" placeholder="100" oninput="calcComm()"></div>
+      </div>
+      <div id="comm-calc" class="comm-calc"></div>
+
+      <div class="form-divider">Co-Broker</div>
+      <div class="form-group" style="display:flex;align-items:center;gap:8px">
+        <input type="checkbox" id="f-cobroke" onchange="toggleCobroke()" style="width:auto">
+        <label for="f-cobroke" class="form-label" style="margin:0;text-transform:none;font-size:13px">Co-broker involved</label>
+      </div>
+      <div id="cobroke-fields">
+        <div class="form-row cols-2">
+          <div class="form-group"><label class="form-label">Co-Broker Name</label><input id="f-co-name" class="form-control" placeholder="Jane Smith"></div>
+          <div class="form-group"><label class="form-label">Co-Broker Firm</label><input id="f-co-firm" class="form-control" placeholder="ABC Realty"></div>
+        </div>
+        <div class="form-group"><label class="form-label">Their Split %</label><input id="f-co-split" class="form-control" type="number" placeholder="50" style="max-width:140px"></div>
+      </div>
+
+      <div class="form-divider">Dates</div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label class="form-label">List Date</label><input id="f-list-date" class="form-control" type="date"></div>
+        <div class="form-group"><label class="form-label">Projected Close</label><input id="f-close" class="form-control" type="date"></div>
+      </div>
+
+      <div class="form-divider">Notes</div>
+      <div class="form-group"><label class="form-label">Notes</label>
+        <textarea id="f-notes" class="form-control" rows="3" placeholder="Strategy, context, client preferences…"></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="Modal.close('deal-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveDeal()">Save Deal</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="/js/app.js"></script>
+<script>
+  if (!Auth.requireAuth()) throw new Error('Not authenticated');
+  renderSidebar('deals');
+  Modal.closeOnOverlay('deal-modal');
+
+  const STAGES = ['Prospecting','Pitching','Active Listing','Under Contract','Closed','Dead'];
+  const STAGE_COLORS = {
+    'Prospecting':'#94a3b8','Pitching':'#3b82f6','Active Listing':'#f59e0b',
+    'Under Contract':'#10b981','Closed':'#0f1923','Dead':'#ef4444',
+  };
+  const STAGE_ICONS = {
+    'Prospecting':'◎','Pitching':'◈','Active Listing':'◆',
+    'Under Contract':'✦','Closed':'✓','Dead':'✕',
+  };
+  const DEAL_TYPES = ['Listing','Buyer Rep','Lease - Landlord','Lease - Tenant'];
+  const ACT_ICONS = {'Call':'📞','Email':'✉️','Meeting':'🤝','Tour':'🏢','Offer':'📋','LOI':'📄','Contract':'✍️','Note':'📝'};
+
+  let allDeals = [], allProperties = [];
+  let activeType = '', activeView = 'kanban';
+  let sortCol = 'projected_close', sortDir = 1;
+  let openId = null, relatedLoaded = false, editingId = null;
+  let leafletMap = null, mapMarkers = [];
+
+  window.openDealPanel = (id) => openPanel(id);
+
+  // ── Filters ────────────────────────────────────────────────────────────────
+  function buildFilters() {
+    document.getElementById('type-filters').innerHTML =
+      ['', ...DEAL_TYPES].map(t => `<div class="filter-pill${t===activeType?' active':''}" onclick="setType('${t}')">
+        ${t||'All Types'}</div>`).join('');
+  }
+
+  function setType(t) { activeType = t; buildFilters(); renderView(); }
+
+  function filterDeals() {
+    return activeType ? allDeals.filter(d => d.deal_type === activeType) : [...allDeals];
+  }
+
+  // ── View switching ─────────────────────────────────────────────────────────
+  function setView(v) {
+    activeView = v;
+    document.querySelectorAll('.view-btn').forEach(b => b.classList.toggle('active', b.dataset.view === v));
+    document.getElementById('kanban-view').style.display = v === 'kanban' ? '' : 'none';
+    document.getElementById('list-view').style.display   = v === 'list'   ? '' : 'none';
+    document.getElementById('map-view').style.display    = v === 'map'    ? '' : 'none';
+    renderView();
+  }
+
+  function renderView() {
+    const deals = filterDeals();
+    document.getElementById('count-label').textContent =
+      `${deals.length} deal${deals.length !== 1 ? 's' : ''}`;
+    if (activeView === 'kanban') renderKanban(deals);
+    else if (activeView === 'list') renderList(deals);
+    else renderMap(deals);
+  }
+
+  // ── Kanban ─────────────────────────────────────────────────────────────────
+  function renderKanban(deals) {
+    document.getElementById('kanban-board').innerHTML = STAGES.map(stage => {
+      const cards = deals.filter(d => d.stage === stage);
+      const total = cards.reduce((s, d) => s + (d.our_commission || 0), 0);
+      return `<div class="kanban-col" data-stage="${stage}"
+          ondragover="event.preventDefault();this.classList.add('drag-over')"
+          ondragleave="this.classList.remove('drag-over')"
+          ondrop="dropDeal(event,'${stage}')">
+        <div class="kanban-col-header">
+          <div class="k-dot" style="background:${STAGE_COLORS[stage]}"></div>
+          <span class="k-stage">${stage}</span>
+          <span class="k-count">${cards.length}</span>
+          ${total > 0 ? `<span class="k-total">${Fmt.currency(total)}</span>` : ''}
+        </div>
+        <div class="kanban-cards">${cards.map(dealCard).join('')}</div>
+      </div>`;
+    }).join('');
+  }
+
+  function dealCard(d) {
+    const prop = allProperties.find(p => p.id === d.property_id);
+    return `<div class="deal-card${openId===d.id?' row-active':''}" draggable="true"
+        ondragstart="dragStart(event,${d.id})" ondragend="this.classList.remove('dragging')"
+        onclick="openPanel(${d.id})">
+      <div class="dc-name">${d.name}</div>
+      <div class="dc-prop">${prop ? (prop.name||prop.address) : '—'}</div>
+      <div class="dc-foot">
+        <span class="dc-type">${d.deal_type||''}</span>
+        ${d.our_commission ? `<span class="dc-comm">${Fmt.currency(d.our_commission)}</span>` : ''}
+      </div>
+      ${d.projected_close ? `<div class="dc-date">${Fmt.dateShort(d.projected_close)}</div>` : ''}
+    </div>`;
+  }
+
+  let dragId = null;
+  function dragStart(e, id) { dragId = id; e.target.classList.add('dragging'); }
+
+  async function dropDeal(e, stage) {
+    e.preventDefault(); e.currentTarget.classList.remove('drag-over');
+    if (!dragId) return;
+    const deal = allDeals.find(d => d.id === dragId);
+    if (!deal || deal.stage === stage) return;
+    try {
+      const saved = await API.put(`/deals/${dragId}`, {stage});
+      const idx = allDeals.findIndex(d => d.id === dragId);
+      if (idx >= 0) allDeals[idx] = {...allDeals[idx], ...saved};
+      renderView();
+      Toast.success(`Moved to ${stage}`);
+    } catch(e) { Toast.error(e.message); }
+  }
+
+  // ── List ───────────────────────────────────────────────────────────────────
+  function renderList(deals) {
+    const sorted = [...deals].sort((a, b) => {
+      let av = a[sortCol], bv = b[sortCol];
+      if (av == null) return 1; if (bv == null) return -1;
+      return (av < bv ? -1 : av > bv ? 1 : 0) * sortDir;
+    });
+    document.getElementById('list-tbody').innerHTML = sorted.map(d => {
+      const prop = allProperties.find(p => p.id === d.property_id);
+      return `<tr data-id="${d.id}" class="${openId===d.id?'row-active':''}" onclick="openPanel(${d.id})">
+        <td style="font-weight:500">${d.name}</td>
+        <td style="font-size:12.5px;color:var(--stone)">${prop?(prop.name||prop.address):'—'}</td>
+        <td style="font-size:12.5px">${d.deal_type||'—'}</td>
+        <td><span class="stage-pill ${Fmt.stageClass(d.stage)}">${d.stage}</span></td>
+        <td style="font-family:var(--font-mono);font-size:12.5px">${Fmt.currency(d.list_price||d.sale_price)}</td>
+        <td style="font-family:var(--font-mono);font-size:12.5px;color:var(--green)">${Fmt.currency(d.our_commission)}</td>
+        <td style="font-size:12px;color:var(--stone-light)">${Fmt.dateShort(d.projected_close)}</td>
+      </tr>`;
+    }).join('');
+    document.querySelectorAll('#list-thead th').forEach(th => {
+      th.classList.toggle('sort-asc',  th.dataset.col === sortCol && sortDir ===  1);
+      th.classList.toggle('sort-desc', th.dataset.col === sortCol && sortDir === -1);
+    });
+  }
+
+  function sortBy(col) {
+    sortDir = sortCol === col ? -sortDir : 1;
+    sortCol = col;
+    renderList(filterDeals());
+  }
+
+  // ── Map ────────────────────────────────────────────────────────────────────
+  function renderMap(deals) {
+    if (!leafletMap) {
+      leafletMap = L.map('leaflet-map').setView([42.33, -83.05], 10);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        maxZoom: 19,
+      }).addTo(leafletMap);
+    }
+    mapMarkers.forEach(m => m.remove());
+    mapMarkers = [];
+
+    deals.forEach(d => {
+      const prop = allProperties.find(p => p.id === d.property_id);
+      if (!prop?.lat || !prop?.lng) return;
+      const color = STAGE_COLORS[d.stage] || '#94a3b8';
+      const marker = L.circleMarker([prop.lat, prop.lng], {
+        radius: 9, fillColor: color, color: '#fff', weight: 2,
+        opacity: 1, fillOpacity: 0.9,
+      });
+      marker.bindPopup(mapPopupHtml(d, prop));
+      marker.addTo(leafletMap);
+      mapMarkers.push(marker);
+    });
+
+    if (mapMarkers.length) {
+      try { leafletMap.fitBounds(L.featureGroup(mapMarkers).getBounds().pad(0.15)); }
+      catch(_) {}
+    }
+    setTimeout(() => leafletMap.invalidateSize(), 50);
+  }
+
+  function mapPopupHtml(d, prop) {
+    return `<div class="lf-popup">
+      <div class="lf-popup-name">${d.name}</div>
+      <div class="lf-popup-addr">${prop.address}, ${prop.city}, ${prop.state}</div>
+      <div class="lf-popup-foot">
+        <span class="stage-pill ${Fmt.stageClass(d.stage)}">${d.stage}</span>
+        ${d.our_commission?`<span style="font-family:monospace;font-size:12px;color:#2d7d4f">${Fmt.currency(d.our_commission)}</span>`:''}
+      </div>
+      <button class="lf-popup-btn" onclick="window.openDealPanel(${d.id})">Open Deal →</button>
+    </div>`;
+  }
+
+  // ── Panel ──────────────────────────────────────────────────────────────────
+  function openPanel(id) {
+    const d = allDeals.find(x => x.id === id);
+    if (!d) return;
+    openId = id; relatedLoaded = false;
+
+    document.querySelectorAll('#list-tbody tr, .deal-card').forEach(el =>
+      el.classList.toggle('row-active', +(el.dataset.id||0) === id));
+
+    const icon = document.getElementById('p-icon');
+    const color = STAGE_COLORS[d.stage] || '#94a3b8';
+    icon.textContent  = STAGE_ICONS[d.stage] || '◆';
+    icon.style.background = color + '22';
+    icon.style.color = color;
+
+    const prop = allProperties.find(p => p.id === d.property_id);
+    document.getElementById('p-name').textContent = d.name;
+    document.getElementById('p-sub').textContent  =
+      [d.deal_type, prop ? (prop.name||prop.address) : null].filter(Boolean).join(' · ');
+
+    const sp = document.getElementById('p-stage');
+    sp.className = `stage-pill ${Fmt.stageClass(d.stage)}`;
+    sp.textContent = d.stage;
+
+    document.getElementById('p-edit').onclick   = () => openModal(d);
+    document.getElementById('p-delete').onclick = () => deleteDeal(d.id);
+    document.getElementById('tab-info').innerHTML = renderInfoTab(d, prop);
+    document.getElementById('tab-related').innerHTML =
+      '<div style="text-align:center;padding:36px"><div class="spinner"></div></div>';
+
+    switchTab('info');
+    document.getElementById('detail-panel').classList.add('open');
+    document.getElementById('page-content').classList.add('panel-open');
+    if (leafletMap) setTimeout(() => leafletMap.invalidateSize(), 280);
+  }
+
+  function closePanel() {
+    openId = null;
+    document.getElementById('detail-panel').classList.remove('open');
+    document.getElementById('page-content').classList.remove('panel-open');
+    document.querySelectorAll('#list-tbody tr, .deal-card').forEach(el => el.classList.remove('row-active'));
+    if (leafletMap) setTimeout(() => leafletMap.invalidateSize(), 280);
+  }
+
+  function switchTab(name) {
+    document.querySelectorAll('.panel-tab').forEach(t =>
+      t.classList.toggle('active', t.dataset.tab === name));
+    document.querySelectorAll('.panel-body').forEach(b =>
+      b.classList.toggle('active', b.id === 'tab-'+name));
+    if (name === 'related' && !relatedLoaded) loadRelated();
+  }
+
+  // ── Details tab ───────────────────────────────────────────────────────────
+  function pf(label, val, cls) {
+    return `<div class="pf${cls?' '+cls:''}"><div class="pf-label">${label}</div><div class="pf-value${cls?' '+cls:''}">${val||'—'}</div></div>`;
+  }
+
+  function renderInfoTab(d, prop) {
+    const isLease = (d.deal_type||'').startsWith('Lease');
+    let finHtml = '';
+    if (isLease) {
+      const base = (d.lease_rate||0) * (d.lease_sf||0) * ((d.lease_term_months||0)/12);
+      finHtml = `
+        ${pf('Lease Rate', d.lease_rate ? `$${d.lease_rate}/SF/yr` : null)} ${pf('Leased SF', Fmt.sf(d.lease_sf))}
+        ${pf('Term', d.lease_term_months ? `${d.lease_term_months} months` : null)} ${pf('Lease Base', base ? Fmt.currency(base) : null)}`;
+    } else {
+      finHtml = `${pf('List Price', Fmt.currency(d.list_price))} ${pf('Sale Price', Fmt.currency(d.sale_price))}`;
+    }
+    return `
+      <div class="panel-section">
+        <div class="panel-section-title">Overview</div>
+        <div class="panel-grid">
+          ${pf('Type', d.deal_type)} ${pf('Stage', d.stage)}
+          ${prop ? pf('Property', prop.name||prop.address, 'full') : ''}
+        </div>
+      </div>
+      <div class="panel-section">
+        <div class="panel-section-title">Commission</div>
+        <div class="panel-grid">
+          ${finHtml}
+          ${pf('Commission %', d.commission_pct ? d.commission_pct+'%' : null)}
+          ${pf('Total Commission', Fmt.currency(d.commission_total))}
+          ${pf('Our Split', d.our_split_pct ? d.our_split_pct+'%' : null)}
+          <div class="pf"><div class="pf-label">Our Commission</div><div class="pf-value green">${Fmt.currency(d.our_commission)}</div></div>
+          ${d.co_broker ? pf('Co-Broker', [d.co_broker_name, d.co_broker_firm].filter(Boolean).join(' · '), 'full') : ''}
+        </div>
+      </div>
+      <div class="panel-section">
+        <div class="panel-section-title">Timeline</div>
+        <div class="panel-grid">
+          ${pf('List Date', Fmt.date(d.list_date))} ${pf('Projected Close', Fmt.date(d.projected_close))}
+          ${d.actual_close ? pf('Actual Close', Fmt.date(d.actual_close)) : ''}
+        </div>
+      </div>
+      ${d.notes ? `<div class="panel-section"><div class="panel-section-title">Notes</div>
+        <div style="font-size:13px;color:var(--ink);line-height:1.65;white-space:pre-wrap">${d.notes}</div></div>` : ''}`;
+  }
+
+  // ── Related tab ───────────────────────────────────────────────────────────
+  async function loadRelated() {
+    const d = allDeals.find(x => x.id === openId);
+    if (!d) return;
+    relatedLoaded = true;
+    try {
+      const [contacts, activities, documents, portal] = await Promise.all([
+        API.get(`/deals/${d.id}/contacts`),
+        API.get(`/activities/?deal_id=${d.id}`),
+        API.get(`/documents/?deal_id=${d.id}`),
+        API.get(`/portal/${d.id}`).catch(() => null),
+      ]);
+      document.getElementById('tab-related').innerHTML =
+        renderRelatedTab(contacts, activities, documents, portal);
+    } catch(e) {
+      document.getElementById('tab-related').innerHTML =
+        `<div style="padding:20px;font-size:12.5px;color:var(--stone)">Failed to load: ${e.message}</div>`;
+    }
+  }
+
+  function renderRelatedTab(contacts, activities, documents, portal) {
+    const TYPE_CLASS = {'Owner':'badge-navy','Buyer':'badge-green','Tenant':'badge-blue','Attorney':'badge-stone','Lender':'badge-amber','Broker':'badge-gold'};
+
+    const contactsHtml = contacts.length
+      ? contacts.map(c => `
+          <div class="rel-card" onclick="navigate('contacts')">
+            <div style="display:flex;align-items:center;gap:10px">
+              ${c.first_name ? `<div style="width:30px;height:30px;border-radius:50%;background:${avatarColor((c.first_name||'')+(c.last_name||''))};display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:#fff;flex-shrink:0">${Fmt.initials(c.first_name,c.last_name)}</div>` : ''}
+              <div style="flex:1;min-width:0">
+                <div style="font-size:13px;font-weight:500">${c.first_name||''} ${c.last_name||''}</div>
+                <div style="font-size:11.5px;color:var(--stone)">
+                  ${c.role?'<strong>'+c.role+'</strong>':''}${c.title?' · '+c.title:''}
+                  ${c.contact_type?` <span class="badge ${TYPE_CLASS[c.contact_type]||'badge-stone'}" style="font-size:10px">${c.contact_type}</span>`:''}
+                </div>
+              </div>
+            </div>
+          </div>`).join('')
+      : `<div class="rel-empty">No contacts on this deal</div>`;
+
+    const actHtml = activities.length
+      ? activities.slice(0,8).map(a => `
+          <div class="act-row">
+            <div class="act-dot">${ACT_ICONS[a.activity_type]||'●'}</div>
+            <div class="act-body">
+              <div class="act-text"><strong>${a.activity_type}</strong>${a.subject?' — '+a.subject:''}</div>
+              ${a.notes?`<div class="act-time" style="font-size:12px;color:var(--stone)">${a.notes.substring(0,60)}${a.notes.length>60?'…':''}</div>`:''}
+              <div class="act-time">${Fmt.date(a.activity_date||a.created_at)}</div>
+            </div>
+          </div>`).join('')
+      : `<div class="rel-empty">No activity logged</div>`;
+
+    const DOC_ICONS = {'LOI':'📄','PSA':'📋','Lease':'📝','BOV':'📊','Flyer':'📰','CoStar Export':'📦','Other':'📎'};
+    const docsHtml = documents.length
+      ? documents.map(doc => `
+          <div class="rel-card" ${doc.file_url?`onclick="window.open('${doc.file_url}','_blank')"`:''}>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="font-size:16px">${DOC_ICONS[doc.doc_type]||'📎'}</span>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:13px;font-weight:500;color:var(--ink)">${doc.name}</div>
+                <div style="font-size:11.5px;color:var(--stone)">${doc.doc_type||'Document'}</div>
+              </div>
+            </div>
+          </div>`).join('')
+      : `<div class="rel-empty">No documents attached</div>`;
+
+    const portalHtml = portal
+      ? `<div class="rel-card" onclick="navigate('portal')">
+           <div style="display:flex;align-items:center;gap:8px">
+             <span style="font-size:16px">⊕</span>
+             <div style="flex:1"><div style="font-size:13px;font-weight:500;color:var(--ink)">Client Portal Active</div>
+             <div style="font-size:11.5px;color:var(--stone)">Token: ${portal.token.substring(0,12)}…</div></div>
+             <span style="color:var(--stone-light)">→</span>
+           </div>
+         </div>`
+      : `<div class="rel-empty" style="display:flex;align-items:center;justify-content:space-between">
+           No portal yet
+           <button class="btn btn-outline btn-sm" onclick="navigate('portal')">Create Portal</button>
+         </div>`;
+
+    return `
+      <div class="panel-section">
+        <div class="panel-section-title">Contacts${contacts.length?' ('+contacts.length+')':''}</div>${contactsHtml}
+      </div>
+      <div class="panel-section">
+        <div class="panel-section-title">Activity${activities.length?' ('+activities.length+')':''}</div>${actHtml}
+      </div>
+      <div class="panel-section">
+        <div class="panel-section-title">Documents${documents.length?' ('+documents.length+')':''}</div>${docsHtml}
+      </div>
+      <div class="panel-section">
+        <div class="panel-section-title">Client Portal</div>${portalHtml}
+      </div>`;
+  }
+
+  // ── Modal ─────────────────────────────────────────────────────────────────
+  function onTypeChange() {
+    const t = document.getElementById('f-deal-type').value;
+    const isLease = t.startsWith('Lease');
+    document.getElementById('sale-fields').style.display  = isLease ? 'none' : '';
+    document.getElementById('lease-fields').style.display = isLease ? '' : 'none';
+    calcComm();
+  }
+
+  function toggleCobroke() {
+    document.getElementById('cobroke-fields').style.display =
+      document.getElementById('f-cobroke').checked ? '' : 'none';
+  }
+
+  function calcComm() {
+    const g = id => parseFloat(document.getElementById(id)?.value) || 0;
+    const t = document.getElementById('f-deal-type').value;
+    let base = t.startsWith('Lease')
+      ? g('f-lease-rate') * g('f-lease-sf') * (g('f-lease-term') / 12)
+      : (g('f-sale-price') || g('f-list-price'));
+    const pct   = g('f-comm-pct');
+    const split = g('f-split-pct') || 100;
+    const el    = document.getElementById('comm-calc');
+    if (base && pct) {
+      const total = base * (pct / 100);
+      const ours  = total * (split / 100);
+      el.textContent = `Commission: ${Fmt.currency(total)}  →  Your cut: ${Fmt.currency(ours)}`;
+      el.style.display = '';
+    } else {
+      el.style.display = 'none';
+    }
+  }
+
+  function openModal(deal) {
+    editingId = deal?.id ?? null;
+    document.getElementById('modal-title').textContent = deal ? 'Edit Deal' : 'New Deal';
+
+    // Populate property select
+    const sel = document.getElementById('f-property');
+    sel.innerHTML = '<option value="">— Select Property —</option>' +
+      [...allProperties].sort((a,b)=>(a.address||'').localeCompare(b.address||''))
+        .map(p => `<option value="${p.id}"${deal&&deal.property_id===p.id?' selected':''}>${p.name||p.address}${p.city?', '+p.city:''}</option>`)
+        .join('');
+
+    const ids = ['f-name','f-deal-type','f-stage','f-list-price','f-sale-price',
+      'f-lease-rate','f-lease-sf','f-lease-term','f-comm-pct','f-split-pct',
+      'f-co-name','f-co-firm','f-co-split','f-list-date','f-close','f-notes'];
+
+    if (deal) {
+      const map = {
+        'f-name':d=>d.name,'f-deal-type':d=>d.deal_type,'f-stage':d=>d.stage,
+        'f-list-price':d=>d.list_price,'f-sale-price':d=>d.sale_price,
+        'f-lease-rate':d=>d.lease_rate,'f-lease-sf':d=>d.lease_sf,'f-lease-term':d=>d.lease_term_months,
+        'f-comm-pct':d=>d.commission_pct,'f-split-pct':d=>d.our_split_pct,
+        'f-co-name':d=>d.co_broker_name,'f-co-firm':d=>d.co_broker_firm,'f-co-split':d=>d.co_broker_split_pct,
+        'f-list-date':d=>d.list_date,'f-close':d=>d.projected_close,'f-notes':d=>d.notes,
+      };
+      Object.entries(map).forEach(([id, fn]) => {
+        const el = document.getElementById(id); if (el) el.value = fn(deal) ?? '';
+      });
+      document.getElementById('f-cobroke').checked = !!deal.co_broker;
+    } else {
+      ids.forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+      document.getElementById('f-cobroke').checked = false;
+      document.getElementById('f-stage').value = 'Prospecting';
+      document.getElementById('f-split-pct').value = '100';
+    }
+    onTypeChange();
+    toggleCobroke();
+    calcComm();
+    Modal.open('deal-modal');
+  }
+
+  async function saveDeal() {
+    const g = id => document.getElementById(id)?.value.trim() || '';
+    const n = id => { const v = g(id); return v ? parseFloat(v) : null; };
+    const i = id => { const v = g(id); return v ? parseInt(v)   : null; };
+    if (!g('f-name') || !g('f-property')) {
+      Toast.error('Deal name and property are required'); return;
+    }
+    const payload = {
+      name: g('f-name'), property_id: parseInt(g('f-property')),
+      deal_type: g('f-deal-type')||null, stage: g('f-stage')||'Prospecting',
+      list_price: n('f-list-price'), sale_price: n('f-sale-price'),
+      lease_rate: n('f-lease-rate'), lease_sf: n('f-lease-sf'),
+      lease_term_months: i('f-lease-term'),
+      commission_pct: n('f-comm-pct'), our_split_pct: n('f-split-pct')||100,
+      co_broker: document.getElementById('f-cobroke').checked,
+      co_broker_name: g('f-co-name')||null, co_broker_firm: g('f-co-firm')||null,
+      co_broker_split_pct: n('f-co-split'),
+      list_date: g('f-list-date')||null, projected_close: g('f-close')||null,
+      notes: g('f-notes')||null,
+    };
+    try {
+      if (editingId) {
+        const saved = await API.put(`/deals/${editingId}`, payload);
+        const idx = allDeals.findIndex(d => d.id === editingId);
+        if (idx >= 0) allDeals[idx] = saved;
+        if (openId === editingId) { relatedLoaded = false; openPanel(editingId); }
+        Toast.success('Deal updated');
+      } else {
+        const saved = await API.post('/deals/', payload);
+        allDeals.push(saved);
+        Toast.success('Deal created');
+      }
+      Modal.close('deal-modal');
+      renderView();
+    } catch(e) { Toast.error(e.message); }
+  }
+
+  async function deleteDeal(id) {
+    if (!confirm('Delete this deal? This cannot be undone.')) return;
+    try {
+      await API.delete(`/deals/${id}`);
+      allDeals = allDeals.filter(d => d.id !== id);
+      closePanel(); renderView();
+      Toast.success('Deal deleted');
+    } catch(e) { Toast.error(e.message); }
+  }
+
+  async function init() {
+    try {
+      [allDeals, allProperties] = await Promise.all([
+        API.get('/deals/'),
+        API.get('/properties/'),
+      ]);
+      buildFilters();
+      renderView();
+    } catch(e) { Toast.error('Failed to load: ' + e.message); }
+  }
+
+  init();
+</script>
+</body>
+</html>

@@ -1,0 +1,37 @@
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey
+from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
+from database import Base
+
+class Account(Base):
+    __tablename__ = "accounts"
+
+    id          = Column(Integer, primary_key=True, index=True)
+    owner_id    = Column(Integer, ForeignKey("users.id"), nullable=False)
+
+    # Entity info
+    name        = Column(String, nullable=False, index=True)
+    entity_type = Column(String)  # LLC, Corp, Trust, Individual, REIT, Partnership
+    ein         = Column(String)  # Tax ID
+    website     = Column(String)
+    phone       = Column(String)
+    email       = Column(String)
+
+    # Address
+    address     = Column(String)
+    city        = Column(String)
+    state       = Column(String)
+    zip         = Column(String)
+
+    # Notes
+    notes       = Column(Text)
+
+    # Timestamps
+    created_at  = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at  = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    owner           = relationship("User",           back_populates="accounts")
+    contact_links   = relationship("ContactAccount", back_populates="account")
+    properties      = relationship("Property",       back_populates="account")
+    deal_links      = relationship("DealContact",    back_populates="account")

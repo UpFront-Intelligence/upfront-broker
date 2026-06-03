@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UpFront Broker — Deal Portal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet">
+  <style>
+    /* ── Design tokens (self-contained — no main.css dependency) ── */
+    :root {
+      --navy:        #0f1923;
+      --navy-mid:    #16263a;
+      --gold:        #c9943a;
+      --gold-light:  #e0b060;
+      --cream:       #f7f4ef;
+      --cream-dark:  #ede9e2;
+      --stone:       #8a8278;
+      --stone-light: #b5b0a8;
+      --ink:         #1a1714;
+      --green:       #2d7d4f;
+      --green-light: #e8f5ee;
+      --red:         #a83232;
+      --red-light:   #fbeaea;
+      --blue:        #1e5fa8;
+      --radius:      6px;
+      --radius-lg:   10px;
+      --shadow-card: 0 1px 3px rgba(0,0,0,0.07), 0 4px 16px rgba(0,0,0,0.05);
+      --font-body:   'DM Sans', sans-serif;
+      --font-serif:  'DM Serif Display', serif;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 14px; }
+    body {
+      font-family: var(--font-body);
+      background: var(--cream);
+      color: var(--ink);
+      -webkit-font-smoothing: antialiased;
+      min-height: 100vh;
+    }
+
+    /* ── Top bar ── */
+    .portal-topbar {
+      background: #fff;
+      border-bottom: 1px solid var(--cream-dark);
+      padding: 0 28px;
+      height: 52px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+    }
+    .brand-wordmark { display: flex; align-items: baseline; gap: 2px; }
+    .brand-upfront { font-family: var(--font-serif); font-size: 20px; color: var(--navy); letter-spacing: -0.3px; }
+    .brand-broker  { font-family: var(--font-serif); font-style: italic; font-size: 20px; color: var(--gold); letter-spacing: -0.3px; }
+    .topbar-viewer { font-size: 12px; color: var(--stone); display: flex; align-items: center; gap: 6px; }
+    .viewer-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+
+    /* ── Email gate ── */
+    #email-gate {
+      position: fixed; inset: 0;
+      background: var(--cream);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 200; padding: 24px;
+    }
+    .gate-card {
+      background: #fff;
+      border: 1px solid var(--cream-dark);
+      border-radius: var(--radius-lg);
+      padding: 44px 40px;
+      width: 100%;
+      max-width: 400px;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.10);
+      text-align: center;
+    }
+    .gate-wordmark { margin-bottom: 28px; }
+    .gate-title { font-family: var(--font-serif); font-size: 22px; color: var(--navy); margin-bottom: 8px; }
+    .gate-sub { font-size: 13px; color: var(--stone); line-height: 1.5; margin-bottom: 28px; }
+    .gate-input {
+      width: 100%; padding: 10px 14px;
+      border: 1px solid var(--cream-dark); border-radius: var(--radius);
+      font-family: var(--font-body); font-size: 14px; color: var(--ink);
+      outline: none; transition: border-color 0.15s;
+      margin-bottom: 12px;
+    }
+    .gate-input:focus { border-color: var(--navy); }
+    .gate-btn {
+      width: 100%; padding: 11px;
+      background: var(--navy); color: #fff;
+      border: none; border-radius: var(--radius);
+      font-family: var(--font-body); font-size: 14px; font-weight: 500;
+      cursor: pointer; transition: background 0.15s;
+    }
+    .gate-btn:hover { background: var(--navy-mid); }
+    .gate-btn:disabled { opacity: 0.6; cursor: default; }
+    .gate-error { font-size: 12.5px; color: var(--red); margin-top: 10px; min-height: 18px; }
+
+    /* ── Portal content ── */
+    #portal-content { display: none; }
+    .portal-wrap { max-width: 700px; margin: 0 auto; padding: 32px 24px 64px; }
+
+    /* ── Property card ── */
+    .property-card {
+      background: var(--navy);
+      border-radius: var(--radius-lg);
+      padding: 28px 32px;
+      margin-bottom: 24px;
+      position: relative;
+      overflow: hidden;
+    }
+    .property-card::after {
+      content: '';
+      position: absolute;
+      top: -60px; right: -60px;
+      width: 200px; height: 200px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(201,148,58,0.15) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .prop-type-row { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+    .prop-type-icon { font-size: 22px; }
+    .prop-type-label { font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(255,255,255,0.5); }
+    .prop-address { font-family: var(--font-serif); font-size: 24px; color: #fff; letter-spacing: -0.3px; margin-bottom: 4px; line-height: 1.2; }
+    .prop-citystate { font-size: 14px; color: rgba(255,255,255,0.6); margin-bottom: 18px; }
+    .prop-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .prop-badge {
+      padding: 4px 12px; border-radius: 20px;
+      font-size: 12px; font-weight: 600;
+      background: rgba(255,255,255,0.12); color: rgba(255,255,255,0.9);
+    }
+    .prop-badge.stage { background: rgba(201,148,58,0.25); color: var(--gold-light); }
+    .prop-badge.close { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.5); }
+
+    /* ── Sections ── */
+    .portal-section {
+      background: #fff;
+      border: 1px solid var(--cream-dark);
+      border-radius: var(--radius-lg);
+      padding: 26px 28px;
+      margin-bottom: 16px;
+      box-shadow: var(--shadow-card);
+    }
+    .section-title {
+      font-family: var(--font-serif);
+      font-size: 17px;
+      color: var(--navy);
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--cream-dark);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .section-title::before {
+      content: '';
+      width: 3px;
+      height: 20px;
+      background: var(--gold);
+      border-radius: 2px;
+      flex-shrink: 0;
+    }
+    .section-icon { font-size: 16px; opacity: 0.7; }
+    .section-body { font-size: 14px; color: var(--ink); line-height: 1.75; white-space: pre-wrap; }
+
+    /* ── Mutual steps ── */
+    .step-list { list-style: none; }
+    .step-item {
+      display: flex; align-items: flex-start; gap: 12px;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--cream-dark);
+      cursor: pointer;
+      user-select: none;
+    }
+    .step-item:last-child { border-bottom: none; }
+    .step-check {
+      width: 20px; height: 20px; border-radius: 4px;
+      border: 2px solid var(--cream-dark);
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; margin-top: 1px;
+      transition: all 0.15s;
+      background: #fff;
+    }
+    .step-item.checked .step-check { background: var(--green); border-color: var(--green); }
+    .step-item.checked .step-check::after { content: '✓'; color: #fff; font-size: 11px; font-weight: 700; }
+    .step-text { font-size: 13.5px; color: var(--ink); line-height: 1.5; padding-top: 1px; }
+    .step-item.checked .step-text { text-decoration: line-through; color: var(--stone); }
+
+    /* ── Documents ── */
+    .doc-list { display: flex; flex-direction: column; gap: 8px; }
+    .doc-item {
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px 14px;
+      border: 1px solid var(--cream-dark);
+      border-radius: var(--radius);
+      transition: background 0.1s;
+      text-decoration: none; color: inherit;
+    }
+    .doc-item:hover { background: var(--cream); }
+    .doc-icon { font-size: 20px; flex-shrink: 0; }
+    .doc-name { font-size: 13.5px; font-weight: 500; color: var(--ink); }
+    .doc-type { font-size: 11.5px; color: var(--stone); margin-top: 1px; }
+    .doc-arrow { margin-left: auto; color: var(--stone-light); font-size: 14px; }
+    .doc-no-link { color: var(--stone); font-size: 11px; margin-left: auto; }
+
+    /* ── Timeline ── */
+    .timeline { position: relative; padding-left: 24px; }
+    .timeline::before {
+      content: ''; position: absolute;
+      left: 7px; top: 8px; bottom: 8px;
+      width: 2px; background: var(--cream-dark);
+    }
+    .tl-item { position: relative; margin-bottom: 20px; }
+    .tl-item:last-child { margin-bottom: 0; }
+    .tl-dot {
+      position: absolute; left: -24px; top: 3px;
+      width: 16px; height: 16px; border-radius: 50%;
+      border: 2px solid var(--cream-dark);
+      background: #fff;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 8px;
+    }
+    .tl-item.done .tl-dot { background: var(--navy); border-color: var(--navy); color: #fff; }
+    .tl-item.done .tl-dot::after { content: '✓'; font-size: 9px; font-weight: 700; }
+    .tl-item.current .tl-dot { background: var(--gold); border-color: var(--gold); box-shadow: 0 0 0 3px rgba(201,148,58,0.2); }
+    .tl-stage { font-size: 13.5px; font-weight: 500; color: var(--stone); }
+    .tl-item.done .tl-stage { color: var(--ink); }
+    .tl-item.current .tl-stage { color: var(--navy); font-weight: 600; }
+    .tl-label {
+      display: inline-block; margin-left: 8px;
+      font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em;
+      text-transform: uppercase; color: var(--gold);
+    }
+
+    /* ── Footer ── */
+    .portal-footer {
+      text-align: center;
+      padding: 24px;
+      font-size: 11.5px;
+      color: var(--stone-light);
+      border-top: 1px solid var(--cream-dark);
+      margin-top: 16px;
+    }
+
+    /* ── Spinner ── */
+    .spinner {
+      width: 20px; height: 20px;
+      border: 2px solid var(--cream-dark);
+      border-top-color: var(--navy);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      display: inline-block; vertical-align: middle; margin-right: 6px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    @media (max-width: 600px) {
+      .portal-wrap { padding: 20px 16px 48px; }
+      .property-card { padding: 20px 22px; }
+      .prop-address { font-size: 20px; }
+      .portal-section { padding: 20px; }
+      .gate-card { padding: 32px 24px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Top bar (shown after auth) -->
+<div class="portal-topbar" id="topbar" style="display:none">
+  <div class="brand-wordmark">
+    <span class="brand-upfront">UpFront</span><span class="brand-broker">&nbsp;Broker</span>
+  </div>
+  <div class="topbar-viewer" id="viewer-label"></div>
+</div>
+
+<!-- Email gate -->
+<div id="email-gate">
+  <div class="gate-card">
+    <div class="gate-wordmark">
+      <div class="brand-wordmark" style="justify-content:center">
+        <span class="brand-upfront">UpFront</span><span class="brand-broker">&nbsp;Broker</span>
+      </div>
+    </div>
+    <div class="gate-title">Deal Portal</div>
+    <div class="gate-sub">Your broker has shared a deal portal with you.<br>Enter your email address to access it.</div>
+    <input  id="gate-email" class="gate-input" type="email"
+            placeholder="you@company.com"
+            onkeydown="if(event.key==='Enter')verifyEmail()">
+    <button id="gate-btn" class="gate-btn" onclick="verifyEmail()">Access Portal</button>
+    <div    id="gate-error" class="gate-error"></div>
+  </div>
+</div>
+
+<!-- Portal content (hidden until auth) -->
+<div id="portal-content">
+  <div class="portal-wrap">
+    <!-- Property header card -->
+    <div class="property-card" id="prop-card"></div>
+
+    <!-- Dynamic sections injected here -->
+    <div id="sections"></div>
+
+    <div class="portal-footer">
+      Powered by <strong>UpFront Broker</strong> &mdash; Professional CRE Intelligence
+    </div>
+  </div>
+</div>
+
+<script>
+  const match = window.location.pathname.match(/\/portal\/([^/?#]+)/);
+  const TOKEN  = match ? match[1] : new URLSearchParams(window.location.search).get('token') || '';
+  let   EMAIL  = '';
+  const loggedSections = new Set(['overview']);
+
+  // ── Email gate ────────────────────────────────────────────────────────────
+  async function verifyEmail() {
+    const raw = document.getElementById('gate-email').value.trim();
+    if (!raw) { setError('Please enter your email address.'); return; }
+
+    const btn = document.getElementById('gate-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>Checking…';
+    setError('');
+
+    try {
+      const res = await fetch(`/api/portal/token/${TOKEN}?email=${encodeURIComponent(raw)}`);
+      if (res.status === 403) { setError('Email not recognised. Check with your broker.'); return; }
+      if (res.status === 404) { setError('This portal link is no longer valid.'); return; }
+      if (!res.ok)            { setError('Something went wrong. Please try again.'); return; }
+
+      EMAIL = raw.trim().toLowerCase();
+      const data = await res.json();
+      showPortal(data);
+    } catch(e) {
+      setError('Connection error. Please check your internet and try again.');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Access Portal';
+    }
+  }
+
+  function setError(msg) {
+    document.getElementById('gate-error').textContent = msg;
+  }
+
+  // ── Render portal ─────────────────────────────────────────────────────────
+  function showPortal(data) {
+    document.getElementById('email-gate').style.display = 'none';
+    document.getElementById('topbar').style.display = '';
+    document.getElementById('portal-content').style.display = '';
+
+    const roleLabel = data.viewer_role === 'seller' ? 'Seller' : 'Buyer';
+    document.getElementById('viewer-label').innerHTML =
+      `<div class="viewer-dot"></div>Viewing as ${roleLabel} &mdash; ${EMAIL}`;
+
+    renderPropertyCard(data);
+    renderSections(data);
+    setupObserver();
+  }
+
+  // ── Property card ─────────────────────────────────────────────────────────
+  const PROP_ICONS = {
+    'Office':'🏢','Industrial':'🏭','Retail':'🏪','Land':'🌿','Multifamily':'🏘️',
+    'STNL':'🏬','Self Storage':'📦','Hospitality':'🏨','Medical':'🏥',
+  };
+  const STAGE_ORDER = ['Prospecting','Pitching','Active Listing','Under Contract','Closed'];
+
+  function renderPropertyCard(data) {
+    const p = data.property || {};
+    const d = data.deal     || {};
+    const icon = PROP_ICONS[p.property_type] || '🏗️';
+    const sf   = p.sf_rentable ? ` &middot; ${Number(p.sf_rentable).toLocaleString()} SF` : '';
+    const close = d.projected_close
+      ? `Est. close ${new Date(d.projected_close).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}`
+      : '';
+
+    document.getElementById('prop-card').innerHTML = `
+      <div class="prop-type-row">
+        <span class="prop-type-icon">${icon}</span>
+        <span class="prop-type-label">${p.property_type || 'Commercial Property'}${sf}</span>
+      </div>
+      <div class="prop-address">${p.address || 'Property Address'}</div>
+      <div class="prop-citystate">${[p.city, p.state].filter(Boolean).join(', ')}</div>
+      <div class="prop-meta">
+        ${d.stage   ? `<span class="prop-badge stage">${d.stage}</span>`         : ''}
+        ${d.deal_type ? `<span class="prop-badge">${d.deal_type}</span>`          : ''}
+        ${close       ? `<span class="prop-badge close">${close}</span>`          : ''}
+      </div>`;
+
+    document.title = `${p.address || 'Deal'} — UpFront Broker Portal`;
+  }
+
+  // ── Sections ──────────────────────────────────────────────────────────────
+  function renderSections(data) {
+    const container = document.getElementById('sections');
+    const html = [];
+
+    if (data.pov) {
+      html.push(section('pov', '💡', 'Our Perspective', `<div class="section-body">${esc(data.pov)}</div>`));
+    }
+
+    if (data.challenges) {
+      html.push(section('challenges', '⚠️', 'Key Considerations', `<div class="section-body">${esc(data.challenges)}</div>`));
+    }
+
+    if (data.mutual_steps) {
+      try {
+        const steps = JSON.parse(data.mutual_steps);
+        if (Array.isArray(steps) && steps.length) {
+          html.push(section('timeline-steps', '☑', 'Mutual Next Steps', stepsHtml(steps)));
+        }
+      } catch(_) {}
+    }
+
+    if (data.show_docs) {
+      html.push(section('docs', '📁', 'Documents', docsHtml(data.documents || [])));
+    }
+
+    if (data.show_timeline && data.deal?.stage) {
+      html.push(section('timeline', '📅', 'Deal Timeline', timelineHtml(data.deal.stage)));
+    }
+
+    container.innerHTML = html.join('');
+  }
+
+  function section(key, icon, title, body) {
+    return `<div class="portal-section" data-section="${key}">
+      <div class="section-title"><span class="section-icon">${icon}</span>${title}</div>
+      ${body}
+    </div>`;
+  }
+
+  function esc(str) {
+    return String(str)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/\n/g,'<br>');
+  }
+
+  // ── Mutual steps ──────────────────────────────────────────────────────────
+  function stepsHtml(steps) {
+    const saved = (() => { try { return JSON.parse(localStorage.getItem('upfb_steps_'+TOKEN)||'{}'); } catch(_){return{};} })();
+    return `<ul class="step-list">${steps.map((s,i) => {
+      const id      = s.id || String(i);
+      const checked = saved[id] || s.completed || false;
+      return `<li class="step-item${checked?' checked':''}" onclick="toggleStep('${id}',this)" data-id="${id}">
+        <div class="step-check"></div>
+        <div class="step-text">${esc(s.text||s)}</div>
+      </li>`;
+    }).join('')}</ul>`;
+  }
+
+  function toggleStep(id, el) {
+    const isChecked = !el.classList.contains('checked');
+    el.classList.toggle('checked', isChecked);
+    try {
+      const saved = JSON.parse(localStorage.getItem('upfb_steps_'+TOKEN)||'{}');
+      saved[id] = isChecked;
+      localStorage.setItem('upfb_steps_'+TOKEN, JSON.stringify(saved));
+    } catch(_) {}
+  }
+
+  // ── Documents ─────────────────────────────────────────────────────────────
+  const DOC_ICONS = {'LOI':'📄','PSA':'📋','Lease':'📝','BOV':'📊','Flyer':'📰','CoStar Export':'📦','Other':'📎'};
+
+  function docsHtml(docs) {
+    if (!docs.length) return `<div style="font-size:13px;color:var(--stone)">No documents have been shared yet.</div>`;
+    return `<div class="doc-list">${docs.map(d => {
+      const icon = DOC_ICONS[d.doc_type] || '📎';
+      const hasLink = !!d.file_url;
+      return `<${hasLink ? `a href="${d.file_url}" target="_blank" rel="noopener"` : 'div'} class="doc-item">
+        <span class="doc-icon">${icon}</span>
+        <div>
+          <div class="doc-name">${esc(d.name)}</div>
+          <div class="doc-type">${d.doc_type || 'Document'}</div>
+        </div>
+        ${hasLink ? `<span class="doc-arrow">↗</span>` : `<span class="doc-no-link">No link</span>`}
+      </${hasLink ? 'a' : 'div'}>`;
+    }).join('')}</div>`;
+  }
+
+  // ── Timeline ──────────────────────────────────────────────────────────────
+  function timelineHtml(currentStage) {
+    const stageIdx = STAGE_ORDER.indexOf(currentStage);
+    return `<div class="timeline">${STAGE_ORDER.map((s, i) => {
+      const done    = i < stageIdx;
+      const current = i === stageIdx;
+      return `<div class="tl-item${done?' done':current?' current':''}">
+        <div class="tl-dot"></div>
+        <span class="tl-stage">${s}${current ? '<span class="tl-label">Current</span>' : ''}</span>
+      </div>`;
+    }).join('')}</div>`;
+  }
+
+  // ── Section view logging via IntersectionObserver ─────────────────────────
+  function setupObserver() {
+    if (!('IntersectionObserver' in window)) return;
+    const obs = new IntersectionObserver(entries => {
+      entries.forEach(e => {
+        if (!e.isIntersecting) return;
+        const s = e.target.dataset.section;
+        if (s && !loggedSections.has(s)) {
+          loggedSections.add(s);
+          fetch(`/api/portal/token/${TOKEN}/view?email=${encodeURIComponent(EMAIL)}&section=${s}`, {method:'POST'})
+            .catch(()=>{});
+        }
+      });
+    }, {threshold: 0.4});
+    document.querySelectorAll('[data-section]').forEach(el => obs.observe(el));
+  }
+
+  // Show error if no token in URL
+  if (!TOKEN) {
+    document.getElementById('gate-title') && (document.getElementById('gate-title').textContent = 'Invalid Portal Link');
+    document.querySelector('.gate-sub').textContent = 'This portal link is missing or malformed. Contact your broker for a valid link.';
+    document.getElementById('gate-btn').style.display = 'none';
+    document.getElementById('gate-email').style.display = 'none';
+  }
+</script>
+</body>
+</html>

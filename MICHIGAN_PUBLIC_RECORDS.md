@@ -1,0 +1,336 @@
+# Michigan Public Records — 5-County Data Source Strategy
+
+Used by the "Enrich from Public Records" feature in `properties.html`.
+Implementation lives (or will live) in `backend/routers/enrichment.py`.
+
+---
+
+## County Routing
+
+| County | Source | Mechanism | Coverage |
+|---|---|---|---|
+| Oakland | ArcGIS REST API | HTTP GET, JSON | Full county parcel layer |
+| Macomb | ArcGIS REST API | HTTP GET, JSON | Full county parcel layer |
+| Wayne | BS&A Online | HTML scrape | Per-municipality routing |
+| Livingston | BS&A Online | HTML scrape | Per-municipality routing |
+| Washtenaw | BS&A Online | HTML scrape | Per-municipality routing |
+
+Routing key: `property.city` + `property.state == "MI"`.  
+City → county lookup table is at the bottom of this file.
+
+---
+
+## Oakland County — ArcGIS REST API
+
+**Portal:** https://www.oakgov.com/maps  
+**ArcGIS base (verify):** `https://gis.oakgov.com/arcgis/rest/services/`
+
+### Parcel query endpoint
+```
+GET {base}/Property/MapServer/0/query
+  ?where=PARCELID+%3D+%27{parcel_id}%27
+  &outFields=*
+  &f=json
+```
+
+Fallback by address when no parcel ID:
+```
+GET {base}/Property/MapServer/0/query
+  ?where=SITEADDRESS+LIKE+%27{street_pct}%25%27+AND+SITECITY+%3D+%27{city_upper}%27
+  &outFields=*
+  &resultRecordCount=5
+  &f=json
+```
+
+### Field mapping (Oakland → Property model)
+
+| ArcGIS field | Property model field | Notes |
+|---|---|---|
+| `PARCELID` | `parcel_id` | Canonical format: `XX-XX-XXX-XXX-XX` |
+| `SEV` | `assessed_value` | State Equalized Value = ½ true cash value |
+| `TAXABLE` | — | Store in notes if needed |
+| `SUMTAX` + `WINTERTAX` | `tax_amount` | Sum both; field names vary by layer version |
+| `YEARBUILT` | `year_built` | |
+| `BLDGSF` | `sf_rentable` | Gross building SF |
+| `LANDSF` | `sf_land` | Land area in SF |
+| `OWNERNAME1` | — | For contact linking; not a Property field |
+| `PROPCLASSDESC` | — | Cross-check `property_type` |
+| `LEGALDESC` | `legal_desc` | May be truncated; check full record |
+
+> **Verify before coding:** Confirm layer index (0 vs. 1), exact field names, and
+> whether the service requires an API key. Open
+> `{base}/Property/MapServer/0?f=json` to inspect the live field list.
+
+---
+
+## Macomb County — ArcGIS REST API
+
+**Portal:** https://www.macombcountymi.gov/GIS  
+**ArcGIS base (verify):** `https://gis.macombcountymi.gov/arcgis/rest/services/`
+
+### Parcel query endpoint
+```
+GET {base}/Parcels/MapServer/0/query
+  ?where=PARCEL_ID+%3D+%27{parcel_id}%27
+  &outFields=*
+  &f=json
+```
+
+### Field mapping (Macomb → Property model)
+
+| ArcGIS field | Property model field | Notes |
+|---|---|---|
+| `PARCEL_ID` | `parcel_id` | Note underscore vs. Oakland's no-underscore |
+| `SEV` | `assessed_value` | |
+| `TAXES` | `tax_amount` | May be split summer/winter |
+| `YEAR_BUILT` | `year_built` | |
+| `BLDG_SQ_FT` | `sf_rentable` | |
+| `LAND_SQ_FT` | `sf_land` | |
+| `OWNER_NAME` | — | Contact linking |
+| `LEGAL_DESC` | `legal_desc` | |
+
+> **Verify before coding:** Macomb's ArcGIS field names differ slightly from
+> Oakland. Confirm by querying `{base}/Parcels/MapServer/0?f=json`.
+
+---
+
+## Wayne County — BS&A Online
+
+Wayne County has no single county-level ArcGIS parcel API. Assessment data
+is managed at the municipal level. Most municipalities use BS&A Online.
+
+**BS&A portal:** https://www.bsaonline.com  
+**Parcel search URL:**
+```
+https://www.bsaonline.com/SiteSearch/SiteSearchDetails
+  ?SiteCode={SITE_CODE}
+  &SearchType=PRNT
+  &ParcelNumber={parcel_id}
+  &AssessmentYear={year}
+  &Chkvar=true
+```
+
+**Address search URL (fallback):**
+```
+https://www.bsaonline.com/SiteSearch/SiteSearchDetails
+  ?SiteCode={SITE_CODE}
+  &SearchType=ADDR
+  &SearchItem1={street_number}
+  &SearchItem2={street_name}
+  &AssessmentYear={year}
+  &Chkvar=true
+```
+
+### Wayne County municipality SiteCodes (verify each — BS&A updates these)
+
+| City / Township | SiteCode |
+|---|---|
+| Detroit | DETMI |
+| Dearborn | DBNMI |
+| Dearborn Heights | DBHMI |
+| Livonia | LIVMI |
+| Westland | WSTMI |
+| Garden City | GCYMI |
+| Redford Township | RDFMI |
+| Canton Township | CNTMI |
+| Plymouth Township | PLYMI |
+| Northville Township | NVTMI |
+| Romulus | ROMMI |
+| Taylor | TLYmi |
+| Allen Park | ALPMI |
+| Lincoln Park | LNPMI |
+| Wyandotte | WYDMI |
+| Inkster | INKMI |
+| River Rouge | RVRMI |
+| Ecorse | ECSMI |
+
+> **Important:** SiteCodes are assigned by BS&A and can change when a
+> municipality upgrades or re-contracts. Verify at
+> https://www.bsaonline.com before using. The correct SiteCode is visible
+> in the URL when manually navigating a municipality's BS&A portal.
+
+### Fields to scrape from BS&A result page
+
+The result HTML contains a details card. Target these labels:
+
+| BS&A label | Property model field |
+|---|---|
+| Parcel Number | `parcel_id` |
+| SEV | `assessed_value` |
+| Summer Tax / Winter Tax | `tax_amount` (sum) |
+| Year Built | `year_built` |
+| Floor Area | `sf_rentable` |
+| Lot Size | `sf_land` |
+| Owner Name | — (contact linking) |
+| Legal Description | `legal_desc` |
+
+Use `BeautifulSoup` + CSS selector `div.AssessingOutputRow` to walk the
+label/value pairs. Labels vary slightly by municipality version.
+
+---
+
+## Livingston County — BS&A Online
+
+Most Livingston County municipalities are on BS&A Online.
+
+### Key municipality SiteCodes (verify)
+
+| City / Township | SiteCode |
+|---|---|
+| Howell | HWLMI |
+| Brighton | BRGMI |
+| Brighton Township | BRTMI |
+| Genoa Township | GNAMI |
+| Hamburg Township | HMBMI |
+| Hartland Township | HRTMI |
+| Cohoctah Township | CHMMI |
+
+Scraping approach and field mapping identical to Wayne County above.
+
+---
+
+## Washtenaw County — BS&A Online
+
+### Key municipality SiteCodes (verify)
+
+| City / Township | SiteCode |
+|---|---|
+| Ann Arbor | AABMI |
+| Ypsilanti | YPSMI |
+| Ypsilanti Township | YPTMI |
+| Pittsfield Township | PFTMI |
+| Saline | SLNMI |
+| Chelsea | CHLMI |
+| Dexter | DXTMI |
+| Superior Township | SUPMI |
+| Augusta Township | AUGMI |
+
+Scraping approach and field mapping identical to Wayne County above.
+
+---
+
+## Enrichment Field Map — Summary
+
+What gets written back to the `Property` model:
+
+| Source field | Property model field | Condition |
+|---|---|---|
+| Parcel ID | `parcel_id` | Always; overwrites only if currently null |
+| SEV | `assessed_value` | Always |
+| Tax total | `tax_amount` | Always |
+| Year built | `year_built` | Overwrites only if currently null |
+| Building SF | `sf_rentable` | Overwrites only if currently null |
+| Land SF | `sf_land` | Overwrites only if currently null |
+| Legal description | `legal_desc` | Overwrites only if currently null |
+
+Fields are never silently overwritten if the broker already has a value.
+Show a diff modal so the broker can accept or skip each changed field.
+
+---
+
+## Implementation Notes
+
+### Routing logic (pseudo-code)
+```python
+ARCGIS_COUNTIES  = {"Oakland", "Macomb"}
+BSAONLINE_COUNTIES = {"Wayne", "Livingston", "Washtenaw"}
+
+def route(property):
+    if property.state != "MI":
+        raise NotImplementedError("Only Michigan supported in v1")
+    county = city_to_county(property.city)   # lookup table below
+    if county in ARCGIS_COUNTIES:
+        return arcgis_enrich(property, county)
+    elif county in BSAONLINE_COUNTIES:
+        site_code = city_to_bsa_code(property.city)
+        return bsaonline_enrich(property, site_code)
+    else:
+        raise LookupError(f"No data source configured for {county} County")
+```
+
+### Lookup priority
+1. `parcel_id` (fastest, most accurate — query directly)
+2. `address` + `city` (fallback — returns multiple candidates, pick best match)
+
+### Rate limiting
+- ArcGIS: no documented rate limit for public services; be polite (1 req/s)
+- BS&A Online: no public API; scrape with a 2s delay and a browser User-Agent
+  header. Heavy scraping may trigger a block.
+
+### ArcGIS response shape
+```json
+{
+  "features": [
+    {
+      "attributes": {
+        "PARCELID": "12-34-567-890-12",
+        "SEV": 185000,
+        "YEARBUILT": 1978,
+        ...
+      }
+    }
+  ]
+}
+```
+Access via `response["features"][0]["attributes"]`.
+
+### BS&A scrape shape
+No JSON — parse HTML. The key selector pattern (BeautifulSoup):
+```python
+rows = soup.select("div.AssessingOutputRow")
+data = {r.select_one(".label").text.strip(): r.select_one(".value").text.strip()
+        for r in rows if r.select_one(".label")}
+```
+Exact class names vary by BS&A version; verify against a live scrape.
+
+---
+
+## City → County Lookup Table
+
+```python
+CITY_TO_COUNTY = {
+    # Oakland
+    "Auburn Hills": "Oakland", "Birmingham": "Oakland",
+    "Bloomfield Hills": "Oakland", "Clawson": "Oakland",
+    "Farmington": "Oakland", "Farmington Hills": "Oakland",
+    "Ferndale": "Oakland", "Hazel Park": "Oakland",
+    "Madison Heights": "Oakland", "Milford": "Oakland",
+    "Novi": "Oakland", "Oak Park": "Oakland",
+    "Pontiac": "Oakland", "Rochester": "Oakland",
+    "Rochester Hills": "Oakland", "Royal Oak": "Oakland",
+    "Southfield": "Oakland", "South Lyon": "Oakland",
+    "Troy": "Oakland", "Walled Lake": "Oakland",
+    "Waterford": "Oakland", "West Bloomfield": "Oakland",
+    "White Lake": "Oakland", "Wixom": "Oakland",
+    # Macomb
+    "Center Line": "Macomb", "Clinton Township": "Macomb",
+    "Eastpointe": "Macomb", "Fraser": "Macomb",
+    "Harrison Township": "Macomb", "Macomb Township": "Macomb",
+    "Mount Clemens": "Macomb", "New Baltimore": "Macomb",
+    "Richmond": "Macomb", "Roseville": "Macomb",
+    "Shelby Township": "Macomb", "St. Clair Shores": "Macomb",
+    "Sterling Heights": "Macomb", "Utica": "Macomb",
+    "Warren": "Macomb", "Washington Township": "Macomb",
+    # Wayne
+    "Allen Park": "Wayne", "Canton": "Wayne",
+    "Dearborn": "Wayne", "Dearborn Heights": "Wayne",
+    "Detroit": "Wayne", "Ecorse": "Wayne",
+    "Garden City": "Wayne", "Grosse Pointe": "Wayne",
+    "Inkster": "Wayne", "Lincoln Park": "Wayne",
+    "Livonia": "Wayne", "Melvindale": "Wayne",
+    "Northville": "Wayne", "Plymouth": "Wayne",
+    "Redford": "Wayne", "River Rouge": "Wayne",
+    "Riverview": "Wayne", "Romulus": "Wayne",
+    "Southgate": "Wayne", "Taylor": "Wayne",
+    "Trenton": "Wayne", "Westland": "Wayne",
+    "Woodhaven": "Wayne", "Wyandotte": "Wayne",
+    # Livingston
+    "Brighton": "Livingston", "Fowlerville": "Livingston",
+    "Hartland": "Livingston", "Howell": "Livingston",
+    "Pinckney": "Livingston",
+    # Washtenaw
+    "Ann Arbor": "Washtenaw", "Chelsea": "Washtenaw",
+    "Dexter": "Washtenaw", "Milan": "Washtenaw",
+    "Saline": "Washtenaw", "Ypsilanti": "Washtenaw",
+}
+```

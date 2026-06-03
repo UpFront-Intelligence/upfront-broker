@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UpFront Broker — Properties</title>
+  <link rel="stylesheet" href="/static/main.css">
+  <style>
+    #page-content { transition: padding-right 0.25s ease; }
+    #page-content.panel-open { padding-right: 448px; }
+
+    /* ── Detail panel ── */
+    #detail-panel {
+      position: fixed; top: 56px; right: 0; bottom: 0; width: 420px;
+      background: #fff; border-left: 1px solid var(--cream-dark);
+      box-shadow: -4px 0 24px rgba(0,0,0,0.09);
+      z-index: 200; transform: translateX(100%);
+      transition: transform 0.25s ease; display: flex; flex-direction: column;
+    }
+    #detail-panel.open { transform: translateX(0); }
+
+    .panel-header { padding: 16px 20px 0; flex-shrink: 0; }
+    .panel-icon-row { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
+    .panel-type-icon {
+      width: 44px; height: 44px; border-radius: var(--radius);
+      background: var(--cream-dark); display: flex; align-items: center;
+      justify-content: center; font-size: 22px; flex-shrink: 0;
+    }
+    .panel-name { font-family: var(--font-serif); font-size: 15px; color: var(--navy); line-height: 1.3; }
+    .panel-addr { font-size: 12px; color: var(--stone); margin-top: 3px; }
+    .panel-actions { display: flex; align-items: center; gap: 8px; padding-bottom: 12px; }
+
+    /* Tabs */
+    .panel-tabs { display: flex; border-bottom: 1px solid var(--cream-dark); flex-shrink: 0; }
+    .panel-tab {
+      flex: 1; padding: 10px 8px; text-align: center; font-size: 12px; font-weight: 500;
+      color: var(--stone); cursor: pointer; border-bottom: 2px solid transparent;
+      transition: all 0.15s; user-select: none;
+    }
+    .panel-tab:hover { color: var(--navy); }
+    .panel-tab.active { color: var(--navy); border-bottom-color: var(--gold); }
+
+    .panel-body { flex: 1; overflow-y: auto; padding: 16px 20px 24px; display: none; }
+    .panel-body.active { display: block; }
+
+    .panel-section { margin-bottom: 20px; }
+    .panel-section-title {
+      font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase;
+      color: var(--stone); border-bottom: 1px solid var(--cream-dark);
+      padding-bottom: 6px; margin-bottom: 10px;
+    }
+    .panel-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; }
+    .pf.full { grid-column: 1 / -1; }
+    .pf-label { font-size: 10px; font-weight: 600; color: var(--stone); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px; }
+    .pf-value { font-size: 13px; color: var(--ink); }
+
+    /* Related tab cards */
+    .rel-card {
+      border: 1px solid var(--cream-dark); border-radius: var(--radius);
+      padding: 11px 14px; margin-bottom: 8px; cursor: pointer; transition: background 0.1s;
+    }
+    .rel-card:hover { background: var(--cream); }
+    .rel-card:last-child { margin-bottom: 0; }
+    .rel-empty { font-size: 12.5px; color: var(--stone); padding: 2px 0; }
+
+    .act-row { display: flex; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--cream-dark); }
+    .act-row:last-child { border-bottom: none; }
+    .act-dot { width: 26px; height: 26px; border-radius: 50%; background: var(--cream-dark); display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; margin-top: 1px; }
+    .act-body { flex: 1; min-width: 0; }
+    .act-text { font-size: 12.5px; color: var(--ink); line-height: 1.4; }
+    .act-time { font-size: 11px; color: var(--stone-light); margin-top: 1px; }
+
+    /* Table */
+    .data-table tbody tr.row-active { background: var(--cream-dark) !important; }
+    .prop-cell { display: flex; align-items: center; gap: 10px; }
+    .prop-icon { width: 30px; height: 30px; border-radius: 5px; background: var(--cream-dark); display: flex; align-items: center; justify-content: center; font-size: 15px; flex-shrink: 0; }
+    .prop-name-val { font-weight: 500; color: var(--ink); font-size: 13px; }
+    .prop-sub { font-size: 11.5px; color: var(--stone); }
+
+    /* Modal */
+    #property-modal .modal { width: 680px; }
+    .form-divider {
+      font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase;
+      color: var(--stone); border-bottom: 1px solid var(--cream-dark);
+      padding-bottom: 6px; margin: 20px 0 14px;
+    }
+    .form-divider:first-child { margin-top: 0; }
+  </style>
+</head>
+<body>
+<div id="sidebar"></div>
+
+<div id="main">
+  <div id="topbar">
+    <div class="topbar-title">Properties</div>
+    <div class="topbar-actions">
+      <div class="topbar-search">
+        <span>⌕</span>
+        <input type="text" id="search-input" placeholder="Search properties…" oninput="applyFilters()">
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="openModal()">+ Add Property</button>
+    </div>
+  </div>
+
+  <div id="page-content" class="fade-in">
+    <div class="page-header" style="margin-bottom:12px">
+      <div>
+        <div class="page-title">Properties</div>
+        <div class="page-sub" id="count-label">Loading…</div>
+      </div>
+    </div>
+
+    <div class="filter-bar" id="type-filters" style="margin-bottom:6px"></div>
+    <div class="filter-bar" id="status-filters" style="margin-bottom:16px"></div>
+
+    <div class="card">
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Property</th><th>Type</th><th>Location</th>
+              <th>Size</th><th>Asking Price</th><th>Cap Rate</th><th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="prop-tbody">
+            <tr><td colspan="7" style="text-align:center;padding:44px"><div class="spinner"></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Detail Panel -->
+<div id="detail-panel">
+  <div class="panel-header">
+    <div class="panel-icon-row">
+      <div class="panel-type-icon" id="p-icon"></div>
+      <div style="flex:1;min-width:0">
+        <div class="panel-name" id="p-name"></div>
+        <div class="panel-addr" id="p-addr"></div>
+      </div>
+      <button class="btn btn-ghost" style="padding:4px 8px;font-size:16px;line-height:1" onclick="closePanel()">✕</button>
+    </div>
+    <div class="panel-actions">
+      <span id="p-status" class="badge"></span>
+      <div style="flex:1"></div>
+      <button class="btn btn-sm" id="p-enrich"
+        style="background:var(--amber-light);color:var(--amber);border:1px solid #e8d5b0"
+        title="Pull assessed value, tax, year built, and SF from county records">
+        ⬆ Enrich
+      </button>
+      <button class="btn btn-outline btn-sm" id="p-edit">Edit</button>
+      <button class="btn btn-sm" id="p-delete" style="background:var(--red-light);color:var(--red)">Delete</button>
+    </div>
+  </div>
+
+  <div class="panel-tabs">
+    <div class="panel-tab active" data-tab="info" onclick="switchTab('info')">Details</div>
+    <div class="panel-tab" data-tab="related" onclick="switchTab('related')">Account · Deals · Activity</div>
+  </div>
+
+  <div id="tab-info" class="panel-body active"></div>
+  <div id="tab-related" class="panel-body"></div>
+</div>
+
+<!-- Add / Edit Modal -->
+<div id="property-modal" class="modal-overlay">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="modal-title">Add Property</div>
+      <button class="modal-close" onclick="Modal.close('property-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-divider">Address</div>
+      <div class="form-group"><label class="form-label">Property Name</label>
+        <input id="f-name" class="form-control" placeholder="e.g. Riverfront Office Building"></div>
+      <div class="form-group"><label class="form-label">Street Address <span style="color:var(--red)">*</span></label>
+        <input id="f-address" class="form-control" placeholder="123 Main St"></div>
+      <div class="form-row cols-3">
+        <div class="form-group"><label class="form-label">City <span style="color:var(--red)">*</span></label><input id="f-city" class="form-control" placeholder="Detroit"></div>
+        <div class="form-group"><label class="form-label">State <span style="color:var(--red)">*</span></label><input id="f-state" class="form-control" placeholder="MI" maxlength="2"></div>
+        <div class="form-group"><label class="form-label">Zip</label><input id="f-zip" class="form-control" placeholder="48226"></div>
+      </div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label class="form-label">County</label><input id="f-county" class="form-control" placeholder="Wayne"></div>
+        <div class="form-group"><label class="form-label">Parcel ID</label><input id="f-parcel" class="form-control" placeholder="22-009999-0001"></div>
+      </div>
+
+      <div class="form-divider">Classification</div>
+      <div class="form-row cols-3">
+        <div class="form-group"><label class="form-label">Property Type</label>
+          <select id="f-type" class="form-control"><option value="">— Select —</option>
+            <option>Office</option><option>Industrial</option><option>Retail</option><option>Land</option>
+            <option>Multifamily</option><option>STNL</option><option>Self Storage</option>
+            <option>Hospitality</option><option>Medical</option></select></div>
+        <div class="form-group"><label class="form-label">Subtype</label><input id="f-subtype" class="form-control" placeholder="e.g. Flex, Strip Center"></div>
+        <div class="form-group"><label class="form-label">Status</label>
+          <select id="f-status" class="form-control"><option>Active</option><option>Off Market</option><option>Sold</option><option>Leased</option></select></div>
+      </div>
+      <div class="form-row cols-3">
+        <div class="form-group"><label class="form-label">Zoning</label><input id="f-zoning" class="form-control" placeholder="C-2"></div>
+        <div class="form-group"><label class="form-label">Year Built</label><input id="f-year" class="form-control" type="number" placeholder="1985"></div>
+        <div class="form-group"><label class="form-label">Stories</label><input id="f-stories" class="form-control" type="number" placeholder="3"></div>
+      </div>
+
+      <div class="form-divider">Physical</div>
+      <div class="form-row cols-3">
+        <div class="form-group"><label class="form-label">Rentable SF</label><input id="f-sf" class="form-control" type="number" placeholder="25000"></div>
+        <div class="form-group"><label class="form-label">Land SF</label><input id="f-land" class="form-control" type="number" placeholder="87120"></div>
+        <div class="form-group"><label class="form-label">Units</label><input id="f-units" class="form-control" type="number" placeholder="24"></div>
+      </div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label class="form-label">Parking Ratio (per 1,000 SF)</label><input id="f-parking" class="form-control" type="number" step="0.1" placeholder="4.0"></div>
+        <div class="form-group"><label class="form-label">Occupancy %</label><input id="f-occ" class="form-control" type="number" step="0.1" placeholder="92.0"></div>
+      </div>
+
+      <div class="form-divider">Financial</div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label class="form-label">Asking Price</label><input id="f-price" class="form-control" type="number" placeholder="3500000"></div>
+        <div class="form-group"><label class="form-label">Asking Price / SF</label><input id="f-ppsf" class="form-control" type="number" step="0.01" placeholder="140.00"></div>
+      </div>
+      <div class="form-row cols-3">
+        <div class="form-group"><label class="form-label">Assessed Value</label><input id="f-assessed" class="form-control" type="number" placeholder="2800000"></div>
+        <div class="form-group"><label class="form-label">Tax Amount</label><input id="f-tax" class="form-control" type="number" placeholder="42000"></div>
+        <div class="form-group"><label class="form-label">Tax Year</label><input id="f-taxyear" class="form-control" type="number" placeholder="2025"></div>
+      </div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label class="form-label">Cap Rate %</label><input id="f-cap" class="form-control" type="number" step="0.01" placeholder="6.50"></div>
+        <div class="form-group"><label class="form-label">NOI</label><input id="f-noi" class="form-control" type="number" placeholder="227500"></div>
+      </div>
+
+      <div class="form-divider">Notes</div>
+      <div class="form-group"><label class="form-label">Legal Description</label>
+        <textarea id="f-legal" class="form-control" rows="2" placeholder="Lot 5, Block 12…"></textarea></div>
+      <div class="form-group"><label class="form-label">Notes</label>
+        <textarea id="f-notes" class="form-control" rows="3" placeholder="Internal notes…"></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="Modal.close('property-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveProperty()">Save Property</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/app.js"></script>
+<script>
+  if (!Auth.requireAuth()) throw new Error('Not authenticated');
+  renderSidebar('properties');
+  Modal.closeOnOverlay('property-modal');
+
+  const TYPES    = ['Office','Industrial','Retail','Land','Multifamily','STNL','Self Storage','Hospitality','Medical'];
+  const STATUSES = ['Active','Off Market','Sold','Leased'];
+  const STATUS_CLASS = { 'Active':'badge-green','Off Market':'badge-stone','Sold':'badge-navy','Leased':'badge-blue' };
+  const ACT_ICONS    = { 'Call':'📞','Email':'✉️','Meeting':'🤝','Tour':'🏢','Offer':'📋','LOI':'📄','Contract':'✍️','Note':'📝' };
+
+  let properties = [], allDeals = [];
+  let activeType = '', activeStatus = '';
+  let editingId = null, openId = null, relatedLoaded = false;
+
+  // ── Filters ────────────────────────────────────────────────────────────────
+  function buildFilters() {
+    document.getElementById('type-filters').innerHTML =
+      ['', ...TYPES].map(t => `<div class="filter-pill${t===activeType?' active':''}" onclick="setType('${t}')">
+        ${t ? Fmt.propType(t)+' '+t : 'All Types'}</div>`).join('');
+    document.getElementById('status-filters').innerHTML =
+      ['', ...STATUSES].map(s => `<div class="filter-pill${s===activeStatus?' active':''}" onclick="setStatus('${s}')">
+        ${s||'All Statuses'}</div>`).join('');
+  }
+
+  function setType(t)   { activeType   = t; buildFilters(); applyFilters(); }
+  function setStatus(s) { activeStatus = s; buildFilters(); applyFilters(); }
+
+  function applyFilters() {
+    const q = (document.getElementById('search-input').value || '').toLowerCase();
+    let list = properties;
+    if (activeType)   list = list.filter(p => p.property_type === activeType);
+    if (activeStatus) list = list.filter(p => p.status === activeStatus);
+    if (q)            list = list.filter(p =>
+      (p.name||'').toLowerCase().includes(q) ||
+      (p.address||'').toLowerCase().includes(q) ||
+      (p.city||'').toLowerCase().includes(q));
+    renderTable(list);
+    document.getElementById('count-label').textContent =
+      `${list.length} propert${list.length !== 1 ? 'ies' : 'y'}`;
+  }
+
+  // ── Table ──────────────────────────────────────────────────────────────────
+  function renderTable(rows) {
+    const tbody = document.getElementById('prop-tbody');
+    if (!rows.length) {
+      tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state">
+        <div class="empty-icon">⌂</div>
+        <div class="empty-title">No properties found</div>
+        <div class="empty-sub">Add your first property or adjust your filters</div>
+      </div></td></tr>`;
+      return;
+    }
+    tbody.innerHTML = rows.map(p => `
+      <tr data-id="${p.id}" class="${openId===p.id?'row-active':''}" onclick="openPanel(${p.id})">
+        <td><div class="prop-cell">
+          <div class="prop-icon">${Fmt.propType(p.property_type)}</div>
+          <div>
+            <div class="prop-name-val">${p.name||p.address}</div>
+            ${p.name?`<div class="prop-sub">${p.address}</div>`:''}
+          </div>
+        </div></td>
+        <td style="font-size:12.5px;color:var(--stone)">${p.property_type||'—'}${p.subtype?' · '+p.subtype:''}</td>
+        <td style="font-size:12.5px">${p.city}, ${p.state}</td>
+        <td style="font-family:var(--font-mono);font-size:12.5px">${Fmt.sf(p.sf_rentable)}</td>
+        <td style="font-family:var(--font-mono);font-size:13px;font-weight:500">${Fmt.currency(p.asking_price)}</td>
+        <td style="font-family:var(--font-mono);font-size:12.5px;color:var(--green)">${p.cap_rate?p.cap_rate+'%':'—'}</td>
+        <td><span class="badge ${STATUS_CLASS[p.status]||'badge-stone'}">${p.status||'Active'}</span></td>
+      </tr>`).join('');
+  }
+
+  async function loadProperties() {
+    try {
+      [properties, allDeals] = await Promise.all([
+        API.get('/properties/'),
+        API.get('/deals/'),
+      ]);
+      buildFilters();
+      applyFilters();
+    } catch(e) { Toast.error('Failed to load: ' + e.message); }
+  }
+
+  // ── Panel ──────────────────────────────────────────────────────────────────
+  function openPanel(id) {
+    const p = properties.find(x => x.id === id);
+    if (!p) return;
+    openId = id;
+    relatedLoaded = false;
+
+    document.querySelectorAll('#prop-tbody tr').forEach(tr =>
+      tr.classList.toggle('row-active', +tr.dataset.id === id));
+
+    document.getElementById('p-icon').textContent = Fmt.propType(p.property_type);
+    document.getElementById('p-name').textContent = p.name || p.address;
+    document.getElementById('p-addr').textContent =
+      p.name ? `${p.address}, ${p.city}, ${p.state}` : `${p.city}, ${p.state}`;
+
+    const sb = document.getElementById('p-status');
+    sb.className = `badge ${STATUS_CLASS[p.status]||'badge-stone'}`;
+    sb.textContent = p.status || 'Active';
+
+    document.getElementById('p-enrich').onclick  = () => enrichProperty(p);
+    document.getElementById('p-edit').onclick   = () => openModal(p);
+    document.getElementById('p-delete').onclick = () => deleteProperty(p.id);
+
+    document.getElementById('tab-info').innerHTML = renderInfoTab(p);
+    document.getElementById('tab-related').innerHTML =
+      '<div style="text-align:center;padding:36px"><div class="spinner"></div></div>';
+
+    switchTab('info');
+    document.getElementById('detail-panel').classList.add('open');
+    document.getElementById('page-content').classList.add('panel-open');
+  }
+
+  function closePanel() {
+    openId = null;
+    document.getElementById('detail-panel').classList.remove('open');
+    document.getElementById('page-content').classList.remove('panel-open');
+    document.querySelectorAll('#prop-tbody tr').forEach(tr => tr.classList.remove('row-active'));
+  }
+
+  function switchTab(name) {
+    document.querySelectorAll('.panel-tab').forEach(t =>
+      t.classList.toggle('active', t.dataset.tab === name));
+    document.querySelectorAll('.panel-body').forEach(b =>
+      b.classList.toggle('active', b.id === 'tab-'+name));
+    if (name === 'related' && !relatedLoaded) loadRelated();
+  }
+
+  // ── Details tab ───────────────────────────────────────────────────────────
+  function pf(label, val, cls) {
+    return `<div class="pf${cls?' '+cls:''}"><div class="pf-label">${label}</div><div class="pf-value">${val||'—'}</div></div>`;
+  }
+
+  function renderInfoTab(p) {
+    return `
+      <div class="panel-section">
+        <div class="panel-section-title">Location</div>
+        <div class="panel-grid">
+          ${pf('Address', p.address, 'full')}
+          ${pf('City', p.city)} ${pf('State', p.state)}
+          ${pf('Zip', p.zip)} ${pf('County', p.county)}
+        </div>
+      </div>
+      <div class="panel-section">
+        <div class="panel-section-title">Classification</div>
+        <div class="panel-grid">
+          ${pf('Type', p.property_type)} ${pf('Subtype', p.subtype)}
+          ${pf('Zoning', p.zoning)} ${pf('Year Built', p.year_built)}
+        </div>
+      </div>
+      <div class="panel-section">
+        <div class="panel-section-title">Physical</div>
+        <div class="panel-grid">
+          ${pf('Rentable SF', Fmt.sf(p.sf_rentable))} ${pf('Land SF', Fmt.sf(p.sf_land))}
+          ${pf('Units', p.units)} ${pf('Stories', p.stories)}
+          ${pf('Parking Ratio', p.parking_ratio ? p.parking_ratio+'/1,000 SF' : null)}
+          ${pf('Occupancy', p.occupancy_pct != null ? p.occupancy_pct+'%' : null)}
+        </div>
+      </div>
+      <div class="panel-section">
+        <div class="panel-section-title">Financial</div>
+        <div class="panel-grid">
+          ${pf('Asking Price', Fmt.currency(p.asking_price))}
+          ${pf('Price / SF', p.asking_price_per_sf ? Fmt.currency(p.asking_price_per_sf) : null)}
+          ${pf('Assessed Value', Fmt.currency(p.assessed_value))}
+          ${pf('Annual Tax', Fmt.currency(p.tax_amount))}
+          ${pf('Cap Rate', p.cap_rate ? p.cap_rate+'%' : null)}
+          ${pf('NOI', Fmt.currency(p.noi))}
+        </div>
+      </div>
+      ${p.parcel_id||p.legal_desc ? `
+      <div class="panel-section">
+        <div class="panel-section-title">Public Records</div>
+        <div class="panel-grid">
+          ${pf('Parcel ID', p.parcel_id)}
+          ${p.legal_desc ? pf('Legal Description', p.legal_desc, 'full') : ''}
+        </div>
+      </div>` : ''}
+      ${p.notes ? `
+      <div class="panel-section">
+        <div class="panel-section-title">Notes</div>
+        <div style="font-size:13px;color:var(--ink);line-height:1.65;white-space:pre-wrap">${p.notes}</div>
+      </div>` : ''}
+      <div style="margin-top:4px;font-size:11px;color:var(--stone-light)">
+        Added ${Fmt.date(p.created_at)}${p.updated_at?' · Updated '+Fmt.date(p.updated_at):''}
+      </div>`;
+  }
+
+  // ── Related tab ───────────────────────────────────────────────────────────
+  async function loadRelated() {
+    const p = properties.find(x => x.id === openId);
+    if (!p) return;
+    relatedLoaded = true;
+    try {
+      const [account, activities] = await Promise.all([
+        p.account_id ? API.get(`/accounts/${p.account_id}`) : Promise.resolve(null),
+        API.get(`/activities/?property_id=${p.id}`),
+      ]);
+      const propDeals = allDeals.filter(d => d.property_id === p.id);
+      document.getElementById('tab-related').innerHTML = renderRelatedTab(account, propDeals, activities);
+    } catch(e) {
+      document.getElementById('tab-related').innerHTML =
+        `<div style="padding:20px;font-size:12.5px;color:var(--stone)">Failed to load: ${e.message}</div>`;
+    }
+  }
+
+  function renderRelatedTab(account, propDeals, activities) {
+    // Account
+    const accountHtml = account
+      ? `<div class="rel-card" onclick="navigate('accounts')">
+           <div style="display:flex;align-items:center;gap:8px">
+             <div style="flex:1;min-width:0">
+               <div style="font-size:13px;font-weight:500;color:var(--ink)">${account.name}</div>
+               <div style="font-size:11.5px;color:var(--stone);margin-top:2px">
+                 ${account.entity_type||'Entity'}${account.city?' · '+account.city+', '+account.state:''}
+               </div>
+             </div>
+             <span style="color:var(--stone-light)">→</span>
+           </div>
+         </div>`
+      : `<div class="rel-empty">No linked account</div>`;
+
+    // Deals
+    const dealsHtml = propDeals.length
+      ? propDeals.map(d => `
+          <div class="rel-card" onclick="navigate('deals')">
+            <div style="display:flex;align-items:center;gap:8px">
+              <div style="flex:1;min-width:0">
+                <div style="font-size:13px;font-weight:500;color:var(--ink)">${d.name}</div>
+                <div style="font-size:11.5px;color:var(--stone);margin-top:2px">${d.deal_type||'Deal'}</div>
+              </div>
+              <div style="text-align:right;flex-shrink:0">
+                <div><span class="stage-pill ${Fmt.stageClass(d.stage)}">${d.stage}</span></div>
+                ${d.our_commission?`<div style="font-family:var(--font-mono);font-size:12px;color:var(--green);margin-top:4px">${Fmt.currency(d.our_commission)}</div>`:''}
+              </div>
+            </div>
+          </div>`).join('')
+      : `<div class="rel-empty">No deals yet</div>`;
+
+    // Activity
+    const actHtml = activities.length
+      ? activities.slice(0, 8).map(a => `
+          <div class="act-row">
+            <div class="act-dot">${ACT_ICONS[a.activity_type]||'●'}</div>
+            <div class="act-body">
+              <div class="act-text"><strong>${a.activity_type}</strong>${a.subject?' — '+a.subject:''}</div>
+              ${a.notes?`<div class="act-time" style="font-size:12px;color:var(--stone)">${a.notes.substring(0,60)}${a.notes.length>60?'…':''}</div>`:''}
+              <div class="act-time">${Fmt.date(a.activity_date||a.created_at)}</div>
+            </div>
+          </div>`).join('')
+      : `<div class="rel-empty">No activity logged</div>`;
+
+    return `
+      <div class="panel-section">
+        <div class="panel-section-title">Linked Account</div>
+        ${accountHtml}
+      </div>
+      <div class="panel-section">
+        <div class="panel-section-title">Deals${propDeals.length?' ('+propDeals.length+')':''}</div>
+        ${dealsHtml}
+      </div>
+      <div class="panel-section">
+        <div class="panel-section-title">Recent Activity${activities.length?' ('+activities.length+')':''}</div>
+        ${actHtml}
+      </div>`;
+  }
+
+  // ── Modal ─────────────────────────────────────────────────────────────────
+  function openModal(prop) {
+    editingId = prop?.id ?? null;
+    document.getElementById('modal-title').textContent = prop ? 'Edit Property' : 'Add Property';
+    const ids = ['f-name','f-address','f-city','f-state','f-zip','f-county','f-parcel',
+      'f-type','f-subtype','f-zoning','f-year','f-stories','f-sf','f-land','f-units',
+      'f-parking','f-occ','f-price','f-ppsf','f-assessed','f-tax','f-taxyear',
+      'f-cap','f-noi','f-legal','f-notes'];
+    if (prop) {
+      const map = {
+        'f-name':p=>p.name,'f-address':p=>p.address,'f-city':p=>p.city,'f-state':p=>p.state,
+        'f-zip':p=>p.zip,'f-county':p=>p.county,'f-parcel':p=>p.parcel_id,
+        'f-type':p=>p.property_type,'f-subtype':p=>p.subtype,'f-status':p=>p.status||'Active',
+        'f-zoning':p=>p.zoning,'f-year':p=>p.year_built,'f-stories':p=>p.stories,
+        'f-sf':p=>p.sf_rentable,'f-land':p=>p.sf_land,'f-units':p=>p.units,
+        'f-parking':p=>p.parking_ratio,'f-occ':p=>p.occupancy_pct,
+        'f-price':p=>p.asking_price,'f-ppsf':p=>p.asking_price_per_sf,
+        'f-assessed':p=>p.assessed_value,'f-tax':p=>p.tax_amount,'f-taxyear':p=>p.tax_year,
+        'f-cap':p=>p.cap_rate,'f-noi':p=>p.noi,'f-legal':p=>p.legal_desc,'f-notes':p=>p.notes,
+      };
+      Object.entries(map).forEach(([id, fn]) => {
+        const el = document.getElementById(id);
+        if (el) el.value = fn(prop) ?? '';
+      });
+    } else {
+      ids.forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+      document.getElementById('f-status').value = 'Active';
+    }
+    Modal.open('property-modal');
+  }
+
+  async function saveProperty() {
+    const g = id => document.getElementById(id)?.value.trim() || '';
+    const n = id => { const v = g(id); return v ? parseFloat(v) : null; };
+    const i = id => { const v = g(id); return v ? parseInt(v)   : null; };
+    if (!g('f-address') || !g('f-city') || !g('f-state')) {
+      Toast.error('Address, city, and state are required'); return;
+    }
+    const payload = {
+      name: g('f-name')||null, address: g('f-address'), city: g('f-city'),
+      state: g('f-state').toUpperCase(), zip: g('f-zip')||null, county: g('f-county')||null,
+      parcel_id: g('f-parcel')||null, property_type: g('f-type')||null,
+      subtype: g('f-subtype')||null, status: g('f-status')||'Active',
+      zoning: g('f-zoning')||null, year_built: i('f-year'), stories: i('f-stories'),
+      sf_rentable: n('f-sf'), sf_land: n('f-land'), units: i('f-units'),
+      parking_ratio: n('f-parking'), occupancy_pct: n('f-occ'),
+      asking_price: n('f-price'), asking_price_per_sf: n('f-ppsf'),
+      assessed_value: n('f-assessed'), tax_amount: n('f-tax'), tax_year: i('f-taxyear'),
+      cap_rate: n('f-cap'), noi: n('f-noi'),
+      legal_desc: g('f-legal')||null, notes: g('f-notes')||null,
+    };
+    try {
+      if (editingId) {
+        const saved = await API.put(`/properties/${editingId}`, payload);
+        const idx = properties.findIndex(p => p.id === editingId);
+        if (idx >= 0) properties[idx] = saved;
+        if (openId === editingId) { relatedLoaded = false; openPanel(editingId); }
+        Toast.success('Property updated');
+      } else {
+        const saved = await API.post('/properties/', payload);
+        properties.push(saved);
+        Toast.success('Property added');
+      }
+      Modal.close('property-modal');
+      applyFilters();
+    } catch(e) { Toast.error(e.message); }
+  }
+
+  async function deleteProperty(id) {
+    if (!confirm('Delete this property? This cannot be undone.')) return;
+    try {
+      await API.delete(`/properties/${id}`);
+      properties = properties.filter(p => p.id !== id);
+      closePanel(); applyFilters();
+      Toast.success('Property deleted');
+    } catch(e) { Toast.error(e.message); }
+  }
+
+  // ── Public records enrichment (stub — wired next session) ──────────────────
+  const MI_ARCGIS_COUNTIES  = new Set(['Oakland','Macomb']);
+  const MI_BSA_COUNTIES     = new Set(['Wayne','Livingston','Washtenaw']);
+  const CITY_TO_COUNTY = {
+    // Oakland
+    'Auburn Hills':'Oakland','Birmingham':'Oakland','Bloomfield Hills':'Oakland',
+    'Clawson':'Oakland','Farmington':'Oakland','Farmington Hills':'Oakland',
+    'Ferndale':'Oakland','Hazel Park':'Oakland','Madison Heights':'Oakland',
+    'Milford':'Oakland','Novi':'Oakland','Oak Park':'Oakland','Pontiac':'Oakland',
+    'Rochester':'Oakland','Rochester Hills':'Oakland','Royal Oak':'Oakland',
+    'Southfield':'Oakland','South Lyon':'Oakland','Troy':'Oakland',
+    'Walled Lake':'Oakland','Waterford':'Oakland','West Bloomfield':'Oakland',
+    'White Lake':'Oakland','Wixom':'Oakland',
+    // Macomb
+    'Center Line':'Macomb','Clinton Township':'Macomb','Eastpointe':'Macomb',
+    'Fraser':'Macomb','Harrison Township':'Macomb','Macomb Township':'Macomb',
+    'Mount Clemens':'Macomb','New Baltimore':'Macomb','Richmond':'Macomb',
+    'Roseville':'Macomb','Shelby Township':'Macomb','St. Clair Shores':'Macomb',
+    'Sterling Heights':'Macomb','Utica':'Macomb','Warren':'Macomb',
+    'Washington Township':'Macomb',
+    // Wayne
+    'Allen Park':'Wayne','Canton':'Wayne','Dearborn':'Wayne',
+    'Dearborn Heights':'Wayne','Detroit':'Wayne','Ecorse':'Wayne',
+    'Garden City':'Wayne','Grosse Pointe':'Wayne','Inkster':'Wayne',
+    'Lincoln Park':'Wayne','Livonia':'Wayne','Northville':'Wayne',
+    'Plymouth':'Wayne','Redford':'Wayne','River Rouge':'Wayne',
+    'Romulus':'Wayne','Southgate':'Wayne','Taylor':'Wayne',
+    'Westland':'Wayne','Woodhaven':'Wayne','Wyandotte':'Wayne',
+    // Livingston
+    'Brighton':'Livingston','Fowlerville':'Livingston','Hartland':'Livingston',
+    'Howell':'Livingston','Pinckney':'Livingston',
+    // Washtenaw
+    'Ann Arbor':'Washtenaw','Chelsea':'Washtenaw','Dexter':'Washtenaw',
+    'Milan':'Washtenaw','Saline':'Washtenaw','Ypsilanti':'Washtenaw',
+  };
+
+  function enrichProperty(p) {
+    if (p.state !== 'MI') {
+      Toast.info('Public records enrichment is currently Michigan-only');
+      return;
+    }
+    const county = CITY_TO_COUNTY[p.city];
+    if (!county) {
+      Toast.info(`${p.city} not in the 5-county coverage area yet`);
+      return;
+    }
+    const source = MI_ARCGIS_COUNTIES.has(county) ? 'ArcGIS REST API' : 'BS&A Online';
+    const hasParcel = !!p.parcel_id;
+    Toast.info(
+      `${county} Co. · ${source}${hasParcel ? ' · parcel ' + p.parcel_id : ' · address lookup'} — wiring up next session`
+    );
+  }
+
+  loadProperties();
+</script>
+</body>
+</html>

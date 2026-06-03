@@ -1,0 +1,50 @@
+# ── Environment / secrets ─────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Python ────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.Python
+pip-log.txt
+
+# ── Virtual environments ──────────────────────────────────────────
+venv/
+.venv/
+env/
+ENV/
+
+# ── Alembic ───────────────────────────────────────────────────────
+# alembic.ini is committed — it holds only a localhost placeholder URL.
+# The real DATABASE_URL comes from .env (local) or Render's env injection.
+# Do NOT add alembic.ini here.
+
+# ── Node ──────────────────────────────────────────────────────────
+node_modules/
+
+# ── macOS ─────────────────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# ── Editors ──────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── Test / coverage ───────────────────────────────────────────────
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+
+# ── Logs ─────────────────────────────────────────────────────────
+*.log
