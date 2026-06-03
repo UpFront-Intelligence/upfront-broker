@@ -143,10 +143,16 @@ def google_callback(
     is_new = user is None
 
     if is_new:
+        # Parse Google display name into first/last; store full_name.
+        # Company left empty — broker can fill it from settings later.
+        parts = name.split(" ", 1)
+        first = parts[0]
+        last  = parts[1] if len(parts) > 1 else ""
         user = User(
             email=email,
             google_id=google_id,
-            full_name=name,
+            full_name=f"{first} {last}".strip(),
+            company="",
             photo_url=picture,
             hashed_password=None,
         )
@@ -193,10 +199,9 @@ def auth_complete(
     """
     if error or not token:
         dest = f"{FRONTEND_LOGIN}?error={urllib.parse.quote(error or 'auth_failed')}"
-    elif new == "1":
-        qs = urllib.parse.urlencode({"new": "1", "name": name, "email": email})
-        dest = f"{FRONTEND_LOGIN}?{qs}"
     else:
+        # Both new and returning users go straight to dashboard.
+        # Profile completion (company, etc.) is handled via a settings page.
         dest = "/pages/dashboard.html"
 
     html = f"""<!DOCTYPE html>
