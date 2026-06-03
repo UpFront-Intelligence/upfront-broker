@@ -260,24 +260,8 @@
   <script src="/js/app.js"></script>
   <script>
     (async () => {
-    // ── Step 1: Migrate cookie token → localStorage ───────────────────────
-    // The OAuth callback sets a cookie 'ufb_token'. Copy it to localStorage
-    // (where all subsequent requests read from), then expire the cookie so
-    // it doesn't interfere with future sessions.
-    const _ct = getCookie('ufb_token');
-    if (_ct) {
-      localStorage.setItem('ufb_token', _ct);
-      document.cookie = 'ufb_token=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; SameSite=Lax';
-      // Fetch and cache the user object while we have the token fresh
-      try {
-        const _res = await fetch('/api/auth/me', {
-          headers: { 'Authorization': 'Bearer ' + _ct, 'Content-Type': 'application/json' }
-        });
-        if (_res.ok) localStorage.setItem('ufb_user', JSON.stringify(await _res.json()));
-      } catch(_e) {}
-    }
-
-    // ── Step 2: Standard auth gate ────────────────────────────────────────
+    // The landing page (/api/auth/landing) writes ufb_token directly to
+    // localStorage before navigating here — no cookie migration needed.
     if (!Auth.requireAuth()) return;
     renderSidebar('dashboard');
 
