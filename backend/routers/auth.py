@@ -108,80 +108,132 @@ def update_me(
     return current_user
 
 
-# ── Google OAuth 2.0 (commented out — restore after product is live) ────────
-#
-# To re-enable:
-#   1. pip install authlib requests  (already in requirements.txt)
-#   2. Set GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET in .env / Render dashboard
-#   3. Add authorised redirect URI in Google Cloud Console:
-#        http://localhost:8000/api/auth/google/callback
-#        https://YOUR-APP.onrender.com/api/auth/google/callback
-#   4. Uncomment the block below
-#
-# from authlib.integrations.requests_client import OAuth2Session
-#
-# GOOGLE_CLIENT_ID     = os.getenv("GOOGLE_CLIENT_ID", "")
-# GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
-# _base        = os.getenv("RENDER_EXTERNAL_URL", "http://localhost:8000").rstrip("/")
-# CALLBACK_URL = os.getenv("CALLBACK_URL", f"{_base}/api/auth/google/callback")
-# GOOGLE_AUTH_URL  = "https://accounts.google.com/o/oauth2/v2/auth"
-# GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
-# GOOGLE_USERINFO  = "https://www.googleapis.com/oauth2/v3/userinfo"
-#
-# @router.get("/google")
-# def google_login():
-#     if not GOOGLE_CLIENT_ID:
-#         return RedirectResponse(f"{FRONTEND_LOGIN}?error=no_credentials")
-#     client = OAuth2Session(client_id=GOOGLE_CLIENT_ID, redirect_uri=CALLBACK_URL,
-#                            scope="openid email profile")
-#     url, _ = client.create_authorization_url(GOOGLE_AUTH_URL, access_type="offline",
-#                                               prompt="select_account")
-#     return RedirectResponse(url)
-#
-# @router.get("/google/callback")
-# def google_callback(code: str = Query(None), state: str = Query(None),
-#                     error: str = Query(None), db: Session = Depends(get_db)):
-#     if error or not code:
-#         return RedirectResponse(f"{FRONTEND_LOGIN}?error=auth_cancelled")
-#     client = OAuth2Session(client_id=GOOGLE_CLIENT_ID, client_secret=GOOGLE_CLIENT_SECRET,
-#                            redirect_uri=CALLBACK_URL)
-#     try:
-#         client.fetch_token(GOOGLE_TOKEN_URL, code=code)
-#     except Exception:
-#         return RedirectResponse(f"{FRONTEND_LOGIN}?error=auth_failed")
-#     try:
-#         info = client.get(GOOGLE_USERINFO).json()
-#     except Exception:
-#         return RedirectResponse(f"{FRONTEND_LOGIN}?error=auth_failed")
-#     google_id = info.get("sub", "")
-#     email     = (info.get("email") or "").strip().lower()
-#     name      = (info.get("name") or "").strip()
-#     picture   = info.get("picture")
-#     if not google_id or not email:
-#         return RedirectResponse(f"{FRONTEND_LOGIN}?error=auth_failed")
-#     user = (db.query(User).filter(User.google_id == google_id).first()
-#             or db.query(User).filter(User.email == email).first())
-#     is_new = user is None
-#     if is_new:
-#         parts = name.split(" ", 1)
-#         user = User(email=email, google_id=google_id,
-#                     full_name=f"{parts[0]} {parts[1] if len(parts)>1 else ''}".strip(),
-#                     company="", photo_url=picture, hashed_password=None)
-#         db.add(user)
-#     else:
-#         if not user.google_id: user.google_id = google_id
-#         if not user.photo_url and picture: user.photo_url = picture
-#     db.commit()
-#     db.refresh(user)
-#     jwt_token = create_access_token({"sub": user.id})
-#     user_data = {"id": user.id, "email": user.email, "full_name": user.full_name,
-#                  "company": user.company, "phone": user.phone, "photo_url": user.photo_url,
-#                  "license_number": user.license_number, "territory": user.territory,
-#                  "is_admin": user.is_admin}
-#     html = f"""<!DOCTYPE html><html><head><title>UpFront Broker</title></head><body>
-# <script>
-# localStorage.setItem('ufb_token', {json.dumps(jwt_token)});
-# localStorage.setItem('ufb_user', JSON.stringify({json.dumps(user_data)}));
-# window.location.replace('/pages/dashboard.html');
-# </script></body></html>"""
-#     return HTMLResponse(html, headers={"Cache-Control": "no-store"})
+# ── Google OAuth 2.0 ──────────────────────────────────────────────────────
+from authlib.integrations.requests_client import OAuth2Session
+
+GOOGLE_CLIENT_ID     = os.getenv("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
+_base        = os.getenv("RENDER_EXTERNAL_URL", "http://localhost:8000").rstrip("/")
+CALLBACK_URL = os.getenv("CALLBACK_URL", f"{_base}/api/auth/google/callback")
+
+GOOGLE_AUTH_URL  = "https://accounts.google.com/o/oauth2/v2/auth"
+GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+GOOGLE_USERINFO  = "https://www.googleapis.com/oauth2/v3/userinfo"
+
+# Resolved at import time — avoids repeated disk lookups per request
+_DASHBOARD_PATH = os.path.normpath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "pages", "dashboard.html")
+)
+
+
+@router.get("/google")
+def google_login():
+    if not GOOGLE_CLIENT_ID:
+        return RedirectResponse(f"{FRONTEND_LOGIN}?error=no_credentials")
+    client = OAuth2Session(client_id=GOOGLE_CLIENT_ID, redirect_uri=CALLBACK_URL,
+                           scope="openid email profile")
+    url, _ = client.create_authorization_url(GOOGLE_AUTH_URL, access_type="offline",
+                                              prompt="select_account")
+    return RedirectResponse(url)
+
+
+@router.get("/google/callback")
+def google_callback(
+    code:  str = Query(None),
+    state: str = Query(None),
+    error: str = Query(None),
+    db:    Session = Depends(get_db),
+):
+    """
+    After Google redirects back here, return the dashboard HTML directly —
+    no further redirect.  The callback IS the dashboard page.
+
+    Why: window.location.replace() after a cross-origin redirect triggers
+    Cross-Origin-Opener-Policy isolation which wipes the browsing context and
+    clears localStorage before the next page can read it.  By returning the
+    dashboard HTML from this endpoint we stay in the same browsing context;
+    the injected <script> writes localStorage and app.js reads it in the same
+    page load with no navigation in between.
+
+    COOP: unsafe-none prevents the browser from enforcing opener isolation on
+    this response so the page can share the browsing context with the OAuth
+    popup if needed.
+    """
+    if error or not code:
+        return RedirectResponse(f"{FRONTEND_LOGIN}?error=auth_cancelled")
+
+    client = OAuth2Session(client_id=GOOGLE_CLIENT_ID, client_secret=GOOGLE_CLIENT_SECRET,
+                           redirect_uri=CALLBACK_URL)
+    try:
+        client.fetch_token(GOOGLE_TOKEN_URL, code=code)
+    except Exception:
+        return RedirectResponse(f"{FRONTEND_LOGIN}?error=auth_failed")
+
+    try:
+        info = client.get(GOOGLE_USERINFO).json()
+    except Exception:
+        return RedirectResponse(f"{FRONTEND_LOGIN}?error=auth_failed")
+
+    google_id = info.get("sub", "")
+    email     = (info.get("email") or "").strip().lower()
+    name      = (info.get("name") or "").strip()
+    picture   = info.get("picture")
+
+    if not google_id or not email:
+        return RedirectResponse(f"{FRONTEND_LOGIN}?error=auth_failed")
+
+    user = (
+        db.query(User).filter(User.google_id == google_id).first()
+        or db.query(User).filter(User.email == email).first()
+    )
+    is_new = user is None
+
+    if is_new:
+        parts = name.split(" ", 1)
+        user = User(
+            email=email, google_id=google_id,
+            full_name=f"{parts[0]} {parts[1] if len(parts) > 1 else ''}".strip(),
+            company="", photo_url=picture, hashed_password=None,
+        )
+        db.add(user)
+    else:
+        if not user.google_id:
+            user.google_id = google_id
+        if not user.photo_url and picture:
+            user.photo_url = picture
+
+    db.commit()
+    db.refresh(user)
+
+    jwt_token = create_access_token({"sub": user.id})
+    user_data = {
+        "id":             user.id,
+        "email":          user.email,
+        "full_name":      user.full_name,
+        "company":        user.company,
+        "phone":          user.phone,
+        "photo_url":      user.photo_url,
+        "license_number": user.license_number,
+        "territory":      user.territory,
+        "is_admin":       user.is_admin,
+    }
+
+    # Read the real dashboard HTML and inject token writes at the top of <body>
+    with open(_DASHBOARD_PATH, "r", encoding="utf-8") as fh:
+        dashboard_html = fh.read()
+
+    inject = (
+        f'<script>'
+        f'localStorage.setItem("ufb_token",{json.dumps(jwt_token)});'
+        f'localStorage.setItem("ufb_user",JSON.stringify({json.dumps(user_data)}));'
+        f'</script>'
+    )
+    dashboard_html = dashboard_html.replace("<body>", f"<body>\n{inject}", 1)
+
+    return HTMLResponse(
+        dashboard_html,
+        headers={
+            "Cache-Control":              "no-store",
+            "Cross-Origin-Opener-Policy": "unsafe-none",
+        },
+    )
