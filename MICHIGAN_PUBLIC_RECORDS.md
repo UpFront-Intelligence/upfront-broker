@@ -23,43 +23,110 @@ City → county lookup table is at the bottom of this file.
 ## Oakland County — ArcGIS REST API
 
 **Portal:** https://www.oakgov.com/maps  
-**ArcGIS base (verify):** `https://gis.oakgov.com/arcgis/rest/services/`
+**ArcGIS services directory:** `https://gis.oakgov.com/arcgis/rest/services/`
 
-### Parcel query endpoint
+### Layer discovery
+
+The exact layer path is not stable across OakGov GIS updates. Use the
+`GET /api/finder/discover` endpoint (see below) to query the services
+directory at runtime and locate the current parcel FeatureServer layer.
+
+Stable base pattern once discovered:
 ```
-GET {base}/Property/MapServer/0/query
-  ?where=PARCELID+%3D+%27{parcel_id}%27
+https://gis.oakgov.com/arcgis/rest/services/{layer}/FeatureServer/0/query
+```
+
+### Parcel query by ZIP (Property Finder)
+```
+GET {base}/query
+  ?where=SITUSZIP='48304'
+  &outFields=*
+  &returnGeometry=true
+  &f=json
+```
+
+### Parcel query by KEYPIN (Enrichment)
+```
+GET {base}/query
+  ?where=KEYPIN='{parcel_id}'
   &outFields=*
   &f=json
 ```
 
-Fallback by address when no parcel ID:
+### Fallback by situs address
 ```
-GET {base}/Property/MapServer/0/query
-  ?where=SITEADDRESS+LIKE+%27{street_pct}%25%27+AND+SITECITY+%3D+%27{city_upper}%27
+GET {base}/query
+  ?where=SITUSADDR+LIKE+'{street}%25'+AND+SITUSCITY='{city}'
   &outFields=*
   &resultRecordCount=5
   &f=json
 ```
 
-### Field mapping (Oakland → Property model)
+### Field mapping — Oakland ArcGIS → Property model
 
-| ArcGIS field | Property model field | Notes |
+| Oakland field | Property model field | Notes |
 |---|---|---|
-| `PARCELID` | `parcel_id` | Canonical format: `XX-XX-XXX-XXX-XX` |
-| `SEV` | `assessed_value` | State Equalized Value = ½ true cash value |
-| `TAXABLE` | — | Store in notes if needed |
-| `SUMTAX` + `WINTERTAX` | `tax_amount` | Sum both; field names vary by layer version |
+| `KEYPIN` | `parcel_id` | Primary parcel ID — canonical Oakland format |
+| `SITUSADDR` | `address` | Situs (property location) street address |
+| `SITUSCITY` | `city` | |
+| `SITUSZIP` | `zip` | |
+| `PROPCLASS` | `property_type` | Integer code — see PROPCLASS table below |
+| `PROPCLASSDESC` | `subtype` | Human-readable class description |
+| `SQFEET` | `sf_rentable` | Building square footage |
+| `TOTALACRES` | `sf_land` | Multiply × 43,560 to convert acres → SF |
 | `YEARBUILT` | `year_built` | |
-| `BLDGSF` | `sf_rentable` | Gross building SF |
-| `LANDSF` | `sf_land` | Land area in SF |
-| `OWNERNAME1` | — | For contact linking; not a Property field |
-| `PROPCLASSDESC` | — | Cross-check `property_type` |
-| `LEGALDESC` | `legal_desc` | May be truncated; check full record |
+| `TAXYEAR` | `tax_year` | |
+| `TAXABLEVALUE` | `assessed_value` | Taxable value (use `SEV` if not present) |
+| `ASSESSEDVALUE` | `assessed_value` | Assessed value |
+| `SEV` | `assessed_value` | State Equalized Value = ½ true cash value |
+| `ZONING` | `zoning` | |
+| `MUNICIPALITY` | `city` | Fallback if `SITUSCITY` is blank |
+| `SCHOOLDIST` | `notes` | Prepend `"School District: …"` |
+| `OWNERNAME1` | `account.name` | Primary owner entity — create/link Account |
+| `OWNERNAME2` | `account.name` | Secondary owner; append to `OWNERNAME1` if both present |
+| `OWNERADDR` | `account.address` | Owner mailing address |
+| `OWNERCITY` | `account.city` | |
+| `OWNERSTATE` | `account.state` | |
+| `OWNERZIP` | `account.zip` | |
 
-> **Verify before coding:** Confirm layer index (0 vs. 1), exact field names, and
-> whether the service requires an API key. Open
-> `{base}/Property/MapServer/0?f=json` to inspect the live field list.
+### PROPCLASS code → property_type mapping
+
+| Code range | Meaning | Maps to |
+|---|---|---|
+| 101–199 | Residential | **Skip** — out of scope for CRE v1 |
+| 200–299 | Commercial | `"Office"` or `"Retail"` (use `PROPCLASSDESC` to disambiguate) |
+| 300–399 | Industrial | `"Industrial"` |
+| 400–499 | Residential Vacant Land | `"Land"` |
+| 500–599 | Commercial Vacant Land | `"Land"` |
+| 600–699 | Industrial Vacant Land | `"Industrial"` |
+| 700–799 | Developmental | `"Land"` |
+| 800–899 | Agricultural | `"Land"` |
+
+```python
+def propclass_to_type(code: int) -> str | None:
+    if 200 <= code <= 299: return "Retail"   # refine with PROPCLASSDESC
+    if 300 <= code <= 399: return "Industrial"
+    if 400 <= code <= 699: return "Land"
+    if 700 <= code <= 799: return "Land"
+    if 800 <= code <= 899: return "Land"
+    return None  # residential or unknown — skip
+```
+
+### /api/finder/discover endpoint
+
+Queries the OakGov services directory to locate the current parcel layer path.
+Required because OakGov has restructured their services tree in the past.
+
+```python
+GET https://gis.oakgov.com/arcgis/rest/services?f=json
+# Walk response["services"] for an item where:
+#   "type" == "FeatureServer" and "name" contains "Parcel" or "Property"
+# Return the full URL of the matching layer
+```
+
+Route: `GET /api/finder/discover`  
+Caches the result in `ENRICHMENT_CACHE` with `lookup_type="arcgis_layer"`,
+`lookup_key="oakland_parcel"`, TTL = 90 days (see Data Privacy Architecture).
 
 ---
 
