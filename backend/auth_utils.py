@@ -55,7 +55,7 @@ def get_current_user(
     except JWTError:
         raise exc
 
-    user = db.query(User).filter(User.id == user_id).first()
+    user = db.query(User).filter(User.id == int(user_id)).first()
     if user is None or not user.is_active:
         raise exc
     return user
