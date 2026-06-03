@@ -259,17 +259,13 @@
 
   <script src="/js/app.js"></script>
   <script>
-    // Extract token from hash set by /api/auth/landing meta refresh.
-    // Runs synchronously before any auth check or API call.
     const _hash = window.location.hash;
     if (_hash.startsWith('#t=')) {
-      const _tok = _hash.slice(3);
-      localStorage.setItem('ufb_token', _tok);
-      history.replaceState(null, '', window.location.pathname);
+      localStorage.setItem('ufb_token', _hash.slice(3));
+      history.replaceState(null, '', location.pathname);
     }
 
-    (async () => {
-    if (!Auth.requireAuth()) return;
+    if (!Auth.requireAuth()) throw new Error('Not authenticated');
     renderSidebar('dashboard');
 
     // Welcome message
@@ -415,7 +411,6 @@
     }
 
     loadDashboard();
-    })(); // end async IIFE
   </script>
 </body>
 </html>
