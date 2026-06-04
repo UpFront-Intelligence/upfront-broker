@@ -36,6 +36,15 @@ LAYER_CANDIDATES = [
     "Parcels/Parcels",
 ]
 
+# Alternative base URLs to try if the primary base returns 404
+ALT_BASES = [
+    "https://gis.oakgov.com/arcgis/rest/services",
+    "https://gis.oakgov.com/arcgis/rest/services/Property",
+    "https://gis.oakgov.com/arcgis/rest/services/Parcels",
+    "https://oakgov.maps.arcgis.com/arcgis/rest/services",
+    "https://services1.arcgis.com/QHF6KMnTeiUQgmFe/arcgis/rest/services",
+]
+
 CACHE_LAYER_KEY   = "oakland_parcel_layer"
 CACHE_ZIP_PREFIX  = "oakland_zip_"
 LAYER_TTL_DAYS    = 90
@@ -160,6 +169,32 @@ def _save_cache(db: Session, lookup_type: str, lookup_key: str,
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
+@router.get("/debug")
+def debug_arcgis(current_user: User = Depends(get_current_user)):
+    """
+    Diagnostic endpoint — probes every candidate base URL and returns the
+    raw response (or error) for each. Use this to find what's actually
+    available on OakGov ArcGIS before wiring the real layer URL.
+    """
+    results = {}
+    for base in ALT_BASES:
+        url = f"{base}?f=json"
+        try:
+            data = _get(url)
+            # Summarise — return service names + types rather than the full blob
+            services = data.get("services", [])
+            folders  = data.get("folders", [])
+            results[base] = {
+                "ok":       True,
+                "services": [{"name": s.get("name"), "type": s.get("type")} for s in services[:30]],
+                "folders":  folders[:20],
+                "raw_keys": list(data.keys()),
+            }
+        except Exception as exc:
+            results[base] = {"ok": False, "error": str(exc)}
+    return results
+
+
 @router.get("/discover")
 def discover_layer(
     db:           Session = Depends(get_db),
@@ -170,38 +205,44 @@ def discover_layer(
     if cached:
         return cached
 
-    # Query the services directory
-    try:
-        directory = _get(f"{ARCGIS_SERVICES}?f=json")
-    except Exception as exc:
-        raise HTTPException(503, f"OakGov ArcGIS unreachable: {exc}")
+    found_url   = None
+    probe_errors = []
 
-    services = directory.get("services", []) + directory.get("folders", [])
-
-    # Try to find a FeatureServer with "Parcel" in the name
-    found_url = None
-    for svc in services:
-        name = svc.get("name", "")
-        stype = svc.get("type", "")
-        if stype == "FeatureServer" and "parcel" in name.lower():
-            found_url = f"{ARCGIS_SERVICES}/{name}/FeatureServer/0"
-            break
-
-    # Fall back to known candidate paths
-    if not found_url:
-        for candidate in LAYER_CANDIDATES:
-            test_url = f"{ARCGIS_SERVICES}/{candidate}/FeatureServer/0?f=json"
-            try:
-                result = _get(test_url)
-                if "fields" in result or "name" in result:
-                    found_url = f"{ARCGIS_SERVICES}/{candidate}/FeatureServer/0"
+    for base in ALT_BASES:
+        # 1. Try the services directory for this base
+        try:
+            directory = _get(f"{base}?f=json")
+            for svc in directory.get("services", []):
+                if (svc.get("type") == "FeatureServer"
+                        and "parcel" in svc.get("name", "").lower()):
+                    found_url = f"{base}/{svc['name']}/FeatureServer/0"
                     break
-            except Exception:
-                continue
+            if found_url:
+                break
+        except Exception as exc:
+            probe_errors.append(f"directory {base}: {exc}")
+
+        # 2. Try candidate layer paths under this base
+        if not found_url:
+            for candidate in LAYER_CANDIDATES:
+                test_url = f"{base}/{candidate}/FeatureServer/0?f=json"
+                try:
+                    result = _get(test_url)
+                    if "fields" in result or "name" in result:
+                        found_url = f"{base}/{candidate}/FeatureServer/0"
+                        break
+                except Exception as exc:
+                    probe_errors.append(f"layer {test_url}: {exc}")
+            if found_url:
+                break
 
     if not found_url:
-        raise HTTPException(404, "Could not locate Oakland County parcel layer. "
-                            "Check https://gis.oakgov.com/arcgis/rest/services manually.")
+        raise HTTPException(
+            404,
+            f"Could not locate Oakland County parcel layer. "
+            f"Hit GET /api/finder/debug to inspect available services. "
+            f"Probe errors: {probe_errors[:5]}"
+        )
 
     result = {"layer_url": found_url}
     _save_cache(db, "arcgis_layer", CACHE_LAYER_KEY, "Oakland_ArcGIS",
