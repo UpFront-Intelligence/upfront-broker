@@ -285,7 +285,7 @@ def get_parcels(
     cache_key = f"{CACHE_ZIP_PREFIX}{zip}"
 
     # Check parcel cache
-    cached_parcels = _get_or_set_cache(db, "parcels_by_zip", cache_key, ZIP_TTL_DAYS)
+    cached_parcels = _get_or_set_cache(db, "parcels_v2_by_zip", cache_key, ZIP_TTL_DAYS)
 
     if not cached_parcels:
         layer_url = OAKLAND_PARCELS_URL
@@ -376,7 +376,7 @@ def get_parcels(
 
         cached_parcels = {"parcels": parcels, "total": len(parcels), "zip": zip,
                           "layer_url": OAKLAND_PARCELS_URL}
-        _save_cache(db, "parcels_by_zip", cache_key, "Oakland_ArcGIS",
+        _save_cache(db, "parcels_v2_by_zip", cache_key, "Oakland_ArcGIS",
                     cached_parcels, ZIP_TTL_DAYS)
 
     # Overlay per-user exists_in_db
