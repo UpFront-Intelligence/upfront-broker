@@ -175,43 +175,37 @@ def _save_cache(db: Session, lookup_type: str, lookup_key: str,
 @router.get("/test")
 def test_layer(current_user: User = Depends(get_current_user)):
     """
-    Probe OAKLAND_PARCELS_URL directly — returns raw layer info and raw
-    minimal query response so we can see the real field names and geometry.
+    Three diagnostic probes against OAKLAND_PARCELS_URL.
+    Returns raw responses so we can see real field names and supported syntax.
 
-    Layer info:  GET {url}?f=json
-    Min query:   GET {url}/query?where=1=1&resultRecordCount=1&outFields=*&f=json
-    ZIP query:   GET {url}/query?where=SITUSZIP='48009'&...&resultRecordCount=2
+    test1 — simplest: where=1=1, no encoding
+    test2 — zip with spaces: where=SITUSZIP = '48304'
+    test3 — layer metadata: {url}?f=json  (shows actual field list)
     """
     url = OAKLAND_PARCELS_URL
     result: dict = {"url": url}
 
-    # 1. Raw layer info
+    # Test 1 — simplest possible, no where-clause encoding
     try:
-        result["layer_info_raw"] = _get(f"{url}?f=json")
-    except Exception as exc:
-        result["layer_info_raw"] = {"error": str(exc)}
-
-    # 2. Minimal query — 1 row, all fields, no geometry
-    try:
-        result["min_query_raw"] = _get(
-            f"{url}/query?where=1%3D1&resultRecordCount=1"
-            "&outFields=*&returnGeometry=false&f=json"
+        result["test1_where_1eq1"] = _get(
+            f"{url}/query?where=1=1&resultRecordCount=1&outFields=*&f=json"
         )
     except Exception as exc:
-        result["min_query_raw"] = {"error": str(exc)}
+        result["test1_where_1eq1"] = {"error": str(exc)}
 
-    # 3. ZIP-based query matching production pattern
-    zip_params = urllib.parse.urlencode({
-        "where":             "SITUSZIP='48009'",
-        "outFields":         "*",
-        "returnGeometry":    "false",
-        "resultRecordCount": 2,
-        "f":                 "json",
-    })
+    # Test 2 — zip with spaces in where clause (no URL encoding)
     try:
-        result["zip_query_raw"] = _get(f"{url}/query?{zip_params}")
+        result["test2_zip_query"] = _get(
+            f"{url}/query?where=SITUSZIP = '48304'&resultRecordCount=1&outFields=*&f=json"
+        )
     except Exception as exc:
-        result["zip_query_raw"] = {"error": str(exc)}
+        result["test2_zip_query"] = {"error": str(exc)}
+
+    # Test 3 — layer info to see actual field names
+    try:
+        result["test3_layer_info"] = _get(f"{url}?f=json")
+    except Exception as exc:
+        result["test3_layer_info"] = {"error": str(exc)}
 
     return result
 
