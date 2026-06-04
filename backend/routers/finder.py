@@ -25,17 +25,19 @@ router = APIRouter()
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
-# ── Oakland County parcel layer candidates (in priority order) ───────────────
-# Derived from ArcGIS Hub item e2910cc3a8f84549ab7f0f8e8f99817b
-OAKLAND_PARCELS_URL = "https://services2.arcgis.com/jsIt88o7Q1eBVvmn/arcgis/rest/services/OC_Tax_Parcels_Public/FeatureServer/0"
+# ── Oakland County parcel layer — confirmed MapServer endpoint ───────────────
+OAKLAND_PARCELS_URL = (
+    "https://gisservices.oakgov.com/arcgis/rest/services"
+    "/Enterprise/EnterpriseOpenParcelDataMapService/MapServer/1"
+)
 
 OAKLAND_CANDIDATES = [
-    "https://services2.arcgis.com/jsIt88o7Q1eBVvmn/arcgis/rest/services/OC_Tax_Parcels_Public/FeatureServer/0",
-    "https://services2.arcgis.com/jsIt88o7Q1eBVvmn/ArcGIS/rest/services/OC_Tax_Parcels_Public/FeatureServer/0",
-    "https://opendata.arcgis.com/datasets/e2910cc3a8f84549ab7f0f8e8f99817b_1/FeatureServer/0",
-    # Previous gis.oakgov.com candidates kept as last-resort fallbacks
+    # Confirmed primary (MapServer, not FeatureServer)
+    "https://gisservices.oakgov.com/arcgis/rest/services/Enterprise/EnterpriseOpenParcelDataMapService/MapServer/1",
+    # Fallbacks in priority order
     "https://gis.oakgov.com/arcgis/rest/services/CRAPublic/Parcels_Public_WM/FeatureServer/0",
     "https://gis.oakgov.com/arcgis/rest/services/CRAPublic/ParcelsPublic/FeatureServer/0",
+    "https://services2.arcgis.com/jsIt88o7Q1eBVvmn/arcgis/rest/services/OC_Tax_Parcels_Public/FeatureServer/0",
 ]
 
 MAX_PARCELS      = 500

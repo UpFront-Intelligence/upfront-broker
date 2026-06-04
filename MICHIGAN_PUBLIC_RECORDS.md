@@ -25,14 +25,15 @@ City → county lookup table is at the bottom of this file.
 **Portal:** https://www.oakgov.com/maps  
 **ArcGIS services directory:** `https://gis.oakgov.com/arcgis/rest/services/`
 
-### Confirmed parcel FeatureServer endpoint
+### Confirmed parcel MapServer endpoint
 
 ```
-https://services1.arcgis.com/QHF6KMnTeiUQgmFe/arcgis/rest/services/OC_Tax_Parcels_Public/FeatureServer/0
+https://gisservices.oakgov.com/arcgis/rest/services/Enterprise/EnterpriseOpenParcelDataMapService/MapServer/1
 ```
 
-This URL was confirmed live via `GET /api/finder/debug` against the
-`services1.arcgis.com/QHF6KMnTeiUQgmFe` ArcGIS Online hosted service.
+**Note:** this is a **MapServer** layer, not a FeatureServer.
+All query URLs use `/MapServer/1/query` — not `/FeatureServer/0/query`.
+
 Hardcoded in `routers/finder.py` as `OAKLAND_PARCELS_URL`.
 
 ### Parcel query by ZIP (Property Finder)
