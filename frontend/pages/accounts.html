@@ -269,7 +269,7 @@
       return;
     }
     tbody.innerHTML = rows.map(a => `
-      <tr data-id="${a.id}" class="${openId===a.id?'row-active':''}" onclick="openPanel(${a.id})">
+      <tr data-id="${a.id}" class="${openId===a.id?'row-active':''}" onclick="window.location.href='/pages/account.html?id=${a.id}'" style="cursor:pointer">
         <td><div class="acct-cell">
           <div class="acct-icon" style="background:${avatarColor(a.name)}">${entityInitials(a.name)}</div>
           <div>

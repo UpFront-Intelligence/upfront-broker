@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UpFront Broker — Property</title>
+  <link rel="stylesheet" href="/static/main.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <style>
+    #page-content { padding:24px 28px; max-width:1200px; }
+    .detail-grid { display:grid; grid-template-columns:1fr 320px; gap:20px; }
+    @media(max-width:900px){ .detail-grid{ grid-template-columns:1fr; } }
+    .dc { background:#fff; border:1px solid var(--cream-dark); border-radius:var(--radius-lg); box-shadow:var(--shadow-card); margin-bottom:16px; overflow:hidden; }
+    .dc-title { font-family:var(--font-serif); font-size:13.5px; color:var(--navy); padding:11px 16px; border-bottom:1px solid var(--cream-dark); background:var(--cream); }
+    .dc-body { padding:12px 16px; }
+    .fr { display:flex; align-items:baseline; gap:6px; padding:5px 0; border-bottom:1px solid var(--cream-dark); }
+    .fr:last-child { border-bottom:none; }
+    .fl { font-size:10.5px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--stone); min-width:140px; flex-shrink:0; padding-top:2px; }
+    .fv { font-size:13px; color:var(--ink); cursor:pointer; padding:1px 5px; border-radius:3px; transition:background 0.1s; word-break:break-word; }
+    .fv:hover { background:var(--cream-dark); }
+    .fv[data-empty]::before { content:'—'; color:var(--stone-light); }
+    .fv[data-empty]:hover::before { content:'— +'; }
+    .chip { display:inline-flex; align-items:center; gap:4px; padding:3px 10px; border-radius:20px; font-size:12px; font-weight:500; background:var(--cream-dark); color:var(--navy); cursor:pointer; margin:2px; text-decoration:none; transition:all 0.1s; }
+    .chip:hover { background:var(--navy); color:#fff; }
+    .act-item { display:flex; gap:10px; padding:8px 0; border-bottom:1px solid var(--cream-dark); font-size:12.5px; }
+    .act-item:last-child { border-bottom:none; }
+    .act-icon { flex-shrink:0; }
+    #prop-map { height:180px; border-radius:var(--radius); }
+    .header-card { background:var(--navy); border-radius:var(--radius-lg); padding:22px 26px; color:#fff; margin-bottom:20px; display:flex; align-items:flex-start; gap:16px; }
+    .header-main { flex:1; }
+    .header-addr { font-family:var(--font-serif); font-size:22px; letter-spacing:-0.2px; margin-bottom:4px; }
+    .header-city { font-size:13px; color:rgba(255,255,255,0.6); margin-bottom:10px; }
+    .header-badges { display:flex; gap:8px; flex-wrap:wrap; }
+    .hbadge { padding:3px 10px; border-radius:20px; font-size:11.5px; font-weight:600; background:rgba(255,255,255,0.12); color:rgba(255,255,255,0.9); }
+    .hbadge.gold { background:rgba(201,148,58,0.25); color:var(--gold-light); }
+  </style>
+</head>
+<body>
+<div id="sidebar"></div>
+<div id="main">
+  <div id="topbar">
+    <div style="display:flex;align-items:center;gap:12px">
+      <button class="btn btn-ghost btn-sm" onclick="history.back()">← Back</button>
+      <div class="topbar-title" id="page-title">Property</div>
+    </div>
+    <div class="topbar-actions">
+      <button class="btn btn-outline btn-sm" onclick="navigate('properties')">All Properties</button>
+    </div>
+  </div>
+  <div id="page-content" class="fade-in">
+    <div id="root"><div style="text-align:center;padding:60px"><div class="spinner"></div></div></div>
+  </div>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="/js/app.js"></script>
+<script>
+  if (!Auth.requireAuth()) throw new Error('Not authenticated');
+  renderSidebar('properties');
+
+  const ID = +new URLSearchParams(window.location.search).get('id');
+  const SILO = 'properties';
+  const ACT_ICONS = {'Call':'📞','Email':'✉️','Meeting':'🤝','Tour':'🏢','Offer':'📋','LOI':'📄','Contract':'✍️','Note':'📝'};
+  const PROP_TYPES = ['Office','Industrial','Retail','Land','Multifamily','STNL','Self Storage','Hospitality','Medical'];
+  const STATUSES   = ['Active','Off Market','Sold','Leased'];
+  let REC = {};
+
+  async function load() {
+    try {
+      const d = await API.get(`/${SILO}/${ID}/full`);
+      REC = d.property;
+      document.getElementById('page-title').textContent = REC.name || REC.address || 'Property';
+      document.title = (REC.name || REC.address || 'Property') + ' — UpFront Broker';
+      render(d);
+    } catch(e) { Toast.error('Failed to load: ' + e.message); }
+  }
+
+  function frow(label, field, value, opts) {
+    const display = value != null && value !== '' ? String(value) : '';
+    const attrs = display ? `data-raw="${display.replace(/"/g,'&quot;')}"` : 'data-empty data-raw=""';
+    const click = `onclick="ef(this,'${field}'${opts ? ','+JSON.stringify(opts) : ''})"`;
+    return `<div class="fr"><span class="fl">${label}</span><span class="fv" ${attrs} ${click}>${display}</span></div>`;
+  }
+
+  function render(d) {
+    const p = d.property;
+    const mapHtml = (p.lat && p.lng)
+      ? `<div class="dc"><div class="dc-title">Map</div><div id="prop-map"></div></div>` : '';
+
+    document.getElementById('root').innerHTML = `
+      <div class="header-card">
+        <div class="header-main">
+          <div class="header-addr">${p.name || p.address || '—'}</div>
+          <div class="header-city">${[p.address !== p.name ? p.address : null, p.city, p.state, p.zip].filter(Boolean).join(', ')}</div>
+          <div class="header-badges">
+            ${p.property_type ? `<span class="hbadge gold">${Fmt.propType(p.property_type)} ${p.property_type}</span>` : ''}
+            ${p.status ? `<span class="hbadge">${p.status}</span>` : ''}
+            ${p.subtype ? `<span class="hbadge">${p.subtype}</span>` : ''}
+          </div>
+        </div>
+      </div>
+
+      <div class="detail-grid">
+        <div>
+          <div class="dc"><div class="dc-title">Property Details</div><div class="dc-body">
+            ${frow('SF Rentable',  'sf_rentable',  p.sf_rentable ? Fmt.sf(p.sf_rentable) : null)}
+            ${frow('SF Land',      'sf_land',       p.sf_land ? Fmt.sf(p.sf_land) : null)}
+            ${frow('Units',        'units',         p.units)}
+            ${frow('Stories',      'stories',       p.stories)}
+            ${frow('Year Built',   'year_built',    p.year_built)}
+            ${frow('Zoning',       'zoning',        p.zoning)}
+            ${frow('Parking',      'parking_ratio', p.parking_ratio ? p.parking_ratio + '/1,000 SF' : null)}
+            ${frow('Occupancy',    'occupancy_pct', p.occupancy_pct != null ? p.occupancy_pct + '%' : null)}
+            ${frow('County',       'county',        p.county)}
+            ${frow('Parcel ID',    'parcel_id',     p.parcel_id)}
+            ${frow('Tenant',       'tenant',        p.tenant)}
+          </div></div>
+
+          <div class="dc"><div class="dc-title">Financial</div><div class="dc-body">
+            ${frow('Asking Price',    'asking_price',        p.asking_price ? Fmt.currency(p.asking_price) : null)}
+            ${frow('Price / SF',      'asking_price_per_sf', p.asking_price_per_sf ? Fmt.currency(p.asking_price_per_sf) : null)}
+            ${frow('Assessed Value',  'assessed_value',      p.assessed_value ? Fmt.currency(p.assessed_value) : null)}
+            ${frow('Annual Tax',      'tax_amount',          p.tax_amount ? Fmt.currency(p.tax_amount) : null)}
+            ${frow('Tax Year',        'tax_year',            p.tax_year)}
+            ${frow('Cap Rate',        'cap_rate',            p.cap_rate != null ? p.cap_rate + '%' : null)}
+            ${frow('NOI',             'noi',                 p.noi ? Fmt.currency(p.noi) : null)}
+            ${frow('Last Sale Price', 'last_sale_price',     p.last_sale_price ? Fmt.currency(p.last_sale_price) : null)}
+            ${frow('Last Sale Date',  'last_sale_date',      p.last_sale_date ? Fmt.date(p.last_sale_date) : null, {inputType:'date'})}
+          </div></div>
+
+          ${p.notes != null ? `<div class="dc"><div class="dc-title">Notes</div>
+            <div class="dc-body"><span class="fv" style="min-height:60px;display:block;white-space:pre-wrap"
+              data-raw="${(p.notes||'').replace(/"/g,'&quot;')}" onclick="ef(this,'notes',{multiline:true})">${p.notes||'—'}</span></div></div>` : ''}
+        </div>
+
+        <div>
+          <div class="dc"><div class="dc-title">Owner</div><div class="dc-body" style="padding:12px">
+            ${d.account ? `<a class="chip" href="/pages/account.html?id=${d.account.id}">◻ ${d.account.name}${d.account.entity_type ? ' · ' + d.account.entity_type : ''}</a>` : '<span style="font-size:12.5px;color:var(--stone)">No linked account</span>'}
+            <div style="margin-top:8px">${(d.contacts||[]).map(c =>
+              `<a class="chip" href="/pages/contact.html?id=${c.id}">◎ ${c.first_name||''} ${c.last_name||''}${c.role?' · '+c.role:''}</a>`
+            ).join('') || ''}</div>
+          </div></div>
+
+          <div class="dc"><div class="dc-title">Deals${d.deals.length ? ' (' + d.deals.length + ')' : ''}</div><div class="dc-body" style="padding:8px">
+            ${d.deals.length ? d.deals.map(de => `
+              <a class="chip" style="display:flex;justify-content:space-between;border-radius:var(--radius);width:100%;padding:8px 10px;margin:3px 0"
+                 href="/pages/deal.html?id=${de.id}">
+                <span>${de.name}</span>
+                <span class="stage-pill ${Fmt.stageClass(de.stage)}" style="font-size:10px">${de.stage}</span>
+              </a>`).join('') : '<span style="font-size:12.5px;color:var(--stone);padding:4px">No deals yet</span>'}
+          </div></div>
+
+          <div class="dc"><div class="dc-title">Activity${d.activities.length ? ' (' + d.activities.length + ')' : ''}</div><div class="dc-body">
+            ${d.activities.length ? d.activities.map(a => `
+              <div class="act-item">
+                <span class="act-icon">${ACT_ICONS[a.activity_type]||'●'}</span>
+                <div>
+                  <div style="font-weight:500">${a.activity_type}${a.subject?' — '+a.subject:''}</div>
+                  ${a.notes ? `<div style="font-size:11.5px;color:var(--stone)">${a.notes.substring(0,80)}</div>` : ''}
+                  <div style="font-size:11px;color:var(--stone-light)">${Fmt.date(a.activity_date||a.created_at)}</div>
+                </div>
+              </div>`).join('') : '<span style="font-size:12.5px;color:var(--stone)">No activity yet</span>'}
+          </div></div>
+
+          ${mapHtml}
+        </div>
+      </div>`;
+
+    if (p.lat && p.lng) {
+      const m = L.map('prop-map', {zoomControl:false,attributionControl:false}).setView([p.lat, p.lng], 16);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(m);
+      L.circleMarker([p.lat, p.lng], {radius:8, fillColor:'#c9943a', color:'#fff', weight:2, fillOpacity:1}).addTo(m);
+    }
+  }
+
+  // ── Inline edit ──────────────────────────────────────────────────────────
+  async function ef(el, field, opts) {
+    const raw = el.dataset.raw;
+    const orig = el.cloneNode(true);
+    let input;
+    if (opts?.choices) {
+      input = document.createElement('select');
+      input.className = 'form-control';
+      input.style.cssText = 'display:inline-block;width:auto;font-size:13px;padding:2px 6px;';
+      [['','—'], ...opts.choices.map(c => Array.isArray(c) ? c : [c,c])].forEach(([v,l]) => {
+        const o = document.createElement('option');
+        o.value = v; o.textContent = l;
+        if (v === raw) o.selected = true;
+        input.appendChild(o);
+      });
+    } else if (opts?.multiline) {
+      input = document.createElement('textarea');
+      input.className = 'form-control';
+      input.style.cssText = 'width:100%;min-height:80px;font-size:13px;';
+      input.value = raw;
+    } else {
+      input = document.createElement('input');
+      input.type = opts?.inputType || 'text';
+      input.className = 'form-control';
+      input.style.cssText = 'display:inline-block;width:180px;font-size:13px;padding:2px 6px;';
+      input.value = raw;
+    }
+    el.replaceWith(input);
+    input.focus();
+    if (input.tagName === 'INPUT') input.select();
+
+    async function save() {
+      const v = input.value;
+      if (v === raw) { input.replaceWith(orig); return; }
+      try {
+        const updated = await API.put(`/${SILO}/${ID}`, { [field]: v || null });
+        Object.assign(REC, updated);
+        const neo = orig.cloneNode(true);
+        const newRaw = updated[field] != null ? String(updated[field]) : '';
+        neo.dataset.raw = newRaw;
+        if (newRaw) { delete neo.dataset.empty; neo.textContent = newRaw; }
+        else { neo.dataset.empty = ''; neo.textContent = ''; }
+        input.replaceWith(neo);
+        Toast.success('Saved');
+      } catch(e) { input.replaceWith(orig); Toast.error(e.message); }
+    }
+    input.addEventListener('blur', save);
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !opts?.multiline) { e.preventDefault(); input.blur(); }
+      if (e.key === 'Escape') input.replaceWith(orig);
+    });
+  }
+
+  load();
+</script>
+</body>
+</html>

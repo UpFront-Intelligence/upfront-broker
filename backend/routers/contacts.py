@@ -164,3 +164,52 @@ def delete_contact(
     db.delete(contact)
     db.commit()
     return {"deleted": True}
+
+
+@router.get("/{contact_id}/full")
+def get_contact_full(
+    contact_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from models.deal import Deal, DealContact
+    from models.shared import Activity, Document
+    c = db.query(Contact).filter(
+        Contact.id == contact_id, Contact.owner_id == current_user.id
+    ).first()
+    if not c:
+        raise HTTPException(404, "Contact not found")
+
+    accounts = []
+    for ca, a in (db.query(ContactAccount, Account)
+                    .join(Account, ContactAccount.account_id == Account.id)
+                    .filter(ContactAccount.contact_id == contact_id,
+                            Account.owner_id == current_user.id).all()):
+        accounts.append({"id": a.id, "name": a.name, "entity_type": a.entity_type,
+                          "role": ca.role, "is_primary": ca.is_primary})
+
+    deal_ids = [r.deal_id for r in db.query(DealContact.deal_id)
+                .filter(DealContact.contact_id == contact_id).all()]
+    deals = [{"id": d.id, "name": d.name, "stage": d.stage, "deal_type": d.deal_type,
+               "our_commission": d.our_commission}
+             for d in db.query(Deal).filter(Deal.id.in_(deal_ids),
+                                            Deal.owner_id == current_user.id).all()]
+
+    acts = db.query(Activity).filter(Activity.contact_id == contact_id,
+                                     Activity.owner_id == current_user.id
+                                     ).order_by(Activity.activity_date.desc()).limit(20).all()
+    docs = db.query(Document).filter(Document.contact_id == contact_id,
+                                     Document.owner_id == current_user.id).all()
+
+    c_dict = ContactResponse.model_validate(c).model_dump()
+    return {
+        "contact":    c_dict,
+        "accounts":   accounts,
+        "deals":      deals,
+        "activities": [{"id": a.id, "activity_type": a.activity_type, "subject": a.subject,
+                        "notes": a.notes,
+                        "activity_date": str(a.activity_date) if a.activity_date else None,
+                        "created_at": str(a.created_at)} for a in acts],
+        "documents":  [{"id": d.id, "name": d.name, "doc_type": d.doc_type,
+                        "file_url": d.file_url} for d in docs],
+    }

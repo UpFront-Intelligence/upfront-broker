@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UpFront Broker — Account</title>
+  <link rel="stylesheet" href="/static/main.css">
+  <style>
+    #page-content { padding:24px 28px; max-width:1100px; }
+    .detail-grid { display:grid; grid-template-columns:1fr 300px; gap:20px; }
+    @media(max-width:900px){ .detail-grid{ grid-template-columns:1fr; } }
+    .dc { background:#fff; border:1px solid var(--cream-dark); border-radius:var(--radius-lg); box-shadow:var(--shadow-card); margin-bottom:16px; overflow:hidden; }
+    .dc-title { font-family:var(--font-serif); font-size:13.5px; color:var(--navy); padding:11px 16px; border-bottom:1px solid var(--cream-dark); background:var(--cream); }
+    .dc-body { padding:12px 16px; }
+    .fr { display:flex; align-items:baseline; gap:6px; padding:5px 0; border-bottom:1px solid var(--cream-dark); }
+    .fr:last-child { border-bottom:none; }
+    .fl { font-size:10.5px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--stone); min-width:120px; flex-shrink:0; }
+    .fv { font-size:13px; color:var(--ink); cursor:pointer; padding:1px 5px; border-radius:3px; transition:background 0.1s; }
+    .fv:hover { background:var(--cream-dark); }
+    .fv[data-empty]::before { content:'—'; color:var(--stone-light); }
+    .fv[data-empty]:hover::before { content:'— +'; }
+    .chip { display:inline-flex; align-items:center; gap:4px; padding:3px 10px; border-radius:20px; font-size:12px; font-weight:500; background:var(--cream-dark); color:var(--navy); cursor:pointer; margin:2px; text-decoration:none; transition:all 0.1s; }
+    .chip:hover { background:var(--navy); color:#fff; }
+    .TYPE_CLASS { 'LLC':'badge-navy','Corp':'badge-blue','Trust':'badge-amber','Individual':'badge-green','REIT':'badge-gold','Partnership':'badge-stone' }
+    .header-card { display:flex; align-items:center; gap:16px; background:var(--navy); border-radius:var(--radius-lg); padding:20px 26px; color:#fff; margin-bottom:20px; }
+    .entity-icon { width:48px; height:48px; border-radius:var(--radius); background:rgba(255,255,255,0.12); display:flex; align-items:center; justify-content:center; font-size:16px; font-weight:700; font-family:var(--font-mono); color:#fff; flex-shrink:0; }
+    .header-name { font-family:var(--font-serif); font-size:20px; }
+    .header-sub  { font-size:12px; color:rgba(255,255,255,0.6); margin-top:3px; }
+  </style>
+</head>
+<body>
+<div id="sidebar"></div>
+<div id="main">
+  <div id="topbar">
+    <div style="display:flex;align-items:center;gap:12px">
+      <button class="btn btn-ghost btn-sm" onclick="history.back()">← Back</button>
+      <div class="topbar-title" id="page-title">Account</div>
+    </div>
+    <div class="topbar-actions">
+      <button class="btn btn-outline btn-sm" onclick="navigate('accounts')">All Accounts</button>
+    </div>
+  </div>
+  <div id="page-content" class="fade-in">
+    <div id="root"><div style="text-align:center;padding:60px"><div class="spinner"></div></div></div>
+  </div>
+</div>
+<script src="/js/app.js"></script>
+<script>
+  if (!Auth.requireAuth()) throw new Error('Not authenticated');
+  renderSidebar('accounts');
+
+  const ID = +new URLSearchParams(window.location.search).get('id');
+  const SILO = 'accounts';
+  const TC = {'LLC':'badge-navy','Corp':'badge-blue','Trust':'badge-amber','Individual':'badge-green','REIT':'badge-gold','Partnership':'badge-stone'};
+  let REC = {};
+
+  async function load() {
+    try {
+      const d = await API.get(`/${SILO}/${ID}/full`);
+      REC = d.account;
+      document.getElementById('page-title').textContent = REC.name || 'Account';
+      document.title = (REC.name || 'Account') + ' — UpFront Broker';
+      render(d);
+    } catch(e) { Toast.error('Failed to load: ' + e.message); }
+  }
+
+  function frow(label, field, value, opts) {
+    const display = value != null && value !== '' ? String(value) : '';
+    const attrs = display ? `data-raw="${display.replace(/"/g,'&quot;')}"` : 'data-empty data-raw=""';
+    const click = `onclick="ef(this,'${field}'${opts ? ','+JSON.stringify(opts) : ''})"`;
+    return `<div class="fr"><span class="fl">${label}</span><span class="fv" ${attrs} ${click}>${display}</span></div>`;
+  }
+
+  function render(d) {
+    const a = d.account;
+    const initials = (a.name||'??').substring(0,2).toUpperCase();
+    const color = avatarColor(a.name||'');
+
+    document.getElementById('root').innerHTML = `
+      <div class="header-card">
+        <div class="entity-icon" style="background:${color}">${initials}</div>
+        <div>
+          <div class="header-name">${a.name}</div>
+          <div class="header-sub">${[a.entity_type, a.city && a.state ? a.city+', '+a.state : null].filter(Boolean).join(' · ') || ''}</div>
+        </div>
+        ${a.entity_type ? `<span class="badge ${TC[a.entity_type]||'badge-stone'}" style="margin-left:auto">${a.entity_type}</span>` : ''}
+      </div>
+
+      <div class="detail-grid">
+        <div>
+          <div class="dc"><div class="dc-title">Entity Details</div><div class="dc-body">
+            ${frow('Name',         'name',        a.name)}
+            ${frow('Entity Type',  'entity_type', a.entity_type, {choices:['LLC','Corp','Trust','Individual','REIT','Partnership']})}
+            ${frow('EIN / Tax ID', 'ein',         a.ein)}
+            ${frow('Website',      'website',     a.website,  {inputType:'url'})}
+            ${frow('Email',        'email',       a.email,    {inputType:'email'})}
+            ${frow('Phone',        'phone',       a.phone,    {inputType:'tel'})}
+          </div></div>
+
+          <div class="dc"><div class="dc-title">Address</div><div class="dc-body">
+            ${frow('Street',  'address', a.address)}
+            ${frow('City',    'city',    a.city)}
+            ${frow('State',   'state',   a.state)}
+            ${frow('Zip',     'zip',     a.zip)}
+          </div></div>
+
+          <div class="dc"><div class="dc-title">Notes</div><div class="dc-body">
+            <span class="fv" style="min-height:60px;display:block;white-space:pre-wrap"
+              data-raw="${(a.notes||'').replace(/"/g,'&quot;')}" onclick="ef(this,'notes',{multiline:true})">${a.notes||'—'}</span>
+          </div></div>
+        </div>
+
+        <div>
+          <div class="dc"><div class="dc-title">Contacts${d.contacts.length ? ' (' + d.contacts.length + ')' : ''}</div><div class="dc-body" style="padding:10px">
+            ${d.contacts.length ? d.contacts.map(c =>
+              `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--cream-dark)">
+                <a class="chip" href="/pages/contact.html?id=${c.id}">◎ ${c.first_name||''} ${c.last_name||''}</a>
+                ${c.role ? `<span style="font-size:11px;color:var(--stone)">${c.role}${c.is_primary?' · Primary':''}</span>` : ''}
+              </div>`).join('') : '<span style="font-size:12.5px;color:var(--stone)">No linked contacts</span>'}
+          </div></div>
+
+          <div class="dc"><div class="dc-title">Properties${d.properties.length ? ' (' + d.properties.length + ')' : ''}</div><div class="dc-body" style="padding:8px">
+            ${d.properties.length ? d.properties.map(p =>
+              `<a class="chip" style="display:flex;border-radius:var(--radius);width:100%;padding:8px 10px;margin:3px 0"
+                 href="/pages/property.html?id=${p.id}">
+                ${Fmt.propType(p.property_type)} ${p.name||p.address}
+              </a>`).join('') : '<span style="font-size:12.5px;color:var(--stone);padding:4px">No properties</span>'}
+          </div></div>
+
+          <div class="dc"><div class="dc-title">Deals${d.deals.length ? ' (' + d.deals.length + ')' : ''}</div><div class="dc-body" style="padding:8px">
+            ${d.deals.length ? d.deals.map(de =>
+              `<a class="chip" style="display:flex;justify-content:space-between;border-radius:var(--radius);width:100%;padding:8px 10px;margin:3px 0"
+                 href="/pages/deal.html?id=${de.id}">
+                <span>${de.name}</span>
+                <span class="stage-pill ${Fmt.stageClass(de.stage)}" style="font-size:10px">${de.stage}</span>
+              </a>`).join('') : '<span style="font-size:12.5px;color:var(--stone);padding:4px">No deals</span>'}
+          </div></div>
+        </div>
+      </div>`;
+  }
+
+  async function ef(el, field, opts) {
+    const raw = el.dataset.raw;
+    const orig = el.cloneNode(true);
+    let input;
+    if (opts?.choices) {
+      input = document.createElement('select');
+      input.className = 'form-control';
+      input.style.cssText = 'display:inline-block;width:auto;font-size:13px;padding:2px 6px;';
+      [['','—'], ...opts.choices.map(c => [c,c])].forEach(([v,l]) => {
+        const o = document.createElement('option');
+        o.value = v; o.textContent = l;
+        if (v === raw) o.selected = true;
+        input.appendChild(o);
+      });
+    } else if (opts?.multiline) {
+      input = document.createElement('textarea');
+      input.className = 'form-control';
+      input.style.cssText = 'width:100%;min-height:80px;font-size:13px;';
+      input.value = raw;
+    } else {
+      input = document.createElement('input');
+      input.type = opts?.inputType || 'text';
+      input.className = 'form-control';
+      input.style.cssText = 'display:inline-block;width:180px;font-size:13px;padding:2px 6px;';
+      input.value = raw;
+    }
+    el.replaceWith(input);
+    input.focus();
+    if (input.tagName === 'INPUT') input.select();
+    async function save() {
+      const v = input.value;
+      if (v === raw) { input.replaceWith(orig); return; }
+      try {
+        const updated = await API.put(`/${SILO}/${ID}`, { [field]: v || null });
+        Object.assign(REC, updated);
+        const neo = orig.cloneNode(true);
+        const newRaw = updated[field] != null ? String(updated[field]) : '';
+        neo.dataset.raw = newRaw;
+        if (newRaw) { delete neo.dataset.empty; neo.textContent = newRaw; }
+        else { neo.dataset.empty = ''; neo.textContent = ''; }
+        input.replaceWith(neo);
+        Toast.success('Saved');
+      } catch(e) { input.replaceWith(orig); Toast.error(e.message); }
+    }
+    input.addEventListener('blur', save);
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !opts?.multiline) { e.preventDefault(); input.blur(); }
+      if (e.key === 'Escape') input.replaceWith(orig);
+    });
+  }
+
+  load();
+</script>
+</body>
+</html>

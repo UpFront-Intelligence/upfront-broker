@@ -156,6 +156,73 @@ def update_property(
             db.refresh(prop)
     return prop
 
+@router.get("/{property_id}/full")
+def get_property_full(
+    property_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from models.account import Account
+    from models.contact import Contact
+    from models.contact_account import ContactAccount
+    from models.deal import Deal, DealContact
+    from models.shared import Activity, Document
+    prop = db.query(Property).filter(
+        Property.id == property_id, Property.owner_id == current_user.id
+    ).first()
+    if not prop:
+        raise HTTPException(404, "Property not found")
+
+    acct = None
+    if prop.account_id:
+        a = db.query(Account).filter(Account.id == prop.account_id,
+                                     Account.owner_id == current_user.id).first()
+        if a:
+            acct = {"id": a.id, "name": a.name, "entity_type": a.entity_type,
+                    "city": a.city, "state": a.state}
+
+    contacts = []
+    if prop.account_id:
+        for ca, c in (db.query(ContactAccount, Contact)
+                        .join(Contact, ContactAccount.contact_id == Contact.id)
+                        .filter(ContactAccount.account_id == prop.account_id,
+                                Contact.owner_id == current_user.id).all()):
+            contacts.append({"id": c.id, "first_name": c.first_name,
+                              "last_name": c.last_name, "title": c.title,
+                              "role": ca.role, "is_primary": ca.is_primary})
+
+    deals = [{"id": d.id, "name": d.name, "stage": d.stage, "deal_type": d.deal_type,
+               "our_commission": d.our_commission,
+               "projected_close": str(d.projected_close) if d.projected_close else None}
+             for d in db.query(Deal).filter(Deal.property_id == property_id,
+                                            Deal.owner_id == current_user.id).all()]
+
+    acts = db.query(Activity).filter(Activity.property_id == property_id,
+                                     Activity.owner_id == current_user.id
+                                     ).order_by(Activity.activity_date.desc()).limit(20).all()
+    docs = db.query(Document).filter(Document.property_id == property_id,
+                                     Document.owner_id == current_user.id).all()
+
+    prop_d = PropertyResponse.model_validate(prop).model_dump()
+    # Serialize date fields
+    for k, v in prop_d.items():
+        if hasattr(v, 'isoformat'):
+            prop_d[k] = v.isoformat()
+
+    return {
+        "property":   prop_d,
+        "account":    acct,
+        "contacts":   contacts,
+        "deals":      deals,
+        "activities": [{"id": a.id, "activity_type": a.activity_type, "subject": a.subject,
+                        "notes": a.notes,
+                        "activity_date": str(a.activity_date) if a.activity_date else None,
+                        "created_at": str(a.created_at)} for a in acts],
+        "documents":  [{"id": d.id, "name": d.name, "doc_type": d.doc_type,
+                        "file_url": d.file_url} for d in docs],
+    }
+
+
 @router.delete("/{property_id}")
 def delete_property(
     property_id: int,

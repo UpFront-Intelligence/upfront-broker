@@ -80,6 +80,18 @@ async def page_import():     return _page("import.html")
 @app.get("/pages/finder.html")
 async def page_finder():     return _page("finder.html")
 
+@app.get("/pages/property.html")
+async def page_property_detail(): return _page("property.html")
+
+@app.get("/pages/contact.html")
+async def page_contact_detail():  return _page("contact.html")
+
+@app.get("/pages/account.html")
+async def page_account_detail():  return _page("account.html")
+
+@app.get("/pages/deal.html")
+async def page_deal_detail():     return _page("deal.html")
+
 @app.get("/")
 async def serve_root():
     return FileResponse(os.path.join(frontend_path, "index.html"), headers=_NO_CACHE)

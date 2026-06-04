@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UpFront Broker — Contact</title>
+  <link rel="stylesheet" href="/static/main.css">
+  <style>
+    #page-content { padding:24px 28px; max-width:1100px; }
+    .detail-grid { display:grid; grid-template-columns:1fr 300px; gap:20px; }
+    @media(max-width:900px){ .detail-grid{ grid-template-columns:1fr; } }
+    .dc { background:#fff; border:1px solid var(--cream-dark); border-radius:var(--radius-lg); box-shadow:var(--shadow-card); margin-bottom:16px; overflow:hidden; }
+    .dc-title { font-family:var(--font-serif); font-size:13.5px; color:var(--navy); padding:11px 16px; border-bottom:1px solid var(--cream-dark); background:var(--cream); }
+    .dc-body { padding:12px 16px; }
+    .fr { display:flex; align-items:baseline; gap:6px; padding:5px 0; border-bottom:1px solid var(--cream-dark); }
+    .fr:last-child { border-bottom:none; }
+    .fl { font-size:10.5px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--stone); min-width:120px; flex-shrink:0; padding-top:2px; }
+    .fv { font-size:13px; color:var(--ink); cursor:pointer; padding:1px 5px; border-radius:3px; transition:background 0.1s; word-break:break-word; }
+    .fv:hover { background:var(--cream-dark); }
+    .fv[data-empty]::before { content:'—'; color:var(--stone-light); }
+    .fv[data-empty]:hover::before { content:'— +'; }
+    .chip { display:inline-flex; align-items:center; gap:4px; padding:3px 10px; border-radius:20px; font-size:12px; font-weight:500; background:var(--cream-dark); color:var(--navy); cursor:pointer; margin:2px; text-decoration:none; transition:all 0.1s; }
+    .chip:hover { background:var(--navy); color:#fff; }
+    .act-item { display:flex; gap:10px; padding:8px 0; border-bottom:1px solid var(--cream-dark); font-size:12.5px; }
+    .act-item:last-child { border-bottom:none; }
+    .header-card { display:flex; align-items:center; gap:20px; background:#fff; border:1px solid var(--cream-dark); border-radius:var(--radius-lg); padding:20px 24px; margin-bottom:20px; box-shadow:var(--shadow-card); }
+    .contact-av { width:56px; height:56px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:20px; font-weight:700; color:#fff; flex-shrink:0; }
+    .header-name { font-family:var(--font-serif); font-size:20px; color:var(--navy); }
+    .header-sub  { font-size:13px; color:var(--stone); margin-top:3px; }
+  </style>
+</head>
+<body>
+<div id="sidebar"></div>
+<div id="main">
+  <div id="topbar">
+    <div style="display:flex;align-items:center;gap:12px">
+      <button class="btn btn-ghost btn-sm" onclick="history.back()">← Back</button>
+      <div class="topbar-title" id="page-title">Contact</div>
+    </div>
+    <div class="topbar-actions">
+      <button class="btn btn-outline btn-sm" onclick="navigate('contacts')">All Contacts</button>
+    </div>
+  </div>
+  <div id="page-content" class="fade-in">
+    <div id="root"><div style="text-align:center;padding:60px"><div class="spinner"></div></div></div>
+  </div>
+</div>
+<script src="/js/app.js"></script>
+<script>
+  if (!Auth.requireAuth()) throw new Error('Not authenticated');
+  renderSidebar('contacts');
+
+  const ID = +new URLSearchParams(window.location.search).get('id');
+  const SILO = 'contacts';
+  const ACT_ICONS = {'Call':'📞','Email':'✉️','Meeting':'🤝','Tour':'🏢','Offer':'📋','LOI':'📄','Contract':'✍️','Note':'📝'};
+  const TYPE_CLASS = {'Owner':'badge-navy','Buyer':'badge-green','Tenant':'badge-blue','Attorney':'badge-stone','Lender':'badge-amber','Broker':'badge-gold'};
+  let REC = {};
+
+  async function load() {
+    try {
+      const d = await API.get(`/${SILO}/${ID}/full`);
+      REC = d.contact;
+      const name = `${REC.first_name||''} ${REC.last_name||''}`.trim();
+      document.getElementById('page-title').textContent = name || 'Contact';
+      document.title = (name || 'Contact') + ' — UpFront Broker';
+      render(d);
+    } catch(e) { Toast.error('Failed to load: ' + e.message); }
+  }
+
+  function frow(label, field, value, opts) {
+    const display = value != null && value !== '' ? String(value) : '';
+    const attrs = display ? `data-raw="${display.replace(/"/g,'&quot;')}"` : 'data-empty data-raw=""';
+    const click = `onclick="ef(this,'${field}'${opts ? ','+JSON.stringify(opts) : ''})"`;
+    return `<div class="fr"><span class="fl">${label}</span><span class="fv" ${attrs} ${click}>${display}</span></div>`;
+  }
+
+  function render(d) {
+    const c = d.contact;
+    const name = `${c.first_name||''} ${c.last_name||''}`.trim();
+    const initials = Fmt.initials(c.first_name, c.last_name);
+    const color = avatarColor((c.first_name||'') + (c.last_name||''));
+
+    document.getElementById('root').innerHTML = `
+      <div class="header-card">
+        <div class="contact-av" style="background:${color}">${initials}</div>
+        <div>
+          <div class="header-name">${name || '—'}</div>
+          <div class="header-sub">${[c.title, c.contact_type].filter(Boolean).join(' · ') || ''}</div>
+        </div>
+        ${c.contact_type ? `<span class="badge ${TYPE_CLASS[c.contact_type]||'badge-stone'}" style="margin-left:auto">${c.contact_type}</span>` : ''}
+      </div>
+
+      <div class="detail-grid">
+        <div>
+          <div class="dc"><div class="dc-title">Contact Info</div><div class="dc-body">
+            ${frow('First Name',  'first_name', c.first_name)}
+            ${frow('Last Name',   'last_name',  c.last_name)}
+            ${frow('Title',       'title',      c.title)}
+            ${frow('Email',       'email',      c.email,   {inputType:'email'})}
+            ${frow('Phone',       'phone',      c.phone,   {inputType:'tel'})}
+            ${frow('Mobile',      'mobile',     c.mobile,  {inputType:'tel'})}
+            ${frow('LinkedIn',    'linkedin',   c.linkedin)}
+          </div></div>
+
+          <div class="dc"><div class="dc-title">Classification</div><div class="dc-body">
+            ${frow('Type',   'contact_type', c.contact_type, {choices:['Owner','Buyer','Tenant','Attorney','Lender','Broker']})}
+            ${frow('Source', 'source',       c.source, {choices:['Referral','CRE Platform','Cold Call','Networking','LinkedIn','Website','Other']})}
+            <div class="fr"><span class="fl">Tags</span>
+              <span style="font-size:13px">${(c.tags||[]).map(t=>`<span class="badge badge-stone">${t}</span>`).join(' ') || '<span style="color:var(--stone-light)">—</span>'}</span>
+            </div>
+          </div></div>
+
+          <div class="dc"><div class="dc-title">Notes</div><div class="dc-body">
+            <span class="fv" style="min-height:60px;display:block;white-space:pre-wrap"
+              data-raw="${(c.notes||'').replace(/"/g,'&quot;')}" onclick="ef(this,'notes',{multiline:true})">${c.notes||'—'}</span>
+          </div></div>
+        </div>
+
+        <div>
+          <div class="dc"><div class="dc-title">Linked Accounts</div><div class="dc-body" style="padding:10px">
+            ${d.accounts.length ? d.accounts.map(a =>
+              `<a class="chip" href="/pages/account.html?id=${a.id}">◻ ${a.name}${a.role?' · '+a.role:''}</a>`
+            ).join('') : '<span style="font-size:12.5px;color:var(--stone)">No linked accounts</span>'}
+          </div></div>
+
+          <div class="dc"><div class="dc-title">Deals</div><div class="dc-body" style="padding:8px">
+            ${d.deals.length ? d.deals.map(de =>
+              `<a class="chip" style="display:flex;justify-content:space-between;border-radius:var(--radius);width:100%;padding:8px 10px;margin:3px 0"
+                 href="/pages/deal.html?id=${de.id}">
+                <span>${de.name}</span>
+                <span class="stage-pill ${Fmt.stageClass(de.stage)}" style="font-size:10px">${de.stage}</span>
+              </a>`).join('') : '<span style="font-size:12.5px;color:var(--stone);padding:4px">No deals</span>'}
+          </div></div>
+
+          <div class="dc"><div class="dc-title">Activity</div><div class="dc-body">
+            ${d.activities.length ? d.activities.map(a => `
+              <div class="act-item">
+                <span>${ACT_ICONS[a.activity_type]||'●'}</span>
+                <div>
+                  <div style="font-weight:500">${a.activity_type}${a.subject?' — '+a.subject:''}</div>
+                  <div style="font-size:11px;color:var(--stone-light)">${Fmt.date(a.activity_date||a.created_at)}</div>
+                </div>
+              </div>`).join('') : '<span style="font-size:12.5px;color:var(--stone)">No activity yet</span>'}
+          </div></div>
+        </div>
+      </div>`;
+  }
+
+  async function ef(el, field, opts) {
+    const raw = el.dataset.raw;
+    const orig = el.cloneNode(true);
+    let input;
+    if (opts?.choices) {
+      input = document.createElement('select');
+      input.className = 'form-control';
+      input.style.cssText = 'display:inline-block;width:auto;font-size:13px;padding:2px 6px;';
+      [['','—'], ...opts.choices.map(c => [c,c])].forEach(([v,l]) => {
+        const o = document.createElement('option');
+        o.value = v; o.textContent = l;
+        if (v === raw) o.selected = true;
+        input.appendChild(o);
+      });
+    } else if (opts?.multiline) {
+      input = document.createElement('textarea');
+      input.className = 'form-control';
+      input.style.cssText = 'width:100%;min-height:80px;font-size:13px;';
+      input.value = raw;
+    } else {
+      input = document.createElement('input');
+      input.type = opts?.inputType || 'text';
+      input.className = 'form-control';
+      input.style.cssText = 'display:inline-block;width:180px;font-size:13px;padding:2px 6px;';
+      input.value = raw;
+    }
+    el.replaceWith(input);
+    input.focus();
+    if (input.tagName === 'INPUT') input.select();
+    async function save() {
+      const v = input.value;
+      if (v === raw) { input.replaceWith(orig); return; }
+      try {
+        const updated = await API.put(`/${SILO}/${ID}`, { [field]: v || null });
+        Object.assign(REC, updated);
+        const neo = orig.cloneNode(true);
+        const newRaw = updated[field] != null ? String(updated[field]) : '';
+        neo.dataset.raw = newRaw;
+        if (newRaw) { delete neo.dataset.empty; neo.textContent = newRaw; }
+        else { neo.dataset.empty = ''; neo.textContent = ''; }
+        input.replaceWith(neo);
+        Toast.success('Saved');
+      } catch(e) { input.replaceWith(orig); Toast.error(e.message); }
+    }
+    input.addEventListener('blur', save);
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !opts?.multiline) { e.preventDefault(); input.blur(); }
+      if (e.key === 'Escape') input.replaceWith(orig);
+    });
+  }
+
+  load();
+</script>
+</body>
+</html>

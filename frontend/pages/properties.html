@@ -297,7 +297,7 @@
       return;
     }
     tbody.innerHTML = rows.map(p => `
-      <tr data-id="${p.id}" class="${openId===p.id?'row-active':''}" onclick="openPanel(${p.id})">
+      <tr data-id="${p.id}" class="${openId===p.id?'row-active':''}" onclick="window.location.href='/pages/property.html?id=${p.id}'" style="cursor:pointer">
         <td><div class="prop-cell">
           <div class="prop-icon">${Fmt.propType(p.property_type)}</div>
           <div>

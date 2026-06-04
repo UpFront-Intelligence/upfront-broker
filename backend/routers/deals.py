@@ -210,6 +210,67 @@ def get_deal_contacts(
     ]
 
 
+@router.get("/{deal_id}/full")
+def get_deal_full(
+    deal_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from models.property import Property
+    from models.shared import Activity, Document, Portal
+    d = db.query(Deal).filter(
+        Deal.id == deal_id, Deal.owner_id == current_user.id
+    ).first()
+    if not d:
+        raise HTTPException(404, "Deal not found")
+
+    prop = None
+    if d.property_id:
+        p = db.query(Property).filter(Property.id == d.property_id,
+                                      Property.owner_id == current_user.id).first()
+        if p:
+            prop = {"id": p.id, "name": p.name, "address": p.address,
+                    "city": p.city, "state": p.state, "property_type": p.property_type}
+
+    contacts = []
+    for dc, c in (db.query(DealContact, Contact)
+                    .outerjoin(Contact, DealContact.contact_id == Contact.id)
+                    .filter(DealContact.deal_id == deal_id).all()):
+        contacts.append({"deal_contact_id": dc.id,
+                          "id": c.id if c else None,
+                          "first_name": c.first_name if c else None,
+                          "last_name": c.last_name if c else None,
+                          "title": c.title if c else None,
+                          "role": dc.role})
+
+    portal = db.query(Portal).filter(Portal.deal_id == deal_id).first()
+    portal_data = {"token": portal.token} if portal else None
+
+    acts = db.query(Activity).filter(Activity.deal_id == deal_id,
+                                     Activity.owner_id == current_user.id
+                                     ).order_by(Activity.activity_date.desc()).limit(20).all()
+    docs = db.query(Document).filter(Document.deal_id == deal_id,
+                                     Document.owner_id == current_user.id).all()
+
+    d_dict = DealResponse.model_validate(d).model_dump()
+    for k, v in d_dict.items():
+        if hasattr(v, 'isoformat'):
+            d_dict[k] = v.isoformat()
+
+    return {
+        "deal":       d_dict,
+        "property":   prop,
+        "contacts":   contacts,
+        "portal":     portal_data,
+        "activities": [{"id": a.id, "activity_type": a.activity_type, "subject": a.subject,
+                        "notes": a.notes,
+                        "activity_date": str(a.activity_date) if a.activity_date else None,
+                        "created_at": str(a.created_at)} for a in acts],
+        "documents":  [{"id": d.id, "name": d.name, "doc_type": d.doc_type,
+                        "file_url": d.file_url} for d in docs],
+    }
+
+
 @router.delete("/{deal_id}")
 def delete_deal(
     deal_id: int,

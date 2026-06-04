@@ -175,3 +175,48 @@ def link_contact(
     db.add(link)
     db.commit()
     return {"linked": True}
+
+
+@router.get("/{account_id}/full")
+def get_account_full(
+    account_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from models.property import Property
+    from models.deal import Deal, DealContact
+    from models.shared import Activity
+    a = db.query(Account).filter(
+        Account.id == account_id, Account.owner_id == current_user.id
+    ).first()
+    if not a:
+        raise HTTPException(404, "Account not found")
+
+    contacts = []
+    for ca, c in (db.query(ContactAccount, Contact)
+                    .join(Contact, ContactAccount.contact_id == Contact.id)
+                    .filter(ContactAccount.account_id == account_id,
+                            Contact.owner_id == current_user.id).all()):
+        contacts.append({"id": c.id, "first_name": c.first_name, "last_name": c.last_name,
+                          "title": c.title, "email": c.email,
+                          "role": ca.role, "is_primary": ca.is_primary})
+
+    props = [{"id": p.id, "name": p.name, "address": p.address, "city": p.city,
+               "state": p.state, "property_type": p.property_type, "status": p.status}
+             for p in db.query(Property).filter(Property.account_id == account_id,
+                                                Property.owner_id == current_user.id).all()]
+
+    deal_ids = [r.deal_id for r in db.query(DealContact.deal_id)
+                .filter(DealContact.account_id == account_id).all()]
+    deals = [{"id": d.id, "name": d.name, "stage": d.stage, "deal_type": d.deal_type,
+               "our_commission": d.our_commission}
+             for d in db.query(Deal).filter(Deal.id.in_(deal_ids),
+                                            Deal.owner_id == current_user.id).all()]
+
+    a_dict = AccountResponse.model_validate(a).model_dump()
+    return {
+        "account":    a_dict,
+        "contacts":   contacts,
+        "properties": props,
+        "deals":      deals,
+    }

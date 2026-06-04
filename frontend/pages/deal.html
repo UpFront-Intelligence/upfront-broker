@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UpFront Broker — Deal</title>
+  <link rel="stylesheet" href="/static/main.css">
+  <style>
+    #page-content { padding:24px 28px; max-width:1100px; }
+    .detail-grid { display:grid; grid-template-columns:1fr 300px; gap:20px; }
+    @media(max-width:900px){ .detail-grid{ grid-template-columns:1fr; } }
+    .dc { background:#fff; border:1px solid var(--cream-dark); border-radius:var(--radius-lg); box-shadow:var(--shadow-card); margin-bottom:16px; overflow:hidden; }
+    .dc-title { font-family:var(--font-serif); font-size:13.5px; color:var(--navy); padding:11px 16px; border-bottom:1px solid var(--cream-dark); background:var(--cream); }
+    .dc-body { padding:12px 16px; }
+    .fr { display:flex; align-items:baseline; gap:6px; padding:5px 0; border-bottom:1px solid var(--cream-dark); }
+    .fr:last-child { border-bottom:none; }
+    .fl { font-size:10.5px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--stone); min-width:140px; flex-shrink:0; }
+    .fv { font-size:13px; color:var(--ink); cursor:pointer; padding:1px 5px; border-radius:3px; transition:background 0.1s; }
+    .fv:hover { background:var(--cream-dark); }
+    .fv[data-empty]::before { content:'—'; color:var(--stone-light); }
+    .fv[data-empty]:hover::before { content:'— +'; }
+    .fv-money { font-family:var(--font-mono); color:var(--green); font-weight:600; }
+    .chip { display:inline-flex; align-items:center; gap:4px; padding:3px 10px; border-radius:20px; font-size:12px; font-weight:500; background:var(--cream-dark); color:var(--navy); cursor:pointer; margin:2px; text-decoration:none; transition:all 0.1s; }
+    .chip:hover { background:var(--navy); color:#fff; }
+    .act-item { display:flex; gap:10px; padding:8px 0; border-bottom:1px solid var(--cream-dark); font-size:12.5px; }
+    .act-item:last-child { border-bottom:none; }
+    .header-card { background:var(--navy); border-radius:var(--radius-lg); padding:20px 26px; color:#fff; margin-bottom:20px; }
+    .header-deal { font-family:var(--font-serif); font-size:20px; margin-bottom:6px; }
+    .header-prop { font-size:13px; color:rgba(255,255,255,0.6); margin-bottom:10px; }
+    .comm-row { display:flex; align-items:center; justify-content:space-between; padding:7px 0; border-bottom:1px solid var(--cream-dark); }
+    .comm-row:last-child { border-bottom:none; }
+    .comm-val { font-family:var(--font-mono); font-size:14px; color:var(--green); font-weight:600; }
+  </style>
+</head>
+<body>
+<div id="sidebar"></div>
+<div id="main">
+  <div id="topbar">
+    <div style="display:flex;align-items:center;gap:12px">
+      <button class="btn btn-ghost btn-sm" onclick="history.back()">← Back</button>
+      <div class="topbar-title" id="page-title">Deal</div>
+    </div>
+    <div class="topbar-actions">
+      <button class="btn btn-outline btn-sm" onclick="navigate('deals')">All Deals</button>
+    </div>
+  </div>
+  <div id="page-content" class="fade-in">
+    <div id="root"><div style="text-align:center;padding:60px"><div class="spinner"></div></div></div>
+  </div>
+</div>
+<script src="/js/app.js"></script>
+<script>
+  if (!Auth.requireAuth()) throw new Error('Not authenticated');
+  renderSidebar('deals');
+
+  const ID = +new URLSearchParams(window.location.search).get('id');
+  const SILO = 'deals';
+  const ACT_ICONS = {'Call':'📞','Email':'✉️','Meeting':'🤝','Tour':'🏢','Offer':'📋','LOI':'📄','Contract':'✍️','Note':'📝'};
+  const STAGES = ['Prospecting','Pitching','Active Listing','Under Contract','Closed','Dead'];
+  const DEAL_TYPES = ['Listing','Buyer Rep','Lease - Landlord','Lease - Tenant'];
+  let REC = {};
+
+  async function load() {
+    try {
+      const d = await API.get(`/${SILO}/${ID}/full`);
+      REC = d.deal;
+      document.getElementById('page-title').textContent = REC.name || 'Deal';
+      document.title = (REC.name || 'Deal') + ' — UpFront Broker';
+      render(d);
+    } catch(e) { Toast.error('Failed to load: ' + e.message); }
+  }
+
+  function frow(label, field, value, opts) {
+    const display = value != null && value !== '' ? String(value) : '';
+    const attrs = display ? `data-raw="${display.replace(/"/g,'&quot;')}"` : 'data-empty data-raw=""';
+    const click = `onclick="ef(this,'${field}'${opts ? ','+JSON.stringify(opts) : ''})"`;
+    return `<div class="fr"><span class="fl">${label}</span><span class="fv" ${attrs} ${click}>${display}</span></div>`;
+  }
+
+  function render(d) {
+    const de = d.deal;
+    const prop = d.property;
+    const isLease = (de.deal_type||'').startsWith('Lease');
+
+    const financialHtml = isLease ? `
+      ${frow('Lease Rate',    'lease_rate',         de.lease_rate ? de.lease_rate + '/SF/yr' : null)}
+      ${frow('Leased SF',     'lease_sf',            de.lease_sf ? Fmt.sf(de.lease_sf) : null)}
+      ${frow('Lease Term',    'lease_term_months',   de.lease_term_months ? de.lease_term_months + ' months' : null)}
+    ` : `
+      ${frow('List Price',    'list_price',          de.list_price ? Fmt.currency(de.list_price) : null)}
+      ${frow('Sale Price',    'sale_price',          de.sale_price ? Fmt.currency(de.sale_price) : null)}
+    `;
+
+    document.getElementById('root').innerHTML = `
+      <div class="header-card">
+        <div class="header-deal">${de.name}</div>
+        <div class="header-prop">${prop ? `<a href="/pages/property.html?id=${prop.id}" style="color:rgba(255,255,255,0.7);text-decoration:none">${prop.address}, ${prop.city}, ${prop.state}</a>` : ''}</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <span class="stage-pill ${Fmt.stageClass(de.stage)}">${de.stage}</span>
+          ${de.deal_type ? `<span style="font-size:12px;color:rgba(255,255,255,0.6)">${de.deal_type}</span>` : ''}
+          ${de.our_commission ? `<span style="font-family:var(--font-mono);font-size:13px;color:#e0b060">Your cut: ${Fmt.currency(de.our_commission)}</span>` : ''}
+        </div>
+      </div>
+
+      <div class="detail-grid">
+        <div>
+          <div class="dc"><div class="dc-title">Deal Info</div><div class="dc-body">
+            ${frow('Stage',     'stage',     de.stage,     {choices:STAGES})}
+            ${frow('Deal Type', 'deal_type', de.deal_type, {choices:DEAL_TYPES})}
+          </div></div>
+
+          <div class="dc"><div class="dc-title">Financial</div><div class="dc-body">
+            ${financialHtml}
+            ${frow('Commission %',    'commission_pct',   de.commission_pct != null ? de.commission_pct + '%' : null)}
+            ${frow('Commission Total','commission_total',  de.commission_total ? Fmt.currency(de.commission_total) : null)}
+            ${frow('Our Split %',     'our_split_pct',    de.our_split_pct != null ? de.our_split_pct + '%' : null)}
+            <div class="fr"><span class="fl">Our Commission</span>
+              <span style="font-family:var(--font-mono);font-size:14px;font-weight:600;color:var(--green)">${de.our_commission ? Fmt.currency(de.our_commission) : '—'}</span>
+            </div>
+            ${de.co_broker ? `
+              <div class="fr" style="margin-top:8px;padding-top:8px;border-top:1px solid var(--cream-dark)"><span class="fl">Co-Broker</span>
+                <span style="font-size:13px">${de.co_broker_name||''}${de.co_broker_firm?' · '+de.co_broker_firm:''}</span></div>
+              ${frow('Their Split', 'co_broker_split_pct', de.co_broker_split_pct != null ? de.co_broker_split_pct + '%' : null)}` : ''}
+          </div></div>
+
+          <div class="dc"><div class="dc-title">Timeline</div><div class="dc-body">
+            ${frow('List Date',         'list_date',        de.list_date ? Fmt.date(de.list_date) : null,             {inputType:'date'})}
+            ${frow('Projected Close',   'projected_close',  de.projected_close ? Fmt.date(de.projected_close) : null, {inputType:'date'})}
+            ${frow('Actual Close',      'actual_close',     de.actual_close ? Fmt.date(de.actual_close) : null,       {inputType:'date'})}
+            ${de.days_on_market != null ? `<div class="fr"><span class="fl">Days on Market</span><span class="fv" data-raw="${de.days_on_market}">${de.days_on_market}</span></div>` : ''}
+          </div></div>
+
+          <div class="dc"><div class="dc-title">Notes</div><div class="dc-body">
+            <span class="fv" style="min-height:60px;display:block;white-space:pre-wrap"
+              data-raw="${(de.notes||'').replace(/"/g,'&quot;')}" onclick="ef(this,'notes',{multiline:true})">${de.notes||'—'}</span>
+          </div></div>
+        </div>
+
+        <div>
+          <div class="dc"><div class="dc-title">Contacts${d.contacts.length ? ' (' + d.contacts.length + ')' : ''}</div><div class="dc-body" style="padding:10px">
+            ${d.contacts.length ? d.contacts.map(c =>
+              `<div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--cream-dark)">
+                <a class="chip" href="/pages/contact.html?id=${c.id}">◎ ${c.first_name||''} ${c.last_name||''}</a>
+                ${c.role ? `<span style="font-size:11px;color:var(--stone)">${c.role}</span>` : ''}
+              </div>`).join('') : '<span style="font-size:12.5px;color:var(--stone)">No contacts on this deal</span>'}
+          </div></div>
+
+          <div class="dc"><div class="dc-title">Client Portal</div><div class="dc-body" style="padding:12px">
+            ${d.portal ? `
+              <div style="font-size:13px;color:var(--green);font-weight:500;margin-bottom:8px">✓ Portal Active</div>
+              <a class="btn btn-outline btn-sm" href="/portal/${d.portal.token}" target="_blank">View Portal →</a>` :
+              `<div style="font-size:12.5px;color:var(--stone);margin-bottom:10px">No portal created yet</div>
+               <button class="btn btn-primary btn-sm" onclick="createPortal()">Create Portal</button>`}
+          </div></div>
+
+          <div class="dc"><div class="dc-title">Activity</div><div class="dc-body">
+            ${d.activities.length ? d.activities.map(a => `
+              <div class="act-item">
+                <span>${ACT_ICONS[a.activity_type]||'●'}</span>
+                <div>
+                  <div style="font-weight:500">${a.activity_type}${a.subject?' — '+a.subject:''}</div>
+                  <div style="font-size:11px;color:var(--stone-light)">${Fmt.date(a.activity_date||a.created_at)}</div>
+                </div>
+              </div>`).join('') : '<span style="font-size:12.5px;color:var(--stone)">No activity yet</span>'}
+          </div></div>
+
+          <div class="dc"><div class="dc-title">Documents</div><div class="dc-body" style="padding:8px">
+            ${d.documents.length ? d.documents.map(doc =>
+              `<div style="display:flex;align-items:center;gap:8px;padding:5px 4px;border-bottom:1px solid var(--cream-dark)">
+                <span style="font-size:16px">${{'LOI':'📄','PSA':'📋','Lease':'📝','BOV':'📊'}[doc.doc_type]||'📎'}</span>
+                <div style="flex:1;min-width:0">
+                  <div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${doc.name}</div>
+                  <div style="font-size:11px;color:var(--stone)">${doc.doc_type||'Document'}</div>
+                </div>
+                ${doc.file_url ? `<a href="${doc.file_url}" target="_blank" style="color:var(--stone-light);font-size:14px">↗</a>` : ''}
+              </div>`).join('') : '<span style="font-size:12.5px;color:var(--stone);padding:4px">No documents</span>'}
+          </div></div>
+        </div>
+      </div>`;
+  }
+
+  async function createPortal() {
+    try {
+      const r = await API.post('/portal/', { deal_id: ID });
+      Toast.success('Portal created');
+      load();
+    } catch(e) { Toast.error(e.message); }
+  }
+
+  async function ef(el, field, opts) {
+    const raw = el.dataset.raw;
+    const orig = el.cloneNode(true);
+    let input;
+    if (opts?.choices) {
+      input = document.createElement('select');
+      input.className = 'form-control';
+      input.style.cssText = 'display:inline-block;width:auto;font-size:13px;padding:2px 6px;';
+      [['','—'], ...opts.choices.map(c => [c,c])].forEach(([v,l]) => {
+        const o = document.createElement('option');
+        o.value = v; o.textContent = l;
+        if (v === raw) o.selected = true;
+        input.appendChild(o);
+      });
+    } else if (opts?.multiline) {
+      input = document.createElement('textarea');
+      input.className = 'form-control';
+      input.style.cssText = 'width:100%;min-height:80px;font-size:13px;';
+      input.value = raw;
+    } else {
+      input = document.createElement('input');
+      input.type = opts?.inputType || 'text';
+      input.className = 'form-control';
+      input.style.cssText = 'display:inline-block;width:180px;font-size:13px;padding:2px 6px;';
+      input.value = raw;
+    }
+    el.replaceWith(input);
+    input.focus();
+    if (input.tagName === 'INPUT') input.select();
+    async function save() {
+      const v = input.value;
+      if (v === raw) { input.replaceWith(orig); return; }
+      try {
+        const updated = await API.put(`/${SILO}/${ID}`, { [field]: v || null });
+        Object.assign(REC, updated);
+        const neo = orig.cloneNode(true);
+        const newRaw = updated[field] != null ? String(updated[field]) : '';
+        neo.dataset.raw = newRaw;
+        if (newRaw) { delete neo.dataset.empty; neo.textContent = newRaw; }
+        else { neo.dataset.empty = ''; neo.textContent = ''; }
+        input.replaceWith(neo);
+        Toast.success('Saved');
+        if (['stage','deal_type','list_price','sale_price','commission_pct','our_split_pct'].includes(field)) load();
+      } catch(e) { input.replaceWith(orig); Toast.error(e.message); }
+    }
+    input.addEventListener('blur', save);
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !opts?.multiline) { e.preventDefault(); input.blur(); }
+      if (e.key === 'Escape') input.replaceWith(orig);
+    });
+  }
+
+  load();
+</script>
+</body>
+</html>

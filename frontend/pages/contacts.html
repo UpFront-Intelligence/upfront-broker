@@ -272,7 +272,7 @@
       const initials = Fmt.initials(c.first_name, c.last_name);
       const color    = avatarColor(c.first_name + c.last_name);
       return `
-      <tr data-id="${c.id}" class="${openId===c.id?'row-active':''}" onclick="openPanel(${c.id})">
+      <tr data-id="${c.id}" class="${openId===c.id?'row-active':''}" onclick="window.location.href='/pages/contact.html?id=${c.id}'" style="cursor:pointer">
         <td><div class="contact-cell">
           <div class="c-avatar" style="background:${color}">${initials}</div>
           <div>
