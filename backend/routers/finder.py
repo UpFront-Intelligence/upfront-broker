@@ -89,8 +89,22 @@ def _classcode_to_type(code) -> Optional[str]:
 _propclass_to_type = _classcode_to_type
 
 
+def _webmercator_to_latlng(x: float, y: float) -> tuple[float, float]:
+    """Convert Web Mercator (EPSG:3857/102100) x,y to WGS84 lat,lng."""
+    import math
+    lng = (x / 20037508.34) * 180
+    lat = (y / 20037508.34) * 180
+    lat = 180 / math.pi * (
+        2 * math.atan(math.exp(lat * math.pi / 180)) - math.pi / 2
+    )
+    return lat, lng
+
+
 def _centroid(geometry) -> tuple[Optional[float], Optional[float]]:
-    """Return (lat, lng) centroid from an ESRI polygon geometry dict."""
+    """
+    Return (lat, lng) centroid from an ESRI polygon geometry dict.
+    Oakland MapServer returns Web Mercator (EPSG:3857) — convert to WGS84.
+    """
     if not geometry:
         return None, None
     rings = geometry.get("rings", [])
@@ -99,9 +113,10 @@ def _centroid(geometry) -> tuple[Optional[float], Optional[float]]:
     pts = rings[0]   # outer ring
     if not pts:
         return None, None
-    lngs = [p[0] for p in pts]
-    lats  = [p[1] for p in pts]
-    return round(sum(lats) / len(lats), 6), round(sum(lngs) / len(lngs), 6)
+    avg_x = sum(p[0] for p in pts) / len(pts)
+    avg_y = sum(p[1] for p in pts) / len(pts)
+    lat, lng = _webmercator_to_latlng(avg_x, avg_y)
+    return round(lat, 6), round(lng, 6)
 
 
 def _parcel_from_attrs(attrs: dict) -> dict:
