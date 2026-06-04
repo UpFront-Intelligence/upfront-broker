@@ -25,13 +25,15 @@ router = APIRouter()
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
-# ── Confirmed endpoint (found via /api/finder/debug) ─────────────────────────
-OAKLAND_PARCELS_URL = (
-    "https://services1.arcgis.com/QHF6KMnTeiUQgmFe/arcgis/rest/services"
-    "/OC_Tax_Parcels_Public/FeatureServer/0"
-)
-# Single fallback in case the primary URL changes
-OAKLAND_FALLBACK_URL = "https://gis.oakgov.com/arcgis/rest/services/Property/Parcels/FeatureServer/0"
+# ── Oakland County parcel layer candidates (in priority order) ───────────────
+OAKLAND_PARCELS_URL = "https://gis.oakgov.com/arcgis/rest/services/CRAPublic/Parcels_Public_WM/FeatureServer/0"
+
+OAKLAND_CANDIDATES = [
+    "https://gis.oakgov.com/arcgis/rest/services/CRAPublic/Parcels_Public_WM/FeatureServer/0",
+    "https://gis.oakgov.com/arcgis/rest/services/CRAPublic/ParcelsPublic/FeatureServer/0",
+    "https://gis.oakgov.com/arcgis/rest/services/CRAPublic/Parcels_Public_Sync/FeatureServer/0",
+    "https://gis.oakgov.com/arcgis/rest/services/CRAPublic/Parcels_Public_Property_Hub_WM/FeatureServer/0",
+]
 
 MAX_PARCELS      = 500
 CACHE_ZIP_PREFIX = "oakland_zip_"
@@ -168,50 +170,47 @@ def _save_cache(db: Session, lookup_type: str, lookup_key: str,
 @router.get("/test")
 def test_layer(current_user: User = Depends(get_current_user)):
     """
-    Diagnostic: probe the confirmed OAKLAND_PARCELS_URL with two minimal
-    requests so we can verify the layer exists and accepts queries.
+    Probe all OAKLAND_CANDIDATES — returns layer info + minimal query result
+    for each URL so we can identify which one is live.
     """
     results = {}
+    for url in OAKLAND_CANDIDATES:
+        entry: dict = {"url": url}
 
-    # 1. Layer info — does the endpoint exist?
-    info_url = f"{OAKLAND_PARCELS_URL}?f=json"
-    try:
-        data = _get(info_url)
-        results["layer_info"] = {
-            "url":      info_url,
-            "ok":       True,
-            "keys":     list(data.keys()),
-            "name":     data.get("name"),
-            "type":     data.get("type"),
-            "geomType": data.get("geometryType"),
-            "fields":   [f["name"] for f in data.get("fields", [])[:20]],
-            "error":    data.get("error"),
-        }
-    except Exception as exc:
-        results["layer_info"] = {"url": info_url, "ok": False, "error": str(exc)}
+        # Layer info
+        try:
+            data = _get(f"{url}?f=json")
+            entry["layer_info"] = {
+                "ok":       "error" not in data,
+                "name":     data.get("name"),
+                "geomType": data.get("geometryType"),
+                "fields":   [f["name"] for f in data.get("fields", [])[:25]],
+                "error":    data.get("error"),
+            }
+        except Exception as exc:
+            entry["layer_info"] = {"ok": False, "error": str(exc)}
 
-    # 2. Minimal query — 1 row, all fields, no filters beyond WHERE 1=1
-    query_url = (
-        f"{OAKLAND_PARCELS_URL}/query"
-        "?where=1%3D1"
-        "&resultRecordCount=1"
-        "&outFields=*"
-        "&returnGeometry=false"
-        "&f=json"
-    )
-    try:
-        data = _get(query_url)
-        features = data.get("features", [])
-        results["minimal_query"] = {
-            "url":          query_url,
-            "ok":           True,
-            "feature_count": len(features),
-            "keys":         list(data.keys()),
-            "sample_attrs": features[0].get("attributes") if features else None,
-            "error":        data.get("error"),
-        }
-    except Exception as exc:
-        results["minimal_query"] = {"url": query_url, "ok": False, "error": str(exc)}
+        # Minimal query (only if layer info succeeded)
+        if entry["layer_info"].get("ok"):
+            query_url = (
+                f"{url}/query?where=1%3D1"
+                "&resultRecordCount=1&outFields=*&returnGeometry=false&f=json"
+            )
+            try:
+                qdata     = _get(query_url)
+                features  = qdata.get("features", [])
+                entry["query"] = {
+                    "ok":          "error" not in qdata,
+                    "count":       len(features),
+                    "sample_keys": list(features[0].get("attributes", {}).keys())[:20] if features else [],
+                    "error":       qdata.get("error"),
+                }
+            except Exception as exc:
+                entry["query"] = {"ok": False, "error": str(exc)}
+        else:
+            entry["query"] = {"ok": False, "skipped": True}
+
+        results[url] = entry
 
     return results
 
@@ -274,13 +273,18 @@ def get_parcels(
 
         try:
             data = _get(url)
-        except Exception as exc:
-            # One retry with the fallback URL
-            try:
-                fallback_params = url.split("/query?", 1)[1]
-                data = _get(f"{OAKLAND_FALLBACK_URL}/query?{fallback_params}")
-            except Exception:
-                raise HTTPException(503, f"ArcGIS request failed: {exc}")
+        except Exception as primary_exc:
+            # Walk remaining candidates until one succeeds
+            data = None
+            qs = url.split("/query?", 1)[1]
+            for fallback in OAKLAND_CANDIDATES[1:]:
+                try:
+                    data = _get(f"{fallback}/query?{qs}")
+                    break
+                except Exception:
+                    continue
+            if data is None:
+                raise HTTPException(503, f"All parcel layer URLs failed: {primary_exc}")
 
         if "error" in data:
             raise HTTPException(502, f"ArcGIS error: {data['error'].get('message','unknown')}")
