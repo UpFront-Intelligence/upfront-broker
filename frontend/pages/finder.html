@@ -231,8 +231,10 @@
     });
 
     if (markers.length) {
-      try { leafletMap.fitBounds(L.featureGroup(markers).getBounds().pad(0.1)); }
-      catch(_) {}
+      try {
+        const group = L.featureGroup(markers);
+        leafletMap.fitBounds(group.getBounds(), { padding: [20, 20] });
+      } catch(_) {}
     }
   }
 
