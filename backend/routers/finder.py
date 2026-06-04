@@ -165,6 +165,57 @@ def _save_cache(db: Session, lookup_type: str, lookup_key: str,
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
+@router.get("/test")
+def test_layer(current_user: User = Depends(get_current_user)):
+    """
+    Diagnostic: probe the confirmed OAKLAND_PARCELS_URL with two minimal
+    requests so we can verify the layer exists and accepts queries.
+    """
+    results = {}
+
+    # 1. Layer info — does the endpoint exist?
+    info_url = f"{OAKLAND_PARCELS_URL}?f=json"
+    try:
+        data = _get(info_url)
+        results["layer_info"] = {
+            "url":      info_url,
+            "ok":       True,
+            "keys":     list(data.keys()),
+            "name":     data.get("name"),
+            "type":     data.get("type"),
+            "geomType": data.get("geometryType"),
+            "fields":   [f["name"] for f in data.get("fields", [])[:20]],
+            "error":    data.get("error"),
+        }
+    except Exception as exc:
+        results["layer_info"] = {"url": info_url, "ok": False, "error": str(exc)}
+
+    # 2. Minimal query — 1 row, all fields, no filters beyond WHERE 1=1
+    query_url = (
+        f"{OAKLAND_PARCELS_URL}/query"
+        "?where=1%3D1"
+        "&resultRecordCount=1"
+        "&outFields=*"
+        "&returnGeometry=false"
+        "&f=json"
+    )
+    try:
+        data = _get(query_url)
+        features = data.get("features", [])
+        results["minimal_query"] = {
+            "url":          query_url,
+            "ok":           True,
+            "feature_count": len(features),
+            "keys":         list(data.keys()),
+            "sample_attrs": features[0].get("attributes") if features else None,
+            "error":        data.get("error"),
+        }
+    except Exception as exc:
+        results["minimal_query"] = {"url": query_url, "ok": False, "error": str(exc)}
+
+    return results
+
+
 @router.get("/debug")
 def debug_arcgis(current_user: User = Depends(get_current_user)):
     """
