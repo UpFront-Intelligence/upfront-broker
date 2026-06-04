@@ -52,8 +52,8 @@ COLUMN_MAP = {
     "NUM_BATHS":         "num_baths",
     "STRUCTURE_DESC":    "structure_desc",
     "LIVING_AREA_SQFT":  "living_area_sqft",
-    "Shape.area":        "shapearea",
-    "Shape.len":         "shapelen",
+    "Shapearea":         "shapearea",
+    "Shapelen":          "shapelen",
 }
 
 DB_COLS = list(COLUMN_MAP.values())
@@ -144,9 +144,20 @@ def rows_to_csv_buf(rows: list) -> io.StringIO:
     return buf
 
 
+def dedup_batch(rows: list) -> list:
+    """Keep last occurrence of each keypin within the batch."""
+    seen = {}
+    for row in rows:
+        key = row[0]  # keypin is always first column
+        if key:
+            seen[key] = row
+    return list(seen.values())
+
+
 def upsert_batch(cur, rows: list) -> int:
-    """COPY rows into staging, then upsert into parcels. Returns row count."""
-    buf = rows_to_csv_buf(rows)
+    """Dedup, COPY rows into staging, then upsert into parcels."""
+    rows = dedup_batch(rows)
+    buf  = rows_to_csv_buf(rows)
     cur.execute("TRUNCATE parcels_staging;")
     cur.copy_expert(
         f"COPY parcels_staging ({', '.join(DB_COLS)}) FROM STDIN WITH (FORMAT CSV, NULL '')",
