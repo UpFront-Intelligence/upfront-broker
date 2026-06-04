@@ -125,9 +125,9 @@ def _parcel_from_attrs(attrs: dict) -> dict:
     city      = attrs.get("SITECITY") or attrs.get("CVTTAXDESCRIPTION") or ""
     assessed  = attrs.get("ASSESSEDVALUE") or attrs.get("TAXABLEVALUE")
 
-    # SF: LIVING_AREA_SQFT is residential; Shape__Area is parcel footprint (sq ft) for commercial
+    # SF: LIVING_AREA_SQFT is residential; Shape.area is parcel footprint (sq ft) for commercial
     sf_raw  = attrs.get("LIVING_AREA_SQFT")
-    sf_area = attrs.get("Shape__Area") or attrs.get("Shape_Area")
+    sf_area = attrs.get("Shape.area") or attrs.get("Shape_Area")
     if sf_raw:
         sf_rentable   = float(sf_raw)
         sf_label      = "sf_rentable"
@@ -296,7 +296,7 @@ def get_parcels(
             "outFields":         ("KEYPIN,PIN,SITEADDRESS,SITECITY,SITESTATE,SITEZIP5,"
                                   "NAME1,NAME2,CLASSCODE,CVTTAXDESCRIPTION,"
                                   "ASSESSEDVALUE,TAXABLEVALUE,"
-                                  "LIVING_AREA_SQFT,Shape__Area,"
+                                  "LIVING_AREA_SQFT,Shape.area,"
                                   "NUM_BEDS,NUM_BATHS,STRUCTURE_DESC"),
             "returnGeometry":    "true",
             "geometryPrecision": "4",
@@ -330,10 +330,10 @@ def get_parcels(
         if features:
             import logging
             logging.getLogger("upfront").info(
-                "Oakland first feature attrs keys: %s | NAME1=%r Shape__Area=%r",
+                "Oakland first feature attrs keys: %s | NAME1=%r Shape.area=%r",
                 list((features[0].get("attributes") or {}).keys()),
                 (features[0].get("attributes") or {}).get("NAME1"),
-                (features[0].get("attributes") or {}).get("Shape__Area"),
+                (features[0].get("attributes") or {}).get("Shape.area"),
             )
         for feat in features:
             attrs = feat.get("attributes") or {}
