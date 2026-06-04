@@ -153,7 +153,7 @@
   // ── Map init ──────────────────────────────────────────────────────────────
   function initMap() {
     if (leafletMap) return;
-    leafletMap = L.map('finder-map', { zoomControl: true }).setView([42.6, -83.2], 11);
+    leafletMap = L.map('finder-map', { zoomControl: true }).setView([42.6064, -83.1498], 11);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
       maxZoom: 19,
@@ -200,11 +200,18 @@
     markers = [];
 
     const validParcels = parcels.filter(p => p.lat && p.lng);
+    if (validParcels.length) {
+      // Confirm coordinate order: Leaflet expects [lat, lng] — lat first
+      const fp = validParcels[0];
+      console.log('[Finder] first marker coords:', fp.lat, fp.lng,
+                  '| should be ~42.x, ~-83.x for Oakland County');
+    }
 
     validParcels.forEach(p => {
       const color  = p.exists_in_db ? OWNED_COLOR : (TYPE_COLORS[p.property_type] || '#8a8278');
       const radius = p.sf_rentable ? Math.max(4, Math.min(12, p.sf_rentable / 5000)) : 5;
 
+      // [lat, lng] — lat first, lng second (Leaflet convention)
       const marker = L.circleMarker([p.lat, p.lng], {
         radius,
         fillColor:   color,
