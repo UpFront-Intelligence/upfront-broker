@@ -62,34 +62,36 @@ GET {base}/query
   &f=json
 ```
 
-### Field mapping — Oakland ArcGIS → Property model
+### Field mapping — Oakland MapServer → Property model (CONFIRMED)
+
+Fields confirmed from live API response (`/api/finder/test`).
 
 | Oakland field | Property model field | Notes |
 |---|---|---|
-| `KEYPIN` | `parcel_id` | Primary parcel ID — canonical Oakland format |
-| `SITUSADDR` | `address` | Situs (property location) street address |
-| `SITUSCITY` | `city` | |
-| `SITUSZIP` | `zip` | |
-| `PROPCLASS` | `property_type` | Integer code — see PROPCLASS table below |
-| `PROPCLASSDESC` | `subtype` | Human-readable class description |
-| `SQFEET` | `sf_rentable` | Building square footage |
-| `TOTALACRES` | `sf_land` | Multiply × 43,560 to convert acres → SF |
-| `YEARBUILT` | `year_built` | |
-| `TAXYEAR` | `tax_year` | |
-| `TAXABLEVALUE` | `assessed_value` | Taxable value (use `SEV` if not present) |
+| `KEYPIN` | `parcel_id` | Primary parcel ID |
+| `PIN` | `parcel_id` (alt) | Alternate parcel ID |
+| `SITEADDRESS` | `address` | Situs street address |
+| `SITECITY` | `city` | |
+| `SITESTATE` | `state` | |
+| `SITEZIP5` | `zip` | **Use this for WHERE filter, not SITUSZIP** |
+| `NAME1` | `account.name` | Primary owner entity |
+| `NAME2` | `account.name` | Secondary owner (append to NAME1) |
+| `CLASSCODE` | `property_type` | Integer code — see CLASSCODE table below |
+| `CVTTAXDESCRIPTION` | `notes` / city fallback | Municipality description |
 | `ASSESSEDVALUE` | `assessed_value` | Assessed value |
-| `SEV` | `assessed_value` | State Equalized Value = ½ true cash value |
-| `ZONING` | `zoning` | |
-| `MUNICIPALITY` | `city` | Fallback if `SITUSCITY` is blank |
-| `SCHOOLDIST` | `notes` | Prepend `"School District: …"` |
-| `OWNERNAME1` | `account.name` | Primary owner entity — create/link Account |
-| `OWNERNAME2` | `account.name` | Secondary owner; append to `OWNERNAME1` if both present |
-| `OWNERADDR` | `account.address` | Owner mailing address |
-| `OWNERCITY` | `account.city` | |
-| `OWNERSTATE` | `account.state` | |
-| `OWNERZIP` | `account.zip` | |
+| `TAXABLEVALUE` | `assessed_value` (alt) | Taxable value |
+| `LIVING_AREA_SQFT` | `sf_rentable` | Building living area SF |
+| `NUM_BEDS` | `bedrooms` | Use to filter residential (> 0 = residential) |
+| `NUM_BATHS` | `bathrooms` | |
+| `STRUCTURE_DESC` | `subtype` / `notes` | Structure description |
 
-### PROPCLASS code → property_type mapping
+### Residential filter
+
+Skip a parcel if **either** condition is true:
+- `NUM_BEDS > 0` (has bedrooms → residential)
+- `CLASSCODE` 100–199 (residential class code)
+
+### CLASSCODE code → property_type mapping
 
 | Code range | Meaning | Maps to |
 |---|---|---|

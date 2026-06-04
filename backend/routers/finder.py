@@ -64,18 +64,29 @@ def _get(url: str) -> dict:
         return json.loads(resp.read())
 
 
-def _propclass_to_type(code) -> Optional[str]:
+def _classcode_to_type(code) -> Optional[str]:
+    """
+    Oakland County CLASSCODE field — first digit indicates class.
+    Codes starting with 1xx = residential → skip.
+    """
+    if not code:
+        return None
+    s = str(code).strip()
     try:
-        c = int(code)
+        c = int(s)
     except (TypeError, ValueError):
         return None
     if 100 <= c <= 199: return None          # residential — skip
-    if 200 <= c <= 299: return "Retail"      # commercial (refine with PROPCLASSDESC)
+    if 200 <= c <= 299: return "Retail"      # commercial
     if 300 <= c <= 399: return "Industrial"
     if 400 <= c <= 699: return "Land"
     if 700 <= c <= 799: return "Land"
     if 800 <= c <= 899: return "Land"
     return None
+
+
+# Keep old name as alias in case any callers still use it
+_propclass_to_type = _classcode_to_type
 
 
 def _centroid(geometry) -> tuple[Optional[float], Optional[float]]:
@@ -94,45 +105,45 @@ def _centroid(geometry) -> tuple[Optional[float], Optional[float]]:
 
 
 def _parcel_from_attrs(attrs: dict) -> dict:
-    """Transform raw ArcGIS attribute dict into our parcel shape."""
-    prop_type = _propclass_to_type(attrs.get("PROPCLASS"))
-    city = attrs.get("SITUSCITY") or attrs.get("MUNICIPALITY") or ""
-    assessed = (
-        attrs.get("TAXABLEVALUE")
-        or attrs.get("ASSESSEDVALUE")
-        or attrs.get("SEV")
-    )
-    sf_rentable = attrs.get("SQFEET")
-    acres       = attrs.get("TOTALACRES")
-    sf_land     = round(float(acres) * 43560, 0) if acres else None
+    """Transform confirmed Oakland MapServer attribute dict into our parcel shape."""
+    prop_type = _classcode_to_type(attrs.get("CLASSCODE"))
+    city      = attrs.get("SITECITY") or attrs.get("CVTTAXDESCRIPTION") or ""
+    assessed  = attrs.get("ASSESSEDVALUE") or attrs.get("TAXABLEVALUE")
 
-    owner = attrs.get("OWNERNAME1") or ""
-    if attrs.get("OWNERNAME2"):
-        owner = f"{owner} / {attrs['OWNERNAME2']}".strip(" /")
+    sf_rentable = attrs.get("LIVING_AREA_SQFT")
+
+    owner = (attrs.get("NAME1") or "").strip()
+    if attrs.get("NAME2"):
+        owner = f"{owner} / {attrs['NAME2']}".strip(" /")
 
     notes_parts = []
-    if attrs.get("SCHOOLDIST"):
-        notes_parts.append(f"School District: {attrs['SCHOOLDIST']}")
+    if attrs.get("STRUCTURE_DESC"):
+        notes_parts.append(f"Structure: {attrs['STRUCTURE_DESC']}")
+    if attrs.get("CVTTAXDESCRIPTION"):
+        notes_parts.append(f"Municipality: {attrs['CVTTAXDESCRIPTION']}")
 
     return {
-        "keypin":          attrs.get("KEYPIN") or attrs.get("keypin"),
-        "address":         attrs.get("SITUSADDR") or "",
+        "keypin":          attrs.get("KEYPIN") or attrs.get("PIN") or "",
+        "pin":             attrs.get("PIN") or "",
+        "address":         attrs.get("SITEADDRESS") or "",
         "city":            city.title(),
-        "zip":             attrs.get("SITUSZIP") or "",
-        "state":           "MI",
+        "zip":             attrs.get("SITEZIP5") or "",
+        "state":           attrs.get("SITESTATE") or "MI",
         "property_type":   prop_type,
-        "subtype":         attrs.get("PROPCLASSDESC") or "",
+        "subtype":         attrs.get("STRUCTURE_DESC") or "",
         "sf_rentable":     float(sf_rentable) if sf_rentable else None,
-        "sf_land":         sf_land,
-        "year_built":      int(attrs["YEARBUILT"]) if attrs.get("YEARBUILT") else None,
+        "sf_land":         None,   # not in this layer
+        "year_built":      None,   # not in this layer
         "assessed_value":  float(assessed) if assessed else None,
-        "tax_year":        int(attrs["TAXYEAR"]) if attrs.get("TAXYEAR") else None,
-        "zoning":          attrs.get("ZONING") or "",
+        "tax_year":        None,   # not in this layer
+        "zoning":          None,   # not in this layer
         "owner":           owner,
-        "owner_addr":      attrs.get("OWNERADDR") or "",
-        "owner_city":      attrs.get("OWNERCITY") or "",
-        "owner_state":     attrs.get("OWNERSTATE") or "",
-        "owner_zip":       attrs.get("OWNERZIP") or "",
+        "owner_addr":      None,
+        "owner_city":      None,
+        "owner_state":     None,
+        "owner_zip":       None,
+        "bedrooms":        attrs.get("NUM_BEDS"),
+        "bathrooms":       attrs.get("NUM_BATHS"),
         "notes":           "\n".join(notes_parts) or None,
     }
 
@@ -193,10 +204,10 @@ def test_layer(current_user: User = Depends(get_current_user)):
     except Exception as exc:
         result["test1_where_1eq1"] = {"error": str(exc)}
 
-    # Test 2 — zip with spaces in where clause (no URL encoding)
+    # Test 2 — confirmed zip field SITEZIP5
     try:
         result["test2_zip_query"] = _get(
-            f"{url}/query?where=SITUSZIP = '48304'&resultRecordCount=1&outFields=*&f=json"
+            f"{url}/query?where=SITEZIP5 = '48304'&resultRecordCount=1&outFields=*&f=json"
         )
     except Exception as exc:
         result["test2_zip_query"] = {"error": str(exc)}
@@ -251,14 +262,14 @@ def get_parcels(
     if not cached_parcels:
         layer_url = OAKLAND_PARCELS_URL
 
+        # Confirmed field names from live Oakland MapServer response
         params = urllib.parse.urlencode({
-            "where":             f"SITUSZIP='{zip}'",
-            "outFields":         ("KEYPIN,SITUSADDR,SITUSCITY,SITUSZIP,PROPCLASS,"
-                                  "PROPCLASSDESC,SQFEET,TOTALACRES,YEARBUILT,"
-                                  "TAXYEAR,TAXABLEVALUE,ASSESSEDVALUE,SEV,"
-                                  "ZONING,SCHOOLDIST,MUNICIPALITY,"
-                                  "OWNERNAME1,OWNERNAME2,OWNERADDR,"
-                                  "OWNERCITY,OWNERSTATE,OWNERZIP"),
+            "where":             f"SITEZIP5='{zip}'",
+            "outFields":         ("KEYPIN,PIN,SITEADDRESS,SITECITY,SITESTATE,SITEZIP5,"
+                                  "NAME1,NAME2,CLASSCODE,CVTTAXDESCRIPTION,"
+                                  "ASSESSEDVALUE,TAXABLEVALUE,"
+                                  "LIVING_AREA_SQFT,NUM_BEDS,NUM_BATHS,"
+                                  "STRUCTURE_DESC"),
             "returnGeometry":    "true",
             "geometryPrecision": "4",
             "resultRecordCount": MAX_PARCELS,
@@ -288,9 +299,14 @@ def get_parcels(
         parcels  = []
         for feat in features:
             attrs = feat.get("attributes") or {}
-            prop_type = _propclass_to_type(attrs.get("PROPCLASS"))
+            # Skip residential: CLASSCODE 1xx OR NUM_BEDS > 0
+            classcode = attrs.get("CLASSCODE")
+            num_beds  = attrs.get("NUM_BEDS")
+            if num_beds and float(num_beds) > 0:
+                continue
+            prop_type = _classcode_to_type(classcode)
             if prop_type is None:
-                continue   # skip residential
+                continue   # skip unclassified / residential
             p = _parcel_from_attrs(attrs)
             p["lat"], p["lng"] = _centroid(feat.get("geometry"))
             if p["lat"] is None:
