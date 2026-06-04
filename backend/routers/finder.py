@@ -175,49 +175,45 @@ def _save_cache(db: Session, lookup_type: str, lookup_key: str,
 @router.get("/test")
 def test_layer(current_user: User = Depends(get_current_user)):
     """
-    Probe all OAKLAND_CANDIDATES — returns layer info + minimal query result
-    for each URL so we can identify which one is live.
+    Probe OAKLAND_PARCELS_URL directly — returns raw layer info and raw
+    minimal query response so we can see the real field names and geometry.
+
+    Layer info:  GET {url}?f=json
+    Min query:   GET {url}/query?where=1=1&resultRecordCount=1&outFields=*&f=json
+    ZIP query:   GET {url}/query?where=SITUSZIP='48009'&...&resultRecordCount=2
     """
-    results = {}
-    for url in OAKLAND_CANDIDATES:
-        entry: dict = {"url": url}
+    url = OAKLAND_PARCELS_URL
+    result: dict = {"url": url}
 
-        # Layer info
-        try:
-            data = _get(f"{url}?f=json")
-            entry["layer_info"] = {
-                "ok":       "error" not in data,
-                "name":     data.get("name"),
-                "geomType": data.get("geometryType"),
-                "fields":   [f["name"] for f in data.get("fields", [])[:25]],
-                "error":    data.get("error"),
-            }
-        except Exception as exc:
-            entry["layer_info"] = {"ok": False, "error": str(exc)}
+    # 1. Raw layer info
+    try:
+        result["layer_info_raw"] = _get(f"{url}?f=json")
+    except Exception as exc:
+        result["layer_info_raw"] = {"error": str(exc)}
 
-        # Minimal query (only if layer info succeeded)
-        if entry["layer_info"].get("ok"):
-            query_url = (
-                f"{url}/query?where=1%3D1"
-                "&resultRecordCount=1&outFields=*&returnGeometry=false&f=json"
-            )
-            try:
-                qdata     = _get(query_url)
-                features  = qdata.get("features", [])
-                entry["query"] = {
-                    "ok":          "error" not in qdata,
-                    "count":       len(features),
-                    "sample_keys": list(features[0].get("attributes", {}).keys())[:20] if features else [],
-                    "error":       qdata.get("error"),
-                }
-            except Exception as exc:
-                entry["query"] = {"ok": False, "error": str(exc)}
-        else:
-            entry["query"] = {"ok": False, "skipped": True}
+    # 2. Minimal query — 1 row, all fields, no geometry
+    try:
+        result["min_query_raw"] = _get(
+            f"{url}/query?where=1%3D1&resultRecordCount=1"
+            "&outFields=*&returnGeometry=false&f=json"
+        )
+    except Exception as exc:
+        result["min_query_raw"] = {"error": str(exc)}
 
-        results[url] = entry
+    # 3. ZIP-based query matching production pattern
+    zip_params = urllib.parse.urlencode({
+        "where":             "SITUSZIP='48009'",
+        "outFields":         "*",
+        "returnGeometry":    "false",
+        "resultRecordCount": 2,
+        "f":                 "json",
+    })
+    try:
+        result["zip_query_raw"] = _get(f"{url}/query?{zip_params}")
+    except Exception as exc:
+        result["zip_query_raw"] = {"error": str(exc)}
 
-    return results
+    return result
 
 
 @router.get("/debug")
