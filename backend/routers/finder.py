@@ -310,8 +310,9 @@ def get_parcels(
         if "error" in data:
             raise HTTPException(502, f"ArcGIS error: {data['error'].get('message','unknown')}")
 
-        features = data.get("features", [])
-        parcels  = []
+        features   = data.get("features", [])
+        parcels    = []
+        first_feat = True   # debug_geo on first accepted parcel only
         for feat in features:
             attrs = feat.get("attributes") or {}
             # Skip residential: CLASSCODE 1xx OR NUM_BEDS > 0
@@ -323,9 +324,32 @@ def get_parcels(
             if prop_type is None:
                 continue   # skip unclassified / residential
             p = _parcel_from_attrs(attrs)
-            p["lat"], p["lng"] = _centroid(feat.get("geometry"))
+
+            geometry = feat.get("geometry")
+            p["lat"], p["lng"] = _centroid(geometry)
             if p["lat"] is None:
                 continue   # skip parcels with no geometry
+
+            # ── TEMPORARY: attach raw geometry debug to first accepted parcel ──
+            if first_feat:
+                first_feat = False
+                rings = (geometry or {}).get("rings", [])
+                raw_pts = rings[0][:3] if rings else []   # first 3 pts of outer ring
+                centroid_x = sum(pt[0] for pt in rings[0]) / len(rings[0]) if rings else None
+                centroid_y = sum(pt[1] for pt in rings[0]) / len(rings[0]) if rings else None
+                p["debug_geo"] = {
+                    "geometry_type": (geometry or {}).get("type"),
+                    "ring_count":    len(rings),
+                    "outer_ring_pts": len(rings[0]) if rings else 0,
+                    "first_3_raw_pts": raw_pts,
+                    "centroid_raw_x": centroid_x,
+                    "centroid_raw_y": centroid_y,
+                    "converted_lat":  p["lat"],
+                    "converted_lng":  p["lng"],
+                    "spatial_ref":    (geometry or {}).get("spatialReference"),
+                }
+            # ── END TEMPORARY ─────────────────────────────────────────────────
+
             parcels.append(p)
 
         cached_parcels = {"parcels": parcels, "total": len(parcels), "zip": zip,
