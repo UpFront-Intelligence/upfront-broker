@@ -40,7 +40,7 @@ OAKLAND_CANDIDATES = [
     "https://services2.arcgis.com/jsIt88o7Q1eBVvmn/arcgis/rest/services/OC_Tax_Parcels_Public/FeatureServer/0",
 ]
 
-MAX_PARCELS      = 500
+MAX_PARCELS      = 2000
 CACHE_ZIP_PREFIX = "oakland_zip_"
 ZIP_TTL_DAYS     = 7
 
