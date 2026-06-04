@@ -217,7 +217,6 @@ def get_parcels(
             "returnGeometry":    "true",
             "geometryPrecision": "4",
             "resultRecordCount": MAX_PARCELS,
-            "orderByFields":     "SQFEET DESC",
             "f":                 "json",
         })
         url = f"{layer_url}/query?{params}"
