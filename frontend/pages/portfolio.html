@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UpFront Broker — Portfolio Intelligence</title>
+  <link rel="stylesheet" href="/static/main.css">
+  <style>
+    .query-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-bottom:24px; }
+    @media(max-width:900px){ .query-grid{ grid-template-columns:repeat(2,1fr); } }
+    @media(max-width:600px){ .query-grid{ grid-template-columns:1fr; } }
+    .qcard {
+      background:#fff; border:2px solid var(--cream-dark); border-radius:var(--radius-lg);
+      padding:16px 18px; cursor:pointer; transition:all 0.15s;
+    }
+    .qcard:hover { border-color:var(--navy); box-shadow:var(--shadow-hover); }
+    .qcard.active { border-color:var(--gold); background:rgba(201,148,58,0.04); }
+    .qcard-icon { font-size:22px; margin-bottom:8px; }
+    .qcard-title { font-family:var(--font-serif); font-size:14px; color:var(--navy); margin-bottom:4px; }
+    .qcard-desc { font-size:12px; color:var(--stone); line-height:1.5; }
+    .qform { background:#fff; border:1px solid var(--cream-dark); border-radius:var(--radius-lg); padding:20px; margin-bottom:20px; box-shadow:var(--shadow-card); display:none; }
+    .qform.active { display:block; }
+    .qform-title { font-family:var(--font-serif); font-size:16px; color:var(--navy); margin-bottom:14px; }
+    .result-table-wrap { overflow-x:auto; }
+    table.result-table { width:100%; border-collapse:collapse; font-size:12.5px; }
+    .result-table th { text-align:left; padding:8px 12px; font-size:10.5px; font-weight:600; letter-spacing:0.07em; text-transform:uppercase; color:var(--stone); border-bottom:2px solid var(--cream-dark); white-space:nowrap; }
+    .result-table td { padding:9px 12px; border-bottom:1px solid var(--cream-dark); vertical-align:middle; }
+    .result-table tbody tr:hover { background:var(--cream); cursor:pointer; }
+    .result-table tbody tr:last-child td { border-bottom:none; }
+  </style>
+</head>
+<body>
+<div id="sidebar"></div>
+<div id="main">
+  <div id="topbar">
+    <div class="topbar-title">Portfolio Intelligence</div>
+    <div class="topbar-actions">
+      <button class="btn btn-ghost btn-sm" id="btn-export" style="display:none" onclick="exportCSV()">⬇ Export CSV</button>
+    </div>
+  </div>
+  <div id="page-content" class="fade-in">
+    <div class="page-header" style="margin-bottom:20px">
+      <div>
+        <div class="page-title">Portfolio Intelligence</div>
+        <div class="page-sub">Cross-silo queries across properties, owners, tenants, and public records</div>
+      </div>
+    </div>
+
+    <!-- Query cards -->
+    <div class="query-grid">
+      <div class="qcard" id="qc-1" onclick="selectQuery(1)">
+        <div class="qcard-icon">🏢</div>
+        <div class="qcard-title">Accounts by Property Type</div>
+        <div class="qcard-desc">Who owns Office? Industrial? Show accounts ranked by portfolio of that type.</div>
+      </div>
+      <div class="qcard" id="qc-2" onclick="selectQuery(2)">
+        <div class="qcard-icon">📍</div>
+        <div class="qcard-title">Properties by Owner Location</div>
+        <div class="qcard-desc">Show properties owned by entities mailing to a specific city, state, or zip.</div>
+      </div>
+      <div class="qcard" id="qc-3" onclick="selectQuery(3)">
+        <div class="qcard-icon">📊</div>
+        <div class="qcard-title">Portfolio Size Ranking</div>
+        <div class="qcard-desc">Show accounts with X or more properties — ranked by count, SF, and total value.</div>
+      </div>
+      <div class="qcard" id="qc-4" onclick="selectQuery(4)">
+        <div class="qcard-icon">🏪</div>
+        <div class="qcard-title">Tenant Search</div>
+        <div class="qcard-desc">Find all locations of a tenant. Show every CVS, Starbucks, or national brand in your database.</div>
+      </div>
+      <div class="qcard" id="qc-5" onclick="selectQuery(5)">
+        <div class="qcard-icon">🔍</div>
+        <div class="qcard-title">Owner Pattern (LLC Clustering)</div>
+        <div class="qcard-desc">Surface large portfolio owners hiding behind multiple LLCs using the same mailing address.</div>
+      </div>
+      <div class="qcard" id="qc-6" onclick="selectQuery(6)">
+        <div class="qcard-icon">🗂</div>
+        <div class="qcard-title">Owner Name Search</div>
+        <div class="qcard-desc">Show every property controlled by an entity. Full portfolio view for any owner name.</div>
+      </div>
+    </div>
+
+    <!-- Query forms -->
+    <div class="qform" id="qf-1">
+      <div class="qform-title">Accounts by Property Type</div>
+      <div class="form-row cols-2" style="max-width:400px">
+        <div class="form-group"><label class="form-label">Property Type</label>
+          <select id="q1-type" class="form-control">
+            <option value="">— Select —</option>
+            <option>Office</option><option>Industrial</option><option>Retail</option>
+            <option>Land</option><option>Multifamily</option><option>STNL</option>
+            <option>Self Storage</option><option>Hospitality</option><option>Medical</option>
+          </select></div>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="runQuery(1)">Search</button>
+    </div>
+
+    <div class="qform" id="qf-2">
+      <div class="qform-title">Properties by Owner Location</div>
+      <div class="form-row cols-3" style="max-width:520px">
+        <div class="form-group"><label class="form-label">Owner City</label><input id="q2-city" class="form-control" placeholder="Chicago"></div>
+        <div class="form-group"><label class="form-label">Owner State</label><input id="q2-state" class="form-control" placeholder="IL" maxlength="2"></div>
+        <div class="form-group"><label class="form-label">Owner Zip</label><input id="q2-zip" class="form-control" placeholder="60601"></div>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="runQuery(2)">Search</button>
+    </div>
+
+    <div class="qform" id="qf-3">
+      <div class="qform-title">Portfolio Size Ranking</div>
+      <div class="form-row cols-2" style="max-width:300px">
+        <div class="form-group"><label class="form-label">Min Properties</label><input id="q3-min" class="form-control" type="number" min="1" placeholder="2" value="2"></div>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="runQuery(3)">Search</button>
+    </div>
+
+    <div class="qform" id="qf-4">
+      <div class="qform-title">Tenant Search</div>
+      <div class="form-row cols-2" style="max-width:360px">
+        <div class="form-group"><label class="form-label">Tenant Name</label><input id="q4-tenant" class="form-control" placeholder="CVS, Starbucks…"></div>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="runQuery(4)">Search</button>
+    </div>
+
+    <div class="qform" id="qf-5">
+      <div class="qform-title">Owner Pattern — LLC Clustering</div>
+      <div class="form-row cols-3" style="max-width:520px">
+        <div class="form-group"><label class="form-label">Mailing City</label><input id="q5-city" class="form-control" placeholder="Birmingham"></div>
+        <div class="form-group"><label class="form-label">Mailing State</label><input id="q5-state" class="form-control" placeholder="MI" maxlength="2"></div>
+        <div class="form-group"><label class="form-label">Mailing Zip</label><input id="q5-zip" class="form-control" placeholder="48009"></div>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="runQuery(5)">Search</button>
+    </div>
+
+    <div class="qform" id="qf-6">
+      <div class="qform-title">Owner Name Search</div>
+      <div class="form-row cols-2" style="max-width:400px">
+        <div class="form-group"><label class="form-label">Owner Name</label><input id="q6-owner" class="form-control" placeholder="Bedrock, Ford Motor…"></div>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="runQuery(6)">Search</button>
+    </div>
+
+    <!-- Results -->
+    <div id="results-area"></div>
+  </div>
+</div>
+
+<script src="/js/app.js"></script>
+<script>
+  if (!Auth.requireAuth()) throw new Error('Not authenticated');
+  renderSidebar('portfolio');
+
+  let activeQuery = 0;
+  let lastResults = [];
+
+  function selectQuery(n) {
+    document.querySelectorAll('.qcard').forEach((c,i) => c.classList.toggle('active', i+1 === n));
+    document.querySelectorAll('.qform').forEach((f,i) => f.classList.toggle('active', i+1 === n));
+    activeQuery = n;
+    document.getElementById('results-area').innerHTML = '';
+    document.getElementById('btn-export').style.display = 'none';
+  }
+
+  async function runQuery(n) {
+    const params = buildParams(n);
+    if (!params) return;
+    document.getElementById('results-area').innerHTML =
+      '<div style="text-align:center;padding:40px"><div class="spinner"></div></div>';
+    try {
+      const data = await API.get('/portfolio/search?' + params.toString());
+      lastResults = data.results || [];
+      renderResults(n, lastResults);
+      document.getElementById('btn-export').style.display = lastResults.length ? '' : 'none';
+    } catch(e) {
+      Toast.error(e.message);
+      document.getElementById('results-area').innerHTML = '';
+    }
+  }
+
+  function buildParams(n) {
+    const p = new URLSearchParams();
+    const g = id => (document.getElementById(id)?.value || '').trim();
+    if (n === 1) {
+      const t = g('q1-type');
+      if (!t) { Toast.error('Select a property type'); return null; }
+      p.set('query_type','accounts_by_property_type'); p.set('property_type', t);
+    } else if (n === 2) {
+      const city=g('q2-city'), state=g('q2-state'), zip=g('q2-zip');
+      if (!city && !state && !zip) { Toast.error('Enter city, state, or zip'); return null; }
+      p.set('query_type','properties_by_owner_location');
+      if (city) p.set('owner_city', city);
+      if (state) p.set('owner_state', state);
+      if (zip) p.set('owner_zip', zip);
+    } else if (n === 3) {
+      const min = parseInt(g('q3-min')) || 2;
+      p.set('query_type','portfolio_size'); p.set('min_properties', min);
+    } else if (n === 4) {
+      const t = g('q4-tenant');
+      if (!t) { Toast.error('Enter a tenant name'); return null; }
+      p.set('query_type','tenant_search'); p.set('tenant', t);
+    } else if (n === 5) {
+      const city=g('q5-city'), state=g('q5-state'), zip=g('q5-zip');
+      if (!city && !state && !zip) { Toast.error('Enter city, state, or zip'); return null; }
+      p.set('query_type','owner_pattern');
+      if (city) p.set('owner_city', city);
+      if (state) p.set('owner_state', state);
+      if (zip) p.set('owner_zip', zip);
+    } else if (n === 6) {
+      const o = g('q6-owner');
+      if (!o) { Toast.error('Enter an owner name'); return null; }
+      p.set('query_type','owner_search'); p.set('owner_name', o);
+    }
+    return p;
+  }
+
+  const COLS = {
+    1: [['name','Account'],['entity_type','Type'],['city','City'],['state','ST'],
+        ['property_count','Properties'],['total_sf','Total SF'],['total_assessed','Total Assessed']],
+    2: [['owner','Owner'],['address','Address'],['city','City'],['state','ST'],
+        ['property_type','Type'],['sf_rentable','SF'],['asking_price','Price'],['status','Status']],
+    3: [['name','Account'],['entity_type','Type'],['city','City'],['state','ST'],
+        ['property_count','Properties'],['total_sf','Total SF'],['total_value','Total Value']],
+    4: [['address','Address'],['city','City'],['state','ST'],
+        ['property_type','Type'],['tenant','Tenant'],['sf_rentable','SF'],['status','Status']],
+    5: [['name','Account'],['entity_type','Type'],['mailing_address','Mailing Address'],
+        ['city','City'],['state','ST'],['zip','Zip'],['property_count','Properties']],
+    6: [['owner','Owner'],['address','Address'],['city','City'],['state','ST'],
+        ['property_type','Type'],['sf_rentable','SF'],['asking_price','Price'],['status','Status']],
+  };
+
+  function renderResults(n, rows) {
+    const cols = COLS[n] || [];
+    const fmtVal = (col, val) => {
+      if (val == null) return '—';
+      if (col === 'total_sf' || col === 'sf_rentable') return val ? Fmt.sf(val) : '—';
+      if (col === 'total_assessed' || col === 'total_value' || col === 'asking_price')
+        return val ? Fmt.currency(val) : '—';
+      return String(val);
+    };
+    const linkCol = n === 2 || n === 4 || n === 6 ? 'property_id' : 'id';
+    const linkPage = (n === 2 || n === 4 || n === 6) ? 'property' : 'account';
+
+    const html = `
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">${rows.length.toLocaleString()} result${rows.length !== 1 ? 's' : ''}</div>
+        </div>
+        <div class="result-table-wrap">
+          <table class="result-table">
+            <thead><tr>${cols.map(([,h]) => `<th>${h}</th>`).join('')}<th></th></tr></thead>
+            <tbody>${rows.map(r => `
+              <tr onclick="viewRecord('${linkPage}', ${r[linkCol] || r.id || 0})">
+                ${cols.map(([c]) => `<td>${fmtVal(c, r[c])}</td>`).join('')}
+                <td style="text-align:right;white-space:nowrap">
+                  <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();viewRecord('${linkPage}',${r[linkCol] || r.id || 0})">View →</button>
+                </td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+    document.getElementById('results-area').innerHTML = html;
+  }
+
+  function viewRecord(page, id) {
+    if (!id) return;
+    window.location.href = `/pages/${page}.html?id=${id}`;
+  }
+
+  function exportCSV() {
+    if (!lastResults.length) return;
+    const cols = COLS[activeQuery] || [];
+    const headers = cols.map(([,h]) => h);
+    const lines = [headers.join(',')];
+    lastResults.forEach(r => {
+      lines.push(cols.map(([c]) => JSON.stringify(r[c] ?? '')).join(','));
+    });
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `portfolio_query_${activeQuery}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // Enter key support
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && activeQuery) runQuery(activeQuery);
+  });
+</script>
+</body>
+</html>

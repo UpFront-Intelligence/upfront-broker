@@ -125,7 +125,18 @@ def _parcel_from_attrs(attrs: dict) -> dict:
     city      = attrs.get("SITECITY") or attrs.get("CVTTAXDESCRIPTION") or ""
     assessed  = attrs.get("ASSESSEDVALUE") or attrs.get("TAXABLEVALUE")
 
-    sf_rentable = attrs.get("LIVING_AREA_SQFT")
+    # SF: LIVING_AREA_SQFT is residential; Shape__Area is parcel footprint (sq ft) for commercial
+    sf_raw  = attrs.get("LIVING_AREA_SQFT")
+    sf_area = attrs.get("Shape__Area") or attrs.get("Shape_Area")
+    if sf_raw:
+        sf_rentable   = float(sf_raw)
+        sf_label      = "sf_rentable"
+    elif sf_area:
+        sf_rentable   = round(float(sf_area), 0)
+        sf_label      = "sf_est"   # parcel footprint — stored in notes
+    else:
+        sf_rentable   = None
+        sf_label      = None
 
     owner = (attrs.get("NAME1") or "").strip()
     if attrs.get("NAME2"):
@@ -136,6 +147,8 @@ def _parcel_from_attrs(attrs: dict) -> dict:
         notes_parts.append(f"Structure: {attrs['STRUCTURE_DESC']}")
     if attrs.get("CVTTAXDESCRIPTION"):
         notes_parts.append(f"Municipality: {attrs['CVTTAXDESCRIPTION']}")
+    if sf_label == "sf_est" and sf_rentable:
+        notes_parts.append(f"Est. SF (parcel area): {int(sf_rentable):,}")
 
     return {
         "keypin":          attrs.get("KEYPIN") or attrs.get("PIN") or "",
@@ -283,8 +296,8 @@ def get_parcels(
             "outFields":         ("KEYPIN,PIN,SITEADDRESS,SITECITY,SITESTATE,SITEZIP5,"
                                   "NAME1,NAME2,CLASSCODE,CVTTAXDESCRIPTION,"
                                   "ASSESSEDVALUE,TAXABLEVALUE,"
-                                  "LIVING_AREA_SQFT,NUM_BEDS,NUM_BATHS,"
-                                  "STRUCTURE_DESC"),
+                                  "LIVING_AREA_SQFT,Shape__Area,"
+                                  "NUM_BEDS,NUM_BATHS,STRUCTURE_DESC"),
             "returnGeometry":    "true",
             "geometryPrecision": "4",
             "resultRecordCount": MAX_PARCELS,
@@ -312,7 +325,16 @@ def get_parcels(
 
         features   = data.get("features", [])
         parcels    = []
-        first_feat = True   # debug_geo on first accepted parcel only
+        first_feat = True   # debug fields on first accepted parcel only
+        # Log raw keys from very first feature to confirm field names
+        if features:
+            import logging
+            logging.getLogger("upfront").info(
+                "Oakland first feature attrs keys: %s | NAME1=%r Shape__Area=%r",
+                list((features[0].get("attributes") or {}).keys()),
+                (features[0].get("attributes") or {}).get("NAME1"),
+                (features[0].get("attributes") or {}).get("Shape__Area"),
+            )
         for feat in features:
             attrs = feat.get("attributes") or {}
             # Skip residential: CLASSCODE 1xx OR NUM_BEDS > 0

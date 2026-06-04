@@ -4,7 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import os
 
-from routers import contacts, accounts, properties, deals, activities, documents, portal, comps, auth, imports, finder
+from routers import contacts, accounts, properties, deals, activities, documents, portal, comps, auth, imports, finder, portfolio
 
 # Table creation is handled exclusively by Alembic (alembic upgrade head on startup).
 # create_all is intentionally absent — it conflicts with migration-managed schema.
@@ -32,6 +32,7 @@ app.include_router(portal.router,       prefix="/api/portal",       tags=["porta
 app.include_router(comps.router,        prefix="/api/comps",        tags=["comps"])
 app.include_router(imports.router,      prefix="/api/import",       tags=["import"])
 app.include_router(finder.router,       prefix="/api/finder",       tags=["finder"])
+app.include_router(portfolio.router,    prefix="/api/portfolio",    tags=["portfolio"])
 
 # ── Static assets (CSS + JS) — cacheable ─────────────────────────────────────
 frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend")
@@ -79,6 +80,9 @@ async def page_import():     return _page("import.html")
 
 @app.get("/pages/finder.html")
 async def page_finder():     return _page("finder.html")
+
+@app.get("/pages/portfolio.html")
+async def page_portfolio():  return _page("portfolio.html")
 
 @app.get("/pages/property.html")
 async def page_property_detail(): return _page("property.html")

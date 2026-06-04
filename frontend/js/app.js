@@ -225,6 +225,9 @@ function renderSidebar(activePage) {
         <div class="nav-item ${activePage==='finder'?'active':''}" data-page="finder" onclick="navigate('finder')">
           <span class="nav-icon">⊙</span> Property Finder
         </div>
+        <div class="nav-item ${activePage==='portfolio'?'active':''}" data-page="portfolio" onclick="navigate('portfolio')">
+          <span class="nav-icon">◈</span> Portfolio Intel
+        </div>
         <div class="nav-item ${activePage==='portal'?'active':''}" data-page="portal" onclick="navigate('portal')">
           <span class="nav-icon">⊕</span> Client Portal
         </div>
