@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -176,6 +177,62 @@ def _parcel_from_attrs(attrs: dict) -> dict:
     }
 
 
+def _parcel_from_local_row(row) -> dict:
+    """Build parcel dict from a local parcels table row (lowercase column names)."""
+    try:
+        d = dict(row._mapping)
+    except AttributeError:
+        d = dict(row)
+
+    classcode = d.get("classcode")
+    city      = d.get("sitecity") or d.get("cvttaxdescription") or ""
+    assessed  = d.get("assessedvalue") or d.get("taxablevalue")
+
+    sf_raw  = d.get("living_area_sqft")
+    sf_area = d.get("shapearea")
+    if sf_raw:
+        sf_rentable, sf_label = float(sf_raw), "sf_rentable"
+    elif sf_area:
+        sf_rentable, sf_label = round(float(sf_area), 0), "sf_est"
+    else:
+        sf_rentable, sf_label = None, None
+
+    owner = (d.get("name1") or "").strip()
+    if d.get("name2"):
+        owner = f"{owner} / {d['name2']}".strip(" /")
+
+    notes_parts = []
+    if d.get("structure_desc"):
+        notes_parts.append(f"Structure: {d['structure_desc']}")
+    if d.get("cvttaxdescription"):
+        notes_parts.append(f"Municipality: {d['cvttaxdescription']}")
+    if sf_label == "sf_est" and sf_rentable:
+        notes_parts.append(f"Est. SF (parcel area): {int(sf_rentable):,}")
+
+    return {
+        "keypin":         d.get("keypin") or d.get("pin") or "",
+        "pin":            d.get("pin") or "",
+        "address":        d.get("siteaddress") or "",
+        "city":           city.title(),
+        "zip":            d.get("sitezip5") or "",
+        "state":          d.get("sitestate") or "MI",
+        "property_type":  _classcode_to_type(classcode),
+        "subtype":        d.get("structure_desc") or "",
+        "sf_rentable":    float(sf_rentable) if sf_rentable else None,
+        "sf_land":        None,
+        "year_built":     None,
+        "assessed_value": float(assessed) if assessed else None,
+        "tax_year":       None,
+        "zoning":         None,
+        "owner":          owner,
+        "owner_addr":     None, "owner_city":  None,
+        "owner_state":    None, "owner_zip":   None,
+        "bedrooms":       d.get("num_beds"),
+        "bathrooms":      d.get("num_baths"),
+        "notes":          "\n".join(notes_parts) or None,
+    }
+
+
 def _get_or_set_cache(db: Session, lookup_type: str, lookup_key: str,
                       ttl_days: int = 7) -> Optional[dict]:
     """Return cached raw_response if present and not expired."""
@@ -288,84 +345,94 @@ def get_parcels(
     cached_parcels = _get_or_set_cache(db, "parcels_v2_by_zip", cache_key, ZIP_TTL_DAYS)
 
     if not cached_parcels:
-        layer_url = OAKLAND_PARCELS_URL
+        parcels = []
 
-        # Confirmed field names from live Oakland MapServer response
-        params = urllib.parse.urlencode({
-            "where":             f"SITEZIP5='{zip}'",
-            "outFields":         ("KEYPIN,PIN,SITEADDRESS,SITECITY,SITESTATE,SITEZIP5,"
-                                  "NAME1,NAME2,CLASSCODE,CVTTAXDESCRIPTION,"
-                                  "ASSESSEDVALUE,TAXABLEVALUE,"
-                                  "LIVING_AREA_SQFT,Shape.area,"
-                                  "NUM_BEDS,NUM_BATHS,STRUCTURE_DESC"),
-            "returnGeometry":    "true",
-            "geometryPrecision": "4",
-            "resultRecordCount": MAX_PARCELS,
-            "f":                 "json",
-        })
-        url = f"{layer_url}/query?{params}"
-
+        # ── 1. Attributes from local parcels table (no record limit) ─────────
+        local_rows = []
         try:
-            data = _get(url)
-        except Exception as primary_exc:
-            # Walk remaining candidates until one succeeds
+            local_rows = db.execute(
+                text("SELECT keypin, pin, siteaddress, sitecity, sitestate, sitezip5,"
+                     " name1, name2, classcode, cvttaxdescription,"
+                     " assessedvalue, taxablevalue, living_area_sqft, shapearea,"
+                     " num_beds, num_baths, structure_desc"
+                     " FROM parcels WHERE sitezip5 = :z"),
+                {"z": zip},
+            ).fetchall()
+        except Exception:
+            local_rows = []   # table doesn't exist yet — fall through to ArcGIS
+
+        if local_rows:
+            # ── 2. Geometry-only query to ArcGIS (KEYPIN + rings, no attrs) ──
+            geo_params = urllib.parse.urlencode({
+                "where":             f"SITEZIP5='{zip}'",
+                "outFields":         "KEYPIN",
+                "returnGeometry":    "true",
+                "geometryPrecision": "4",
+                "resultRecordCount": max(MAX_PARCELS, len(local_rows)),
+                "f":                 "json",
+            })
+            geo_url = f"{OAKLAND_PARCELS_URL}/query?{geo_params}"
+            coord_map: dict = {}
+            try:
+                geo_data = _get(geo_url)
+                for feat in geo_data.get("features", []):
+                    kp = (feat.get("attributes") or {}).get("KEYPIN", "")
+                    if kp and feat.get("geometry"):
+                        lat, lng = _centroid(feat["geometry"])
+                        if lat is not None:
+                            coord_map[kp] = (lat, lng)
+            except Exception:
+                pass   # no coordinates — parcels still returned without pins
+
+            # ── 3. Join attributes + coordinates ─────────────────────────────
+            for row in local_rows:
+                p = _parcel_from_local_row(row)
+                kp = p.get("keypin", "")
+                if kp in coord_map:
+                    p["lat"], p["lng"] = coord_map[kp]
+                else:
+                    p["lat"], p["lng"] = None, None
+                parcels.append(p)
+
+        else:
+            # ── Fallback: full ArcGIS query when local table is empty/missing ─
+            params = urllib.parse.urlencode({
+                "where":             f"SITEZIP5='{zip}'",
+                "outFields":         ("KEYPIN,PIN,SITEADDRESS,SITECITY,SITESTATE,SITEZIP5,"
+                                      "NAME1,NAME2,CLASSCODE,CVTTAXDESCRIPTION,"
+                                      "ASSESSEDVALUE,TAXABLEVALUE,"
+                                      "LIVING_AREA_SQFT,Shape.area,"
+                                      "NUM_BEDS,NUM_BATHS,STRUCTURE_DESC"),
+                "returnGeometry":    "true",
+                "geometryPrecision": "4",
+                "resultRecordCount": MAX_PARCELS,
+                "f":                 "json",
+            })
+            url  = f"{OAKLAND_PARCELS_URL}/query?{params}"
             data = None
-            qs = url.split("/query?", 1)[1]
-            for fallback in OAKLAND_CANDIDATES[1:]:
-                try:
-                    data = _get(f"{fallback}/query?{qs}")
-                    break
-                except Exception:
+            try:
+                data = _get(url)
+            except Exception as primary_exc:
+                qs = url.split("/query?", 1)[1]
+                for fallback in OAKLAND_CANDIDATES[1:]:
+                    try:
+                        data = _get(f"{fallback}/query?{qs}")
+                        break
+                    except Exception:
+                        continue
+                if data is None:
+                    raise HTTPException(503, f"All parcel layer URLs failed: {primary_exc}")
+
+            if "error" in data:
+                raise HTTPException(502, f"ArcGIS error: {data['error'].get('message','unknown')}")
+
+            for feat in data.get("features", []):
+                attrs = feat.get("attributes") or {}
+                p     = _parcel_from_attrs(attrs)
+                p["lat"], p["lng"] = _centroid(feat.get("geometry"))
+                if p["lat"] is None:
                     continue
-            if data is None:
-                raise HTTPException(503, f"All parcel layer URLs failed: {primary_exc}")
-
-        if "error" in data:
-            raise HTTPException(502, f"ArcGIS error: {data['error'].get('message','unknown')}")
-
-        features   = data.get("features", [])
-        parcels    = []
-        first_feat = True   # debug fields on first accepted parcel only
-        # Log raw keys from very first feature to confirm field names
-        if features:
-            import logging
-            logging.getLogger("upfront").info(
-                "Oakland first feature attrs keys: %s | NAME1=%r Shape.area=%r",
-                list((features[0].get("attributes") or {}).keys()),
-                (features[0].get("attributes") or {}).get("NAME1"),
-                (features[0].get("attributes") or {}).get("Shape.area"),
-            )
-        for feat in features:
-            attrs     = feat.get("attributes") or {}
-            prop_type = _classcode_to_type(attrs.get("CLASSCODE"))
-            p         = _parcel_from_attrs(attrs)
-
-            geometry = feat.get("geometry")
-            p["lat"], p["lng"] = _centroid(geometry)
-            if p["lat"] is None:
-                continue   # skip parcels with no geometry
-
-            # ── TEMPORARY: attach raw geometry debug to first accepted parcel ──
-            if first_feat:
-                first_feat = False
-                rings = (geometry or {}).get("rings", [])
-                raw_pts = rings[0][:3] if rings else []   # first 3 pts of outer ring
-                centroid_x = sum(pt[0] for pt in rings[0]) / len(rings[0]) if rings else None
-                centroid_y = sum(pt[1] for pt in rings[0]) / len(rings[0]) if rings else None
-                p["debug_geo"] = {
-                    "geometry_type": (geometry or {}).get("type"),
-                    "ring_count":    len(rings),
-                    "outer_ring_pts": len(rings[0]) if rings else 0,
-                    "first_3_raw_pts": raw_pts,
-                    "centroid_raw_x": centroid_x,
-                    "centroid_raw_y": centroid_y,
-                    "converted_lat":  p["lat"],
-                    "converted_lng":  p["lng"],
-                    "spatial_ref":    (geometry or {}).get("spatialReference"),
-                }
-            # ── END TEMPORARY ─────────────────────────────────────────────────
-
-            parcels.append(p)
+                parcels.append(p)
 
         cached_parcels = {"parcels": parcels, "total": len(parcels), "zip": zip,
                           "layer_url": OAKLAND_PARCELS_URL}
