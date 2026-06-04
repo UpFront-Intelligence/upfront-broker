@@ -96,7 +96,7 @@
     <div class="topbar-actions">
       <div class="topbar-search">
         <span>⌕</span>
-        <input type="text" id="search-input" placeholder="Search accounts…" oninput="applyFilters()">
+        <input type="text" id="search-input" placeholder="Search accounts…" onkeydown="if(event.key==='Enter')runSearch()">
       </div>
       <button class="btn btn-primary btn-sm" onclick="openModal()">+ Add Account</button>
     </div>
@@ -110,7 +110,43 @@
       </div>
     </div>
 
-    <div class="filter-bar" id="type-filters" style="margin-bottom:16px"></div>
+    <div class="fp">
+      <div class="fp-tabs">
+        <button class="fp-tab active" onclick="fpTab(0)">Name &amp; Location</button>
+        <button class="fp-tab" onclick="fpTab(1)">Entity Type</button>
+        <button class="fp-tab" onclick="fpTab(2)">Activity</button>
+      </div>
+      <div class="fp-pane active" id="fp-0">
+        <div class="fp-row">
+          <span class="fp-lbl">Search</span>
+          <input id="fp-search" class="fp-in" style="width:220px" placeholder="Entity name…" onkeydown="if(event.key==='Enter')runSearch()">
+          <span class="fp-lbl">City</span>
+          <input id="fp-city" class="fp-in" style="width:110px" placeholder="Detroit">
+          <span class="fp-lbl">State</span>
+          <input id="fp-state" class="fp-in" style="width:60px" placeholder="MI">
+        </div>
+      </div>
+      <div class="fp-pane" id="fp-1">
+        <div class="fp-row"><span class="fp-lbl">Type</span><span id="etype-pcs"></span></div>
+      </div>
+      <div class="fp-pane" id="fp-2">
+        <div class="fp-row">
+          <span class="fp-lbl">Has Properties</span>
+          <label style="font-size:12px;cursor:pointer"><input type="radio" name="has-props" value=""> Any</label>
+          <label style="font-size:12px;cursor:pointer"><input type="radio" name="has-props" value="yes"> Yes</label>
+          <label style="font-size:12px;cursor:pointer"><input type="radio" name="has-props" value="no"> No</label>
+          <span class="fp-lbl" style="margin-left:12px">Has Deal</span>
+          <label style="font-size:12px;cursor:pointer"><input type="radio" name="has-deal-a" value=""> Any</label>
+          <label style="font-size:12px;cursor:pointer"><input type="radio" name="has-deal-a" value="yes"> Yes</label>
+          <label style="font-size:12px;cursor:pointer"><input type="radio" name="has-deal-a" value="no"> No</label>
+        </div>
+      </div>
+      <div class="fp-actions">
+        <button class="btn btn-ghost btn-sm" onclick="clearFilters()">Clear All</button>
+        <button class="btn btn-primary btn-sm" onclick="runSearch()">Search</button>
+        <span id="fp-count" style="font-size:12px;color:var(--stone)"></span>
+      </div>
+    </div>
 
     <div class="card">
       <div class="table-wrap">
@@ -127,6 +163,7 @@
         </table>
       </div>
     </div>
+    <div id="pagination"></div>
   </div>
 </div>
 
@@ -227,31 +264,42 @@
   };
 
   let accounts = [];
-  let activeType = '';
   let editingId = null, openId = null, relatedLoaded = false;
+  let sortCol='name', sortDir='asc';
+  const FP_CSS=`.fp{background:#fff;border:1px solid var(--cream-dark);border-radius:var(--radius-lg);margin-bottom:16px;box-shadow:var(--shadow-card)}.fp-tabs{display:flex;border-bottom:1px solid var(--cream-dark);padding:0 4px;gap:2px}.fp-tab{padding:8px 14px;font-size:12.5px;font-weight:500;color:var(--stone);background:none;border:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap}.fp-tab.active{color:var(--navy);border-bottom-color:var(--gold)}.fp-pane{padding:12px 16px;display:none}.fp-pane.active{display:block}.fp-row{display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;align-items:center}.fp-lbl{font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--stone);white-space:nowrap}.fp-in{border:1px solid var(--cream-dark);border-radius:var(--radius);padding:4px 8px;font-size:12.5px;font-family:var(--font-body);outline:none}.fp-in:focus{border-color:var(--navy)}.fp-pc{display:inline-flex;align-items:center;padding:3px 10px;border-radius:20px;font-size:12px;cursor:pointer;border:1px solid var(--cream-dark);background:#fff;color:var(--stone);user-select:none;transition:all .1s}.fp-pc:hover{border-color:var(--navy);color:var(--navy)}.fp-pc.on{background:var(--navy);color:#fff;border-color:var(--navy)}.fp-actions{padding:8px 16px;border-top:1px solid var(--cream-dark);display:flex;align-items:center;gap:8px}.pagination{display:flex;align-items:center;justify-content:center;gap:12px;padding:12px 16px;background:#fff;border:1px solid var(--cream-dark);border-radius:var(--radius-lg);box-shadow:var(--shadow-card);margin-top:12px}.pb{padding:5px 12px;border-radius:var(--radius);border:1px solid var(--cream-dark);background:#fff;cursor:pointer;font-size:12.5px;color:var(--stone)}.pb:hover:not(:disabled){background:var(--cream);color:var(--navy)}.pb:disabled{opacity:.4;cursor:default}`;
+  document.head.insertAdjacentHTML('beforeend',`<style>${FP_CSS}</style>`);
 
-  // ── Filters ────────────────────────────────────────────────────────────────
-  function buildFilters() {
-    document.getElementById('type-filters').innerHTML =
-      ['', ...ENTITY_TYPES].map(t => `<div class="filter-pill${t===activeType?' active':''}" onclick="setType('${t}')">
-        ${t||'All Types'}</div>`).join('');
+  function fpTab(n){document.querySelectorAll('.fp-tab').forEach((t,i)=>t.classList.toggle('active',i===n));document.querySelectorAll('.fp-pane').forEach((p,i)=>p.classList.toggle('active',i===n));}
+  function buildPillGroups(){document.getElementById('etype-pcs').innerHTML=ENTITY_TYPES.map(t=>`<span class="fp-pc" data-v="${t}" onclick="this.classList.toggle('on')">${t}</span>`).join(' ');}
+  function buildParams(page){
+    const p=new URLSearchParams({page,per_page:50,sort_by:sortCol,sort_dir:sortDir});
+    const g=id=>(document.getElementById(id)?.value||'').trim();
+    const search=g('fp-search')||g('search-input'); if(search) p.set('search',search);
+    const types=[...document.querySelectorAll('#etype-pcs .fp-pc.on')].map(e=>e.dataset.v);
+    if(types.length) p.set('entity_type',types.join(','));
+    if(g('fp-city')) p.set('city',g('fp-city'));
+    if(g('fp-state')) p.set('state',g('fp-state'));
+    const hp=document.querySelector('input[name="has-props"]:checked')?.value;
+    if(hp==='yes') p.set('has_properties','true'); else if(hp==='no') p.set('has_properties','false');
+    const hd=document.querySelector('input[name="has-deal-a"]:checked')?.value;
+    if(hd==='yes') p.set('has_deal','true'); else if(hd==='no') p.set('has_deal','false');
+    return p;
   }
-
-  function setType(t) { activeType = t; buildFilters(); applyFilters(); }
-
-  function applyFilters() {
-    const q = (document.getElementById('search-input').value || '').toLowerCase();
-    let list = accounts;
-    if (activeType) list = list.filter(a => a.entity_type === activeType);
-    if (q) list = list.filter(a =>
-      (a.name||'').toLowerCase().includes(q) ||
-      (a.city||'').toLowerCase().includes(q) ||
-      (a.email||'').toLowerCase().includes(q)
-    );
-    renderTable(list);
-    document.getElementById('count-label').textContent =
-      `${list.length} account${list.length !== 1 ? 's' : ''}`;
+  async function runSearch(page=1){
+    document.getElementById('fp-count').textContent='…';
+    try{
+      const data=await API.get('/accounts/?'+buildParams(page).toString());
+      const items=Array.isArray(data)?data:(data.items||[]);
+      accounts=items; renderTable(items);
+      const total=Array.isArray(data)?items.length:data.total;
+      document.getElementById('count-label').textContent=`${total.toLocaleString()} account${total!==1?'s':''}`;
+      document.getElementById('fp-count').textContent=total.toLocaleString()+' results';
+      renderPagination(Array.isArray(data)?null:data);
+    }catch(e){Toast.error('Search failed: '+e.message);}
   }
+  function renderPagination(data){const el=document.getElementById('pagination');if(!data||data.total_pages<=1){el.innerHTML='';return;}el.innerHTML=`<div class="pagination"><button class="pb" onclick="runSearch(${data.page-1})" ${data.page<=1?'disabled':''}>← Prev</button><span style="font-size:12.5px;color:var(--stone)">Page ${data.page} of ${data.total_pages} · ${data.total.toLocaleString()} records</span><button class="pb" onclick="runSearch(${data.page+1})" ${data.page>=data.total_pages?'disabled':''}>Next →</button></div>`;}
+  function clearFilters(){document.querySelectorAll('.fp input:not([type=radio])').forEach(e=>e.value='');document.querySelectorAll('.fp input[type=radio][value=""]').forEach(e=>e.checked=true);document.querySelectorAll('.fp-pc.on').forEach(e=>e.classList.remove('on'));document.getElementById('search-input').value='';runSearch();}
+  async function loadAccounts(){buildPillGroups();runSearch(1);}
 
   // ── Table ──────────────────────────────────────────────────────────────────
   function entityInitials(name) {
@@ -283,14 +331,6 @@
         <td style="font-size:12.5px">${a.phone||'—'}</td>
         <td style="font-size:12px;color:var(--stone-light)">${Fmt.dateShort(a.created_at)}</td>
       </tr>`).join('');
-  }
-
-  async function loadAccounts() {
-    try {
-      accounts = await API.get('/accounts/');
-      buildFilters();
-      applyFilters();
-    } catch(e) { Toast.error('Failed to load: ' + e.message); }
   }
 
   // ── Panel ──────────────────────────────────────────────────────────────────
@@ -515,7 +555,7 @@
         Toast.success('Account added');
       }
       Modal.close('account-modal');
-      applyFilters();
+      runSearch();
     } catch(e) { Toast.error(e.message); }
   }
 
@@ -524,7 +564,7 @@
     try {
       await API.delete(`/accounts/${id}`);
       accounts = accounts.filter(a => a.id !== id);
-      closePanel(); applyFilters();
+      closePanel(); runSearch();
       Toast.success('Account deleted');
     } catch(e) { Toast.error(e.message); }
   }

@@ -121,6 +121,20 @@
     .form-divider:first-child { margin-top: 0; }
     .comm-calc { font-size: 12.5px; color: var(--green); font-family: var(--font-mono); padding: 8px 10px; background: var(--green-light); border-radius: var(--radius); margin-top: 6px; display: none; }
     #lease-fields, #cobroke-fields { display: none; }
+    .fp{background:#fff;border:1px solid var(--cream-dark);border-radius:var(--radius-lg);margin-bottom:16px;box-shadow:var(--shadow-card);}
+    .fp-tabs{display:flex;border-bottom:1px solid var(--cream-dark);padding:0 4px;gap:2px;}
+    .fp-tab{padding:8px 14px;font-size:12.5px;font-weight:500;color:var(--stone);background:none;border:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;}
+    .fp-tab.active{color:var(--navy);border-bottom-color:var(--gold);}
+    .fp-pane{padding:12px 16px;display:none;} .fp-pane.active{display:block;}
+    .fp-row{display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;align-items:center;}
+    .fp-lbl{font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--stone);white-space:nowrap;}
+    .fp-range{display:flex;align-items:center;gap:4px;}
+    .fp-range input{width:88px;border:1px solid var(--cream-dark);border-radius:var(--radius);padding:4px 6px;font-size:12px;font-family:var(--font-body);outline:none;}
+    .fp-range input:focus,.fp-in:focus{border-color:var(--navy);}
+    .fp-in{border:1px solid var(--cream-dark);border-radius:var(--radius);padding:4px 8px;font-size:12.5px;font-family:var(--font-body);outline:none;}
+    .fp-pc{display:inline-flex;align-items:center;padding:3px 10px;border-radius:20px;font-size:12px;cursor:pointer;border:1px solid var(--cream-dark);background:#fff;color:var(--stone);user-select:none;transition:all .1s;}
+    .fp-pc:hover{border-color:var(--navy);color:var(--navy);} .fp-pc.on{background:var(--navy);color:#fff;border-color:var(--navy);}
+    .fp-actions{padding:8px 16px;border-top:1px solid var(--cream-dark);display:flex;align-items:center;gap:8px;}
   </style>
 </head>
 <body>
@@ -147,7 +161,52 @@
       </div>
     </div>
 
-    <div class="filter-bar" id="type-filters" style="margin-bottom:16px"></div>
+    <div class="fp">
+      <div class="fp-tabs">
+        <button class="fp-tab active" onclick="fpTab(0)">Property</button>
+        <button class="fp-tab" onclick="fpTab(1)">Stage &amp; Type</button>
+        <button class="fp-tab" onclick="fpTab(2)">Financials</button>
+      </div>
+      <div class="fp-pane active" id="fp-0">
+        <div class="fp-row">
+          <span class="fp-lbl">Search</span>
+          <input id="fp-search" class="fp-in" style="width:260px" placeholder="Deal name or property address…" onkeydown="if(event.key==='Enter')runSearch()">
+        </div>
+      </div>
+      <div class="fp-pane" id="fp-1">
+        <div class="fp-row">
+          <span class="fp-lbl">Stage</span>
+          <span id="stage-pcs"></span>
+        </div>
+        <div class="fp-row">
+          <span class="fp-lbl">Type</span>
+          <span id="dtype-pcs"></span>
+        </div>
+        <div class="fp-row">
+          <span class="fp-lbl">Co-Broker</span>
+          <label style="font-size:12px;cursor:pointer"><input type="radio" name="co-broker" value=""> Any</label>
+          <label style="font-size:12px;cursor:pointer"><input type="radio" name="co-broker" value="yes"> Yes</label>
+          <label style="font-size:12px;cursor:pointer"><input type="radio" name="co-broker" value="no"> No</label>
+        </div>
+      </div>
+      <div class="fp-pane" id="fp-2">
+        <div class="fp-row">
+          <span class="fp-lbl">Commission ($)</span>
+          <div class="fp-range"><input id="fp-min-comm" placeholder="min"><span>–</span><input id="fp-max-comm" placeholder="max"></div>
+          <span class="fp-lbl">Projected Close</span>
+          <div class="fp-range"><input type="date" id="fp-close-from"><span>–</span><input type="date" id="fp-close-to"></div>
+        </div>
+        <div class="fp-row">
+          <span class="fp-lbl">Days on Market</span>
+          <div class="fp-range"><input id="fp-min-dom" placeholder="min"><span>–</span><input id="fp-max-dom" placeholder="max"></div>
+        </div>
+      </div>
+      <div class="fp-actions">
+        <button class="btn btn-ghost btn-sm" onclick="clearFilters()">Clear All</button>
+        <button class="btn btn-primary btn-sm" onclick="runSearch()">Search</button>
+        <span id="fp-count" style="font-size:12px;color:var(--stone)"></span>
+      </div>
+    </div>
 
     <div id="kanban-view"><div class="kanban-board" id="kanban-board"></div></div>
 
@@ -302,25 +361,50 @@
   const ACT_ICONS = {'Call':'📞','Email':'✉️','Meeting':'🤝','Tour':'🏢','Offer':'📋','LOI':'📄','Contract':'✍️','Note':'📝'};
 
   let allDeals = [], allProperties = [];
-  let activeType = '', activeView = 'kanban';
+  let activeView = 'kanban';
   let sortCol = 'projected_close', sortDir = 1;
   let openId = null, relatedLoaded = false, editingId = null;
   let leafletMap = null, mapMarkers = [];
 
   window.openDealPanel = (id) => openPanel(id);
 
-  // ── Filters ────────────────────────────────────────────────────────────────
-  function buildFilters() {
-    document.getElementById('type-filters').innerHTML =
-      ['', ...DEAL_TYPES].map(t => `<div class="filter-pill${t===activeType?' active':''}" onclick="setType('${t}')">
-        ${t||'All Types'}</div>`).join('');
+  // ── Filter panel ──────────────────────────────────────────────────────────
+  function fpTab(n){document.querySelectorAll('.fp-tab').forEach((t,i)=>t.classList.toggle('active',i===n));document.querySelectorAll('.fp-pane').forEach((p,i)=>p.classList.toggle('active',i===n));}
+  function buildPillGroups(){
+    document.getElementById('stage-pcs').innerHTML=STAGES.map(s=>`<span class="fp-pc" data-v="${s}" onclick="this.classList.toggle('on')" style="font-size:11px">${s}</span>`).join(' ');
+    document.getElementById('dtype-pcs').innerHTML=DEAL_TYPES.map(t=>`<span class="fp-pc" data-v="${t}" onclick="this.classList.toggle('on')">${t}</span>`).join(' ');
   }
-
-  function setType(t) { activeType = t; buildFilters(); renderView(); }
-
-  function filterDeals() {
-    return activeType ? allDeals.filter(d => d.deal_type === activeType) : [...allDeals];
+  function buildSearchParams(){
+    const p=new URLSearchParams();
+    const g=id=>(document.getElementById(id)?.value||'').trim();
+    const search=g('fp-search'); if(search) p.set('search',search);
+    const stages=[...document.querySelectorAll('#stage-pcs .fp-pc.on')].map(e=>e.dataset.v);
+    if(stages.length) p.set('stage',stages.join(','));
+    const types=[...document.querySelectorAll('#dtype-pcs .fp-pc.on')].map(e=>e.dataset.v);
+    if(types.length) p.set('deal_type',types.join(','));
+    const cb=document.querySelector('input[name="co-broker"]:checked')?.value;
+    if(cb==='yes') p.set('co_broker','true'); else if(cb==='no') p.set('co_broker','false');
+    if(g('fp-min-comm')) p.set('min_commission',g('fp-min-comm'));
+    if(g('fp-max-comm')) p.set('max_commission',g('fp-max-comm'));
+    if(g('fp-close-from')) p.set('close_from',g('fp-close-from'));
+    if(g('fp-close-to')) p.set('close_to',g('fp-close-to'));
+    if(g('fp-min-dom')) p.set('min_dom',g('fp-min-dom'));
+    if(g('fp-max-dom')) p.set('max_dom',g('fp-max-dom'));
+    return p;
   }
+  async function runSearch(){
+    document.getElementById('fp-count').textContent='…';
+    try{
+      const qs=buildSearchParams().toString();
+      const data=await API.get('/deals/'+(qs?'?'+qs:''));
+      allDeals=Array.isArray(data)?data:(data.items||[]);
+      document.getElementById('fp-count').textContent=allDeals.length+' results';
+      renderView();
+    }catch(e){Toast.error('Search failed: '+e.message);}
+  }
+  function clearFilters(){document.querySelectorAll('.fp input:not([type=radio])').forEach(e=>e.value='');document.querySelectorAll('.fp input[type=radio][value=""]').forEach(e=>e.checked=true);document.querySelectorAll('.fp-pc.on').forEach(e=>e.classList.remove('on'));runSearch();}
+
+  function filterDeals() { return [...allDeals]; }
 
   // ── View switching ─────────────────────────────────────────────────────────
   function setView(v) {
@@ -781,14 +865,9 @@
   }
 
   async function init() {
-    try {
-      [allDeals, allProperties] = await Promise.all([
-        API.get('/deals/'),
-        API.get('/properties/'),
-      ]);
-      buildFilters();
-      renderView();
-    } catch(e) { Toast.error('Failed to load: ' + e.message); }
+    buildPillGroups();
+    allProperties = await API.get('/properties/').then(d => Array.isArray(d)?d:(d.items||[])).catch(()=>[]);
+    runSearch();
   }
 
   init();

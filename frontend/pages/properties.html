@@ -85,6 +85,29 @@
       padding-bottom: 6px; margin: 20px 0 14px;
     }
     .form-divider:first-child { margin-top: 0; }
+    /* ── Filter panel ── */
+    .fp { background:#fff; border:1px solid var(--cream-dark); border-radius:var(--radius-lg); margin-bottom:16px; box-shadow:var(--shadow-card); }
+    .fp-tabs { display:flex; border-bottom:1px solid var(--cream-dark); padding:0 4px; gap:2px; overflow-x:auto; }
+    .fp-tab { padding:8px 14px; font-size:12.5px; font-weight:500; color:var(--stone); background:none; border:none; cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px; white-space:nowrap; flex-shrink:0; }
+    .fp-tab.active { color:var(--navy); border-bottom-color:var(--gold); }
+    .fp-pane { padding:12px 16px; display:none; }
+    .fp-pane.active { display:block; }
+    .fp-row { display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap; align-items:center; }
+    .fp-row:last-child { margin-bottom:0; }
+    .fp-lbl { font-size:10.5px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--stone); white-space:nowrap; }
+    .fp-range { display:flex; align-items:center; gap:4px; }
+    .fp-range input { width:88px; border:1px solid var(--cream-dark); border-radius:var(--radius); padding:4px 6px; font-size:12px; font-family:var(--font-body); outline:none; }
+    .fp-range input:focus { border-color:var(--navy); }
+    .fp-actions { padding:8px 16px; border-top:1px solid var(--cream-dark); display:flex; align-items:center; gap:8px; }
+    .fp-in { border:1px solid var(--cream-dark); border-radius:var(--radius); padding:4px 8px; font-size:12.5px; font-family:var(--font-body); outline:none; }
+    .fp-in:focus { border-color:var(--navy); }
+    .fp-pc { display:inline-flex; align-items:center; padding:3px 10px; border-radius:20px; font-size:12px; cursor:pointer; border:1px solid var(--cream-dark); background:#fff; color:var(--stone); user-select:none; transition:all 0.1s; }
+    .fp-pc:hover { border-color:var(--navy); color:var(--navy); }
+    .fp-pc.on { background:var(--navy); color:#fff; border-color:var(--navy); }
+    .pagination { display:flex; align-items:center; justify-content:center; gap:12px; padding:12px 16px; background:#fff; border:1px solid var(--cream-dark); border-radius:var(--radius-lg); box-shadow:var(--shadow-card); margin-top:12px; }
+    .pb { padding:5px 12px; border-radius:var(--radius); border:1px solid var(--cream-dark); background:#fff; cursor:pointer; font-size:12.5px; color:var(--stone); }
+    .pb:hover:not(:disabled) { background:var(--cream); color:var(--navy); }
+    .pb:disabled { opacity:0.4; cursor:default; }
   </style>
 </head>
 <body>
@@ -96,7 +119,7 @@
     <div class="topbar-actions">
       <div class="topbar-search">
         <span>⌕</span>
-        <input type="text" id="search-input" placeholder="Search properties…" oninput="applyFilters()">
+        <input type="text" id="search-input" placeholder="Search properties…" oninput="document.getElementById('fp-search').value=this.value" onkeydown="if(event.key==='Enter')runSearch()">
       </div>
       <button class="btn btn-primary btn-sm" onclick="openModal()">+ Add Property</button>
     </div>
@@ -110,16 +133,101 @@
       </div>
     </div>
 
-    <div class="filter-bar" id="type-filters" style="margin-bottom:6px"></div>
-    <div class="filter-bar" id="status-filters" style="margin-bottom:16px"></div>
+    <!-- Filter panel -->
+    <div class="fp">
+      <div class="fp-tabs">
+        <button class="fp-tab active" onclick="fpTab(0)">📍 Location</button>
+        <button class="fp-tab" onclick="fpTab(1)">🏢 Type</button>
+        <button class="fp-tab" onclick="fpTab(2)">📐 Size &amp; Price</button>
+        <button class="fp-tab" onclick="fpTab(3)">+ More</button>
+      </div>
+      <div class="fp-pane active" id="fp-0">
+        <div class="fp-row">
+          <span class="fp-lbl">Search</span>
+          <input id="fp-search" class="fp-in" style="width:220px" placeholder="Address, name, parcel ID…" onkeydown="if(event.key==='Enter')runSearch()">
+          <span class="fp-lbl">City</span>
+          <input id="fp-city" class="fp-in" style="width:110px" placeholder="Detroit">
+          <span class="fp-lbl">County</span>
+          <input id="fp-county" class="fp-in" style="width:110px" placeholder="Oakland" list="mi-counties">
+          <datalist id="mi-counties">
+            <option>Alcona</option><option>Alger</option><option>Allegan</option><option>Alpena</option><option>Antrim</option><option>Arenac</option><option>Barry</option><option>Bay</option><option>Benzie</option><option>Berrien</option><option>Branch</option><option>Calhoun</option><option>Cass</option><option>Charlevoix</option><option>Cheboygan</option><option>Chippewa</option><option>Clare</option><option>Clinton</option><option>Crawford</option><option>Delta</option><option>Dickinson</option><option>Eaton</option><option>Emmet</option><option>Genesee</option><option>Gladwin</option><option>Grand Traverse</option><option>Gratiot</option><option>Hillsdale</option><option>Houghton</option><option>Huron</option><option>Ingham</option><option>Ionia</option><option>Iosco</option><option>Iron</option><option>Isabella</option><option>Jackson</option><option>Kalamazoo</option><option>Kalkaska</option><option>Kent</option><option>Lake</option><option>Lapeer</option><option>Leelanau</option><option>Lenawee</option><option>Livingston</option><option>Luce</option><option>Mackinac</option><option>Macomb</option><option>Manistee</option><option>Marquette</option><option>Mason</option><option>Mecosta</option><option>Menominee</option><option>Midland</option><option>Missaukee</option><option>Monroe</option><option>Montcalm</option><option>Muskegon</option><option>Newaygo</option><option>Oakland</option><option>Oceana</option><option>Ogemaw</option><option>Oscoda</option><option>Osceola</option><option>Otsego</option><option>Ottawa</option><option>Roscommon</option><option>Saginaw</option><option>Sanilac</option><option>Shiawassee</option><option>St. Clair</option><option>St. Joseph</option><option>Tuscola</option><option>Van Buren</option><option>Washtenaw</option><option>Wayne</option><option>Wexford</option>
+          </datalist>
+          <span class="fp-lbl">Zip</span>
+          <input id="fp-zip" class="fp-in" style="width:80px" placeholder="48009">
+        </div>
+      </div>
+      <div class="fp-pane" id="fp-1">
+        <div class="fp-row">
+          <span class="fp-lbl">Type</span>
+          <span id="type-pcs"></span>
+        </div>
+        <div class="fp-row">
+          <span class="fp-lbl">Status</span>
+          <span id="status-pcs"></span>
+        </div>
+        <div class="fp-row">
+          <span class="fp-lbl">Subtype</span>
+          <input id="fp-subtype" class="fp-in" style="width:160px" placeholder="Flex, Strip Center…">
+        </div>
+      </div>
+      <div class="fp-pane" id="fp-2">
+        <div class="fp-row">
+          <span class="fp-lbl">Rentable SF</span>
+          <div class="fp-range"><input id="fp-min-sf" placeholder="min"><span>–</span><input id="fp-max-sf" placeholder="max"></div>
+          <span class="fp-lbl">Year Built</span>
+          <div class="fp-range"><input id="fp-min-year" placeholder="min"><span>–</span><input id="fp-max-year" placeholder="max"></div>
+          <span class="fp-lbl">Units</span>
+          <div class="fp-range"><input id="fp-min-units" placeholder="min"><span>–</span><input id="fp-max-units" placeholder="max"></div>
+        </div>
+        <div class="fp-row">
+          <span class="fp-lbl">Asking Price</span>
+          <div class="fp-range"><input id="fp-min-price" placeholder="min"><span>–</span><input id="fp-max-price" placeholder="max"></div>
+          <span class="fp-lbl">Cap Rate %</span>
+          <div class="fp-range"><input id="fp-min-cap" placeholder="min"><span>–</span><input id="fp-max-cap" placeholder="max"></div>
+          <span class="fp-lbl">Occupancy %</span>
+          <div class="fp-range"><input id="fp-min-occ" placeholder="min"><span>–</span><input id="fp-max-occ" placeholder="max"></div>
+        </div>
+      </div>
+      <div class="fp-pane" id="fp-3">
+        <div class="fp-row">
+          <span class="fp-lbl">Owner Name</span>
+          <input id="fp-owner" class="fp-in" style="width:140px" placeholder="LLC name">
+          <span class="fp-lbl">Tenant</span>
+          <input id="fp-tenant" class="fp-in" style="width:120px" placeholder="Tenant">
+          <span class="fp-lbl">Parcel ID</span>
+          <input id="fp-parcel" class="fp-in" style="width:120px" placeholder="XX-XX-XXX">
+          <span class="fp-lbl">Zoning</span>
+          <input id="fp-zoning" class="fp-in" style="width:80px" placeholder="C-2">
+        </div>
+        <div class="fp-row">
+          <span class="fp-lbl">Has Owner</span>
+          <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" name="has-owner" value=""> Any</label>
+          <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" name="has-owner" value="yes"> Yes</label>
+          <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" name="has-owner" value="no"> No</label>
+          <span class="fp-lbl" style="margin-left:12px">Has Deal</span>
+          <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" name="has-deal" value=""> Any</label>
+          <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" name="has-deal" value="yes"> Yes</label>
+          <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" name="has-deal" value="no"> No</label>
+        </div>
+        <div class="fp-row">
+          <span class="fp-lbl">Date Added</span>
+          <div class="fp-range"><input type="date" id="fp-added-from"><span>–</span><input type="date" id="fp-added-to"></div>
+        </div>
+      </div>
+      <div class="fp-actions">
+        <button class="btn btn-ghost btn-sm" onclick="clearFilters()">Clear All</button>
+        <button class="btn btn-primary btn-sm" onclick="runSearch()">Search</button>
+        <span id="fp-count" style="font-size:12px;color:var(--stone)"></span>
+      </div>
+    </div>
 
     <div class="card">
       <div class="table-wrap">
         <table class="data-table">
           <thead>
             <tr>
-              <th>Property</th><th>Type</th><th>Location</th>
-              <th>Size</th><th>Asking Price</th><th>Cap Rate</th><th>Status</th>
+              <th onclick="changeSort('address')">Property</th><th>Type</th><th onclick="changeSort('city')">Location</th>
+              <th onclick="changeSort('sf_rentable')">Size</th><th onclick="changeSort('asking_price')">Asking Price</th><th onclick="changeSort('cap_rate')">Cap Rate</th><th>Status</th>
             </tr>
           </thead>
           <tbody id="prop-tbody">
@@ -128,6 +236,7 @@
         </table>
       </div>
     </div>
+    <div id="pagination"></div>
   </div>
 </div>
 
@@ -255,34 +364,85 @@
   const ACT_ICONS    = { 'Call':'📞','Email':'✉️','Meeting':'🤝','Tour':'🏢','Offer':'📋','LOI':'📄','Contract':'✍️','Note':'📝' };
 
   let properties = [], allDeals = [];
-  let activeType = '', activeStatus = '';
   let editingId = null, openId = null, relatedLoaded = false;
+  let sortCol = 'address', sortDir = 'asc';
 
-  // ── Filters ────────────────────────────────────────────────────────────────
-  function buildFilters() {
-    document.getElementById('type-filters').innerHTML =
-      ['', ...TYPES].map(t => `<div class="filter-pill${t===activeType?' active':''}" onclick="setType('${t}')">
-        ${t ? Fmt.propType(t)+' '+t : 'All Types'}</div>`).join('');
-    document.getElementById('status-filters').innerHTML =
-      ['', ...STATUSES].map(s => `<div class="filter-pill${s===activeStatus?' active':''}" onclick="setStatus('${s}')">
-        ${s||'All Statuses'}</div>`).join('');
+  // ── Filter panel ──────────────────────────────────────────────────────────
+  function fpTab(n) {
+    document.querySelectorAll('.fp-tab').forEach((t,i) => t.classList.toggle('active', i===n));
+    document.querySelectorAll('.fp-pane').forEach((p,i) => p.classList.toggle('active', i===n));
   }
 
-  function setType(t)   { activeType   = t; buildFilters(); applyFilters(); }
-  function setStatus(s) { activeStatus = s; buildFilters(); applyFilters(); }
+  function buildPillGroups() {
+    document.getElementById('type-pcs').innerHTML =
+      TYPES.map(t => `<span class="fp-pc" data-v="${t}" onclick="this.classList.toggle('on')">${Fmt.propType(t)} ${t}</span>`).join(' ');
+    document.getElementById('status-pcs').innerHTML =
+      STATUSES.map(s => `<span class="fp-pc" data-v="${s}" onclick="this.classList.toggle('on')">${s}</span>`).join(' ');
+  }
 
-  function applyFilters() {
-    const q = (document.getElementById('search-input').value || '').toLowerCase();
-    let list = properties;
-    if (activeType)   list = list.filter(p => p.property_type === activeType);
-    if (activeStatus) list = list.filter(p => p.status === activeStatus);
-    if (q)            list = list.filter(p =>
-      (p.name||'').toLowerCase().includes(q) ||
-      (p.address||'').toLowerCase().includes(q) ||
-      (p.city||'').toLowerCase().includes(q));
-    renderTable(list);
-    document.getElementById('count-label').textContent =
-      `${list.length} propert${list.length !== 1 ? 'ies' : 'y'}`;
+  function buildParams(page) {
+    const p = new URLSearchParams({ page, per_page: 50, sort_by: sortCol, sort_dir: sortDir });
+    const g = id => (document.getElementById(id)?.value||'').trim();
+    const search = g('fp-search') || g('search-input');
+    if (search)      p.set('search', search);
+    if (g('fp-city'))    p.set('city', g('fp-city'));
+    if (g('fp-county'))  p.set('county', g('fp-county'));
+    if (g('fp-zip'))     p.set('zip', g('fp-zip'));
+    if (g('fp-subtype')) p.set('subtype', g('fp-subtype'));
+    const types = [...document.querySelectorAll('#type-pcs .fp-pc.on')].map(e=>e.dataset.v);
+    if (types.length)    p.set('property_type', types.join(','));
+    const stats = [...document.querySelectorAll('#status-pcs .fp-pc.on')].map(e=>e.dataset.v);
+    if (stats.length)    p.set('status', stats.join(','));
+    [['fp-min-sf','min_sf'],['fp-max-sf','max_sf'],['fp-min-year','min_year'],['fp-max-year','max_year'],
+     ['fp-min-units','min_units'],['fp-max-units','max_units'],['fp-min-price','min_price'],
+     ['fp-max-price','max_price'],['fp-min-cap','min_cap_rate'],['fp-max-cap','max_cap_rate'],
+     ['fp-min-occ','min_occupancy'],['fp-max-occ','max_occupancy'],['fp-owner','owner_name'],
+     ['fp-tenant','tenant'],['fp-parcel','parcel_id'],['fp-zoning','zoning'],
+     ['fp-added-from','added_from'],['fp-added-to','added_to']
+    ].forEach(([id,k]) => { const v=g(id); if(v) p.set(k,v); });
+    const ho = document.querySelector('input[name="has-owner"]:checked')?.value;
+    if (ho==='yes') p.set('has_owner','true'); else if (ho==='no') p.set('has_owner','false');
+    const hd = document.querySelector('input[name="has-deal"]:checked')?.value;
+    if (hd==='yes') p.set('has_deal','true'); else if (hd==='no') p.set('has_deal','false');
+    return p;
+  }
+
+  async function runSearch(page = 1) {
+    document.getElementById('fp-count').textContent = '…';
+    try {
+      const data = await API.get('/properties/?' + buildParams(page).toString());
+      const items = Array.isArray(data) ? data : (data.items || []);
+      renderTable(items);
+      const total = Array.isArray(data) ? items.length : data.total;
+      document.getElementById('count-label').textContent =
+        `${total.toLocaleString()} propert${total!==1?'ies':'y'}${!Array.isArray(data)?' · page '+data.page+' of '+data.total_pages:''}`;
+      document.getElementById('fp-count').textContent = total.toLocaleString() + ' results';
+      renderPagination(Array.isArray(data) ? null : data);
+    } catch(e) { Toast.error('Search failed: ' + e.message); }
+  }
+
+  function renderPagination(data) {
+    const el = document.getElementById('pagination');
+    if (!data || data.total_pages <= 1) { el.innerHTML = ''; return; }
+    el.innerHTML = `<div class="pagination">
+      <button class="pb" onclick="runSearch(${data.page-1})" ${data.page<=1?'disabled':''}>← Prev</button>
+      <span style="font-size:12.5px;color:var(--stone)">Page ${data.page} of ${data.total_pages} · ${data.total.toLocaleString()} records</span>
+      <button class="pb" onclick="runSearch(${data.page+1})" ${data.page>=data.total_pages?'disabled':''}>Next →</button>
+    </div>`;
+  }
+
+  function clearFilters() {
+    document.querySelectorAll('.fp input:not([type=radio])').forEach(e => e.value='');
+    document.querySelectorAll('.fp input[type=radio][value=""]').forEach(e => e.checked=true);
+    document.querySelectorAll('.fp-pc.on').forEach(e => e.classList.remove('on'));
+    document.getElementById('search-input').value = '';
+    runSearch();
+  }
+
+  function changeSort(col) {
+    if (sortCol === col) sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+    else { sortCol = col; sortDir = 'asc'; }
+    runSearch();
   }
 
   // ── Table ──────────────────────────────────────────────────────────────────
@@ -315,14 +475,10 @@
   }
 
   async function loadProperties() {
-    try {
-      [properties, allDeals] = await Promise.all([
-        API.get('/properties/'),
-        API.get('/deals/'),
-      ]);
-      buildFilters();
-      applyFilters();
-    } catch(e) { Toast.error('Failed to load: ' + e.message); }
+    buildPillGroups();
+    runSearch(1);
+    // Load deals for the panel's related tab (unfiltered)
+    API.get('/deals/').then(d => allDeals = Array.isArray(d) ? d : (d.items||[])).catch(()=>{});
   }
 
   // ── Panel ──────────────────────────────────────────────────────────────────

@@ -55,16 +55,51 @@ class AccountResponse(BaseModel):
     class Config:
         from_attributes = True
 
-@router.get("/", response_model=List[AccountResponse])
+@router.get("/")
 def list_accounts(
-    search: Optional[str] = None,
+    search:         Optional[str] = None,
+    entity_type:    Optional[str] = None,   # comma-separated
+    city:           Optional[str] = None,
+    state:          Optional[str] = None,
+    has_properties: Optional[bool] = None,
+    has_deal:       Optional[bool] = None,
+    page:           Optional[int] = None,
+    per_page:       int = 50,
+    sort_by:        str = "name",
+    sort_dir:       str = "asc",
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
+    from models.property import Property
+    from models.deal import DealContact
     q = db.query(Account).filter(Account.owner_id == current_user.id)
-    if search:
-        q = q.filter(Account.name.ilike(f"%{search}%"))
-    return q.order_by(Account.name).all()
+    if search:  q = q.filter(Account.name.ilike(f"%{search}%"))
+    if entity_type:
+        types = [t.strip() for t in entity_type.split(",") if t.strip()]
+        if types: q = q.filter(Account.entity_type.in_(types))
+    if city:    q = q.filter(Account.city.ilike(f"%{city}%"))
+    if state:   q = q.filter(Account.state.ilike(state))
+    if has_properties is not None:
+        prop_aids = db.query(Property.account_id).filter(
+            Property.account_id.isnot(None), Property.owner_id == current_user.id)
+        if has_properties: q = q.filter(Account.id.in_(prop_aids))
+        else:              q = q.filter(Account.id.notin_(prop_aids))
+    if has_deal is not None:
+        deal_aids = db.query(DealContact.account_id).filter(DealContact.account_id.isnot(None))
+        if has_deal: q = q.filter(Account.id.in_(deal_aids))
+        else:        q = q.filter(Account.id.notin_(deal_aids))
+
+    sort_map = {"name": Account.name, "entity_type": Account.entity_type,
+                "city": Account.city, "created_at": Account.created_at}
+    col = sort_map.get(sort_by, Account.name)
+    q = q.order_by(col.desc() if sort_dir == "desc" else col.asc())
+
+    if page is None:
+        return q.all()
+    total = q.count()
+    items = q.offset((page - 1) * per_page).limit(per_page).all()
+    return {"items": items, "total": total, "page": page,
+            "per_page": per_page, "total_pages": max(1, (total + per_page - 1) // per_page)}
 
 @router.post("/", response_model=AccountResponse)
 def create_account(

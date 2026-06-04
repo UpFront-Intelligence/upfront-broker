@@ -56,24 +56,57 @@ class ContactResponse(BaseModel):
     class Config:
         from_attributes = True
 
-@router.get("/", response_model=List[ContactResponse])
+@router.get("/")
 def list_contacts(
-    search: Optional[str] = None,
-    contact_type: Optional[str] = None,
+    search:       Optional[str] = None,
+    contact_type: Optional[str] = None,   # comma-separated
+    source:       Optional[str] = None,
+    has_email:    Optional[bool] = None,
+    has_phone:    Optional[bool] = None,
+    has_account:  Optional[bool] = None,
+    has_deal:     Optional[bool] = None,
+    page:         Optional[int] = None,
+    per_page:     int = 50,
+    sort_by:      str = "last_name",
+    sort_dir:     str = "asc",
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
+    from models.deal import DealContact
     q = db.query(Contact).filter(Contact.owner_id == current_user.id)
     if search:
-        q = q.filter(
-            (Contact.first_name.ilike(f"%{search}%")) |
-            (Contact.last_name.ilike(f"%{search}%")) |
-            (Contact.email.ilike(f"%{search}%")) |
-            (Contact.company.ilike(f"%{search}%") if hasattr(Contact, 'company') else False)
-        )
+        q = q.filter((Contact.first_name.ilike(f"%{search}%")) |
+                     (Contact.last_name.ilike(f"%{search}%")) |
+                     (Contact.email.ilike(f"%{search}%")) |
+                     (Contact.phone.ilike(f"%{search}%")))
     if contact_type:
-        q = q.filter(Contact.contact_type == contact_type)
-    return q.order_by(Contact.last_name).all()
+        types = [t.strip() for t in contact_type.split(",") if t.strip()]
+        if types: q = q.filter(Contact.contact_type.in_(types))
+    if source:  q = q.filter(Contact.source.ilike(f"%{source}%"))
+    if has_email is True:  q = q.filter(Contact.email.isnot(None))
+    if has_email is False: q = q.filter(Contact.email.is_(None))
+    if has_phone is True:  q = q.filter((Contact.phone.isnot(None)) | (Contact.mobile.isnot(None)))
+    if has_phone is False: q = q.filter(Contact.phone.is_(None), Contact.mobile.is_(None))
+    if has_account is not None:
+        acct_cids = db.query(ContactAccount.contact_id)
+        if has_account: q = q.filter(Contact.id.in_(acct_cids))
+        else:           q = q.filter(Contact.id.notin_(acct_cids))
+    if has_deal is not None:
+        deal_cids = db.query(DealContact.contact_id).filter(DealContact.contact_id.isnot(None))
+        if has_deal: q = q.filter(Contact.id.in_(deal_cids))
+        else:        q = q.filter(Contact.id.notin_(deal_cids))
+
+    sort_map = {"last_name": Contact.last_name, "first_name": Contact.first_name,
+                "email": Contact.email, "created_at": Contact.created_at}
+    col = sort_map.get(sort_by, Contact.last_name)
+    q = q.order_by(col.desc() if sort_dir == "desc" else col.asc())
+
+    if page is None:
+        return q.all()
+    total = q.count()
+    items = q.offset((page - 1) * per_page).limit(per_page).all()
+    return {"items": items, "total": total, "page": page,
+            "per_page": per_page, "total_pages": max(1, (total + per_page - 1) // per_page)}
 
 @router.post("/", response_model=ContactResponse)
 def create_contact(

@@ -85,12 +85,23 @@
 
     /* Modal */
     #contact-modal .modal { width: 560px; }
-    .form-divider {
-      font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase;
-      color: var(--stone); border-bottom: 1px solid var(--cream-dark);
-      padding-bottom: 6px; margin: 20px 0 14px;
-    }
-    .form-divider:first-child { margin-top: 0; }
+    .form-divider { font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--stone);border-bottom:1px solid var(--cream-dark);padding-bottom:6px;margin:20px 0 14px; }
+    .form-divider:first-child { margin-top:0; }
+    .fp{background:#fff;border:1px solid var(--cream-dark);border-radius:var(--radius-lg);margin-bottom:16px;box-shadow:var(--shadow-card);}
+    .fp-tabs{display:flex;border-bottom:1px solid var(--cream-dark);padding:0 4px;gap:2px;}
+    .fp-tab{padding:8px 14px;font-size:12.5px;font-weight:500;color:var(--stone);background:none;border:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;}
+    .fp-tab.active{color:var(--navy);border-bottom-color:var(--gold);}
+    .fp-pane{padding:12px 16px;display:none;} .fp-pane.active{display:block;}
+    .fp-row{display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;align-items:center;} .fp-row:last-child{margin-bottom:0;}
+    .fp-lbl{font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--stone);white-space:nowrap;}
+    .fp-in{border:1px solid var(--cream-dark);border-radius:var(--radius);padding:4px 8px;font-size:12.5px;font-family:var(--font-body);outline:none;}
+    .fp-in:focus{border-color:var(--navy);}
+    .fp-pc{display:inline-flex;align-items:center;padding:3px 10px;border-radius:20px;font-size:12px;cursor:pointer;border:1px solid var(--cream-dark);background:#fff;color:var(--stone);user-select:none;transition:all .1s;}
+    .fp-pc:hover{border-color:var(--navy);color:var(--navy);} .fp-pc.on{background:var(--navy);color:#fff;border-color:var(--navy);}
+    .fp-actions{padding:8px 16px;border-top:1px solid var(--cream-dark);display:flex;align-items:center;gap:8px;}
+    .pagination{display:flex;align-items:center;justify-content:center;gap:12px;padding:12px 16px;background:#fff;border:1px solid var(--cream-dark);border-radius:var(--radius-lg);box-shadow:var(--shadow-card);margin-top:12px;}
+    .pb{padding:5px 12px;border-radius:var(--radius);border:1px solid var(--cream-dark);background:#fff;cursor:pointer;font-size:12.5px;color:var(--stone);}
+    .pb:hover:not(:disabled){background:var(--cream);color:var(--navy);} .pb:disabled{opacity:.4;cursor:default;}
   </style>
 </head>
 <body>
@@ -102,7 +113,7 @@
     <div class="topbar-actions">
       <div class="topbar-search">
         <span>⌕</span>
-        <input type="text" id="search-input" placeholder="Search contacts…" oninput="applyFilters()">
+        <input type="text" id="search-input" placeholder="Search contacts…" onkeydown="if(event.key==='Enter')runSearch()">
       </div>
       <button class="btn btn-primary btn-sm" onclick="openModal()">+ Add Contact</button>
     </div>
@@ -116,7 +127,51 @@
       </div>
     </div>
 
-    <div class="filter-bar" id="type-filters" style="margin-bottom:16px"></div>
+    <div class="fp">
+      <div class="fp-tabs">
+        <button class="fp-tab active" onclick="fpTab(0)">Name &amp; Info</button>
+        <button class="fp-tab" onclick="fpTab(1)">Type &amp; Source</button>
+        <button class="fp-tab" onclick="fpTab(2)">Relationships</button>
+      </div>
+      <div class="fp-pane active" id="fp-0">
+        <div class="fp-row">
+          <span class="fp-lbl">Search</span>
+          <input id="fp-search" class="fp-in" style="width:220px" placeholder="Name, email, phone…" onkeydown="if(event.key==='Enter')runSearch()">
+          <span class="fp-lbl">Has Email</span>
+          <label style="font-size:12px;cursor:pointer"><input type="radio" name="has-email" value=""> Any</label>
+          <label style="font-size:12px;cursor:pointer"><input type="radio" name="has-email" value="yes"> Yes</label>
+          <label style="font-size:12px;cursor:pointer"><input type="radio" name="has-email" value="no"> No</label>
+          <span class="fp-lbl" style="margin-left:8px">Has Phone</span>
+          <label style="font-size:12px;cursor:pointer"><input type="radio" name="has-phone" value=""> Any</label>
+          <label style="font-size:12px;cursor:pointer"><input type="radio" name="has-phone" value="yes"> Yes</label>
+          <label style="font-size:12px;cursor:pointer"><input type="radio" name="has-phone" value="no"> No</label>
+        </div>
+      </div>
+      <div class="fp-pane" id="fp-1">
+        <div class="fp-row"><span class="fp-lbl">Type</span><span id="ctype-pcs"></span></div>
+        <div class="fp-row">
+          <span class="fp-lbl">Source</span>
+          <input id="fp-source" class="fp-in" style="width:160px" placeholder="Referral, CRE Platform…">
+        </div>
+      </div>
+      <div class="fp-pane" id="fp-2">
+        <div class="fp-row">
+          <span class="fp-lbl">Has Account</span>
+          <label style="font-size:12px;cursor:pointer"><input type="radio" name="has-account" value=""> Any</label>
+          <label style="font-size:12px;cursor:pointer"><input type="radio" name="has-account" value="yes"> Yes</label>
+          <label style="font-size:12px;cursor:pointer"><input type="radio" name="has-account" value="no"> No</label>
+          <span class="fp-lbl" style="margin-left:12px">Has Deal</span>
+          <label style="font-size:12px;cursor:pointer"><input type="radio" name="has-deal-c" value=""> Any</label>
+          <label style="font-size:12px;cursor:pointer"><input type="radio" name="has-deal-c" value="yes"> Yes</label>
+          <label style="font-size:12px;cursor:pointer"><input type="radio" name="has-deal-c" value="no"> No</label>
+        </div>
+      </div>
+      <div class="fp-actions">
+        <button class="btn btn-ghost btn-sm" onclick="clearFilters()">Clear All</button>
+        <button class="btn btn-primary btn-sm" onclick="runSearch()">Search</button>
+        <span id="fp-count" style="font-size:12px;color:var(--stone)"></span>
+      </div>
+    </div>
 
     <div class="card">
       <div class="table-wrap">
@@ -133,6 +188,7 @@
         </table>
       </div>
     </div>
+    <div id="pagination"></div>
   </div>
 </div>
 
@@ -231,31 +287,60 @@
   const ACT_ICONS = { 'Call':'📞','Email':'✉️','Meeting':'🤝','Tour':'🏢','Offer':'📋','LOI':'📄','Contract':'✍️','Note':'📝' };
 
   let contacts = [];
-  let activeType = '';
   let editingId = null, openId = null, relatedLoaded = false;
+  let sortCol = 'last_name', sortDir = 'asc';
 
-  // ── Filters ────────────────────────────────────────────────────────────────
-  function buildFilters() {
-    document.getElementById('type-filters').innerHTML =
-      ['', ...TYPES].map(t => `<div class="filter-pill${t===activeType?' active':''}" onclick="setType('${t}')">
-        ${t||'All Types'}</div>`).join('');
+  function fpTab(n) {
+    document.querySelectorAll('.fp-tab').forEach((t,i)=>t.classList.toggle('active',i===n));
+    document.querySelectorAll('.fp-pane').forEach((p,i)=>p.classList.toggle('active',i===n));
   }
-
-  function setType(t) { activeType = t; buildFilters(); applyFilters(); }
-
-  function applyFilters() {
-    const q = (document.getElementById('search-input').value || '').toLowerCase();
-    let list = contacts;
-    if (activeType) list = list.filter(c => c.contact_type === activeType);
-    if (q) list = list.filter(c =>
-      (c.first_name+' '+c.last_name).toLowerCase().includes(q) ||
-      (c.email||'').toLowerCase().includes(q) ||
-      (c.title||'').toLowerCase().includes(q)
-    );
-    renderTable(list);
-    document.getElementById('count-label').textContent =
-      `${list.length} contact${list.length !== 1 ? 's' : ''}`;
+  function buildPillGroups() {
+    document.getElementById('ctype-pcs').innerHTML =
+      TYPES.map(t=>`<span class="fp-pc" data-v="${t}" onclick="this.classList.toggle('on')">${t}</span>`).join(' ');
   }
+  function buildParams(page) {
+    const p = new URLSearchParams({page, per_page:50, sort_by:sortCol, sort_dir:sortDir});
+    const g = id=>(document.getElementById(id)?.value||'').trim();
+    const search = g('fp-search')||g('search-input'); if(search) p.set('search',search);
+    const types = [...document.querySelectorAll('#ctype-pcs .fp-pc.on')].map(e=>e.dataset.v);
+    if(types.length) p.set('contact_type',types.join(','));
+    if(g('fp-source')) p.set('source',g('fp-source'));
+    const he=document.querySelector('input[name="has-email"]:checked')?.value;
+    if(he==='yes') p.set('has_email','true'); else if(he==='no') p.set('has_email','false');
+    const hp=document.querySelector('input[name="has-phone"]:checked')?.value;
+    if(hp==='yes') p.set('has_phone','true'); else if(hp==='no') p.set('has_phone','false');
+    const ha=document.querySelector('input[name="has-account"]:checked')?.value;
+    if(ha==='yes') p.set('has_account','true'); else if(ha==='no') p.set('has_account','false');
+    const hd=document.querySelector('input[name="has-deal-c"]:checked')?.value;
+    if(hd==='yes') p.set('has_deal','true'); else if(hd==='no') p.set('has_deal','false');
+    return p;
+  }
+  async function runSearch(page=1) {
+    document.getElementById('fp-count').textContent='…';
+    try {
+      const data = await API.get('/contacts/?'+buildParams(page).toString());
+      const items = Array.isArray(data)?data:(data.items||[]);
+      contacts = items;
+      renderTable(items);
+      const total = Array.isArray(data)?items.length:data.total;
+      document.getElementById('count-label').textContent=`${total.toLocaleString()} contact${total!==1?'s':''}`;
+      document.getElementById('fp-count').textContent=total.toLocaleString()+' results';
+      renderPagination(Array.isArray(data)?null:data);
+    } catch(e){Toast.error('Search failed: '+e.message);}
+  }
+  function renderPagination(data) {
+    const el=document.getElementById('pagination');
+    if(!data||data.total_pages<=1){el.innerHTML='';return;}
+    el.innerHTML=`<div class="pagination"><button class="pb" onclick="runSearch(${data.page-1})" ${data.page<=1?'disabled':''}>← Prev</button><span style="font-size:12.5px;color:var(--stone)">Page ${data.page} of ${data.total_pages} · ${data.total.toLocaleString()} records</span><button class="pb" onclick="runSearch(${data.page+1})" ${data.page>=data.total_pages?'disabled':''}>Next →</button></div>`;
+  }
+  function clearFilters() {
+    document.querySelectorAll('.fp input:not([type=radio])').forEach(e=>e.value='');
+    document.querySelectorAll('.fp input[type=radio][value=""]').forEach(e=>e.checked=true);
+    document.querySelectorAll('.fp-pc.on').forEach(e=>e.classList.remove('on'));
+    document.getElementById('search-input').value='';
+    runSearch();
+  }
+  async function loadContacts() { buildPillGroups(); runSearch(1); }
 
   // ── Table ──────────────────────────────────────────────────────────────────
   function renderTable(rows) {
@@ -289,13 +374,6 @@
     }).join('');
   }
 
-  async function loadContacts() {
-    try {
-      contacts = await API.get('/contacts/');
-      buildFilters();
-      applyFilters();
-    } catch(e) { Toast.error('Failed to load: ' + e.message); }
-  }
 
   // ── Panel ──────────────────────────────────────────────────────────────────
   function openPanel(id) {
@@ -523,7 +601,7 @@
         Toast.success('Contact added');
       }
       Modal.close('contact-modal');
-      applyFilters();
+      runSearch();
     } catch(e) { Toast.error(e.message); }
   }
 
@@ -532,7 +610,7 @@
     try {
       await API.delete(`/contacts/${id}`);
       contacts = contacts.filter(c => c.id !== id);
-      closePanel(); applyFilters();
+      closePanel(); runSearch();
       Toast.success('Contact deleted');
     } catch(e) { Toast.error(e.message); }
   }

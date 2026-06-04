@@ -74,29 +74,137 @@ class PropertyResponse(PropertyCreate):
     class Config:
         from_attributes = True
 
-@router.get("/", response_model=List[PropertyResponse])
+@router.get("/")
 def list_properties(
     search: Optional[str] = None,
+    # multi-value (comma-separated)
     property_type: Optional[str] = None,
-    status: Optional[str] = None,
+    status:        Optional[str] = None,
+    # location
+    city:    Optional[str] = None,
+    county:  Optional[str] = None,
+    zip:     Optional[str] = None,
+    state:   Optional[str] = None,
+    subtype: Optional[str] = None,
+    # size
+    min_sf:  Optional[float] = None,  max_sf:  Optional[float] = None,
+    min_land_sf: Optional[float] = None, max_land_sf: Optional[float] = None,
+    min_units: Optional[int] = None,   max_units: Optional[int] = None,
+    min_stories: Optional[int] = None, max_stories: Optional[int] = None,
+    min_year: Optional[int] = None,    max_year: Optional[int] = None,
+    # price / financial
+    min_price: Optional[float] = None, max_price: Optional[float] = None,
+    min_cap_rate: Optional[float] = None, max_cap_rate: Optional[float] = None,
+    min_occupancy: Optional[float] = None, max_occupancy: Optional[float] = None,
+    min_assessed: Optional[float] = None,  max_assessed: Optional[float] = None,
+    min_tax: Optional[float] = None,       max_tax: Optional[float] = None,
+    tax_year: Optional[int] = None,
+    min_noi: Optional[float] = None,       max_noi: Optional[float] = None,
+    min_last_sale: Optional[float] = None, max_last_sale: Optional[float] = None,
+    last_sale_from: Optional[str] = None,  last_sale_to: Optional[str] = None,
+    # other
+    owner_name: Optional[str] = None,
+    tenant:     Optional[str] = None,
+    parcel_id:  Optional[str] = None,
+    zoning:     Optional[str] = None,
+    has_owner: Optional[bool] = None,
+    has_deal:  Optional[bool] = None,
+    added_from: Optional[str] = None, added_to: Optional[str] = None,
+    # legacy
     account_id: Optional[int] = None,
+    # pagination (activates paginated response when set)
+    page:     Optional[int] = None,
+    per_page: int = 50,
+    sort_by:  str = "address",
+    sort_dir: str = "asc",
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
+    from models.deal import Deal
+    from models.account import Account as Acct
+    from datetime import datetime as dt
     q = db.query(Property).filter(Property.owner_id == current_user.id)
+
     if search:
-        q = q.filter(
-            (Property.address.ilike(f"%{search}%")) |
-            (Property.name.ilike(f"%{search}%")) |
-            (Property.city.ilike(f"%{search}%"))
-        )
+        q = q.filter((Property.address.ilike(f"%{search}%")) |
+                     (Property.name.ilike(f"%{search}%")) |
+                     (Property.city.ilike(f"%{search}%")) |
+                     (Property.parcel_id.ilike(f"%{search}%")))
     if property_type:
-        q = q.filter(Property.property_type == property_type)
+        types = [t.strip() for t in property_type.split(",") if t.strip()]
+        if types: q = q.filter(Property.property_type.in_(types))
     if status:
-        q = q.filter(Property.status == status)
-    if account_id:
-        q = q.filter(Property.account_id == account_id)
-    return q.order_by(Property.address).all()
+        stats = [s.strip() for s in status.split(",") if s.strip()]
+        if stats: q = q.filter(Property.status.in_(stats))
+    if city:      q = q.filter(Property.city.ilike(f"%{city}%"))
+    if county:    q = q.filter(Property.county.ilike(f"%{county}%"))
+    if zip:       q = q.filter(Property.zip.ilike(f"{zip}%"))
+    if state:     q = q.filter(Property.state.ilike(state))
+    if subtype:   q = q.filter(Property.subtype.ilike(f"%{subtype}%"))
+    if account_id: q = q.filter(Property.account_id == account_id)
+    if min_sf:    q = q.filter(Property.sf_rentable >= min_sf)
+    if max_sf:    q = q.filter(Property.sf_rentable <= max_sf)
+    if min_land_sf: q = q.filter(Property.sf_land >= min_land_sf)
+    if max_land_sf: q = q.filter(Property.sf_land <= max_land_sf)
+    if min_units: q = q.filter(Property.units >= min_units)
+    if max_units: q = q.filter(Property.units <= max_units)
+    if min_stories: q = q.filter(Property.stories >= min_stories)
+    if max_stories: q = q.filter(Property.stories <= max_stories)
+    if min_year:  q = q.filter(Property.year_built >= min_year)
+    if max_year:  q = q.filter(Property.year_built <= max_year)
+    if min_price: q = q.filter(Property.asking_price >= min_price)
+    if max_price: q = q.filter(Property.asking_price <= max_price)
+    if min_cap_rate: q = q.filter(Property.cap_rate >= min_cap_rate)
+    if max_cap_rate: q = q.filter(Property.cap_rate <= max_cap_rate)
+    if min_occupancy: q = q.filter(Property.occupancy_pct >= min_occupancy)
+    if max_occupancy: q = q.filter(Property.occupancy_pct <= max_occupancy)
+    if min_assessed: q = q.filter(Property.assessed_value >= min_assessed)
+    if max_assessed: q = q.filter(Property.assessed_value <= max_assessed)
+    if min_tax:   q = q.filter(Property.tax_amount >= min_tax)
+    if max_tax:   q = q.filter(Property.tax_amount <= max_tax)
+    if tax_year:  q = q.filter(Property.tax_year == tax_year)
+    if min_noi:   q = q.filter(Property.noi >= min_noi)
+    if max_noi:   q = q.filter(Property.noi <= max_noi)
+    if min_last_sale: q = q.filter(Property.last_sale_price >= min_last_sale)
+    if max_last_sale: q = q.filter(Property.last_sale_price <= max_last_sale)
+    if last_sale_from:
+        try: q = q.filter(Property.last_sale_date >= dt.fromisoformat(last_sale_from).date())
+        except: pass
+    if last_sale_to:
+        try: q = q.filter(Property.last_sale_date <= dt.fromisoformat(last_sale_to).date())
+        except: pass
+    if tenant:    q = q.filter(Property.tenant.ilike(f"%{tenant}%"))
+    if parcel_id: q = q.filter(Property.parcel_id.ilike(f"%{parcel_id}%"))
+    if zoning:    q = q.filter(Property.zoning.ilike(f"%{zoning}%"))
+    if owner_name:
+        q = q.join(Acct, Property.account_id == Acct.id, isouter=True).filter(
+            Acct.name.ilike(f"%{owner_name}%"))
+    if has_owner is True:  q = q.filter(Property.account_id.isnot(None))
+    if has_owner is False: q = q.filter(Property.account_id.is_(None))
+    if has_deal is not None:
+        dpids = db.query(Deal.property_id).filter(Deal.owner_id == current_user.id)
+        if has_deal: q = q.filter(Property.id.in_(dpids))
+        else:        q = q.filter(Property.id.notin_(dpids))
+    if added_from:
+        try: q = q.filter(Property.created_at >= dt.fromisoformat(added_from))
+        except: pass
+    if added_to:
+        try: q = q.filter(Property.created_at <= dt.fromisoformat(added_to))
+        except: pass
+
+    # Sort
+    sort_map = {"address": Property.address, "city": Property.city,
+                "asking_price": Property.asking_price, "sf_rentable": Property.sf_rentable,
+                "year_built": Property.year_built, "created_at": Property.created_at}
+    col = sort_map.get(sort_by, Property.address)
+    q = q.order_by(col.desc() if sort_dir == "desc" else col.asc())
+
+    if page is None:
+        return q.all()
+    total = q.count()
+    items = q.offset((page - 1) * per_page).limit(per_page).all()
+    return {"items": items, "total": total, "page": page,
+            "per_page": per_page, "total_pages": max(1, (total + per_page - 1) // per_page)}
 
 @router.post("/", response_model=PropertyResponse)
 def create_property(

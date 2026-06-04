@@ -84,31 +84,75 @@ def calculate_commission(deal: Deal):
         if deal.co_broker and deal.co_broker_split_pct:
             deal.co_broker_split_pct = 100 - (deal.our_split_pct or 100)
 
-@router.get("/", response_model=List[DealResponse])
+@router.get("/")
 def list_deals(
-    stage: Optional[str] = None,
-    deal_type: Optional[str] = None,
+    search:         Optional[str] = None,
+    stage:          Optional[str] = None,      # comma-separated
+    deal_type:      Optional[str] = None,      # comma-separated
+    co_broker:      Optional[bool] = None,
+    min_commission: Optional[float] = None,
+    max_commission: Optional[float] = None,
+    close_from:     Optional[str] = None,
+    close_to:       Optional[str] = None,
+    min_dom:        Optional[int] = None,
+    max_dom:        Optional[int] = None,
+    # legacy filters (still supported)
     contact_id: Optional[int] = None,
     account_id: Optional[int] = None,
+    # pagination
+    page:     Optional[int] = None,
+    per_page: int = 50,
+    sort_by:  str = "projected_close",
+    sort_dir: str = "asc",
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
+    from models.property import Property
+    from datetime import datetime as dt
     q = db.query(Deal).filter(Deal.owner_id == current_user.id)
+    if search:
+        prop_ids = db.query(Property.id).filter(
+            Property.owner_id == current_user.id,
+            Property.address.ilike(f"%{search}%"))
+        q = q.filter((Deal.name.ilike(f"%{search}%")) | (Deal.property_id.in_(prop_ids)))
     if stage:
-        q = q.filter(Deal.stage == stage)
+        stages = [s.strip() for s in stage.split(",") if s.strip()]
+        if stages: q = q.filter(Deal.stage.in_(stages))
     if deal_type:
-        q = q.filter(Deal.deal_type == deal_type)
+        dtypes = [d.strip() for d in deal_type.split(",") if d.strip()]
+        if dtypes: q = q.filter(Deal.deal_type.in_(dtypes))
+    if co_broker is not None: q = q.filter(Deal.co_broker == co_broker)
+    if min_commission: q = q.filter(Deal.our_commission >= min_commission)
+    if max_commission: q = q.filter(Deal.our_commission <= max_commission)
+    if close_from:
+        try: q = q.filter(Deal.projected_close >= dt.fromisoformat(close_from).date())
+        except: pass
+    if close_to:
+        try: q = q.filter(Deal.projected_close <= dt.fromisoformat(close_to).date())
+        except: pass
+    if min_dom: q = q.filter(Deal.days_on_market >= min_dom)
+    if max_dom: q = q.filter(Deal.days_on_market <= max_dom)
     if contact_id:
-        deal_ids = [r.deal_id for r in
-                    db.query(DealContact.deal_id)
+        deal_ids = [r.deal_id for r in db.query(DealContact.deal_id)
                     .filter(DealContact.contact_id == contact_id).all()]
         q = q.filter(Deal.id.in_(deal_ids))
     if account_id:
-        deal_ids = [r.deal_id for r in
-                    db.query(DealContact.deal_id)
+        deal_ids = [r.deal_id for r in db.query(DealContact.deal_id)
                     .filter(DealContact.account_id == account_id).all()]
         q = q.filter(Deal.id.in_(deal_ids))
-    return q.order_by(Deal.projected_close).all()
+
+    sort_map = {"projected_close": Deal.projected_close, "name": Deal.name,
+                "stage": Deal.stage, "our_commission": Deal.our_commission,
+                "created_at": Deal.created_at}
+    col = sort_map.get(sort_by, Deal.projected_close)
+    q = q.order_by(col.desc() if sort_dir == "desc" else col.asc())
+
+    if page is None:
+        return q.all()
+    total = q.count()
+    items = q.offset((page - 1) * per_page).limit(per_page).all()
+    return {"items": items, "total": total, "page": page,
+            "per_page": per_page, "total_pages": max(1, (total + per_page - 1) // per_page)}
 
 @router.post("/", response_model=DealResponse)
 def create_deal(
