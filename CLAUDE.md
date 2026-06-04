@@ -314,40 +314,48 @@ uvicorn main:app --reload --port 8000
 - [x] Login page — sign in + register with split layout
 - [x] Dashboard — morning view with pipeline funnel, upcoming closes, activity feed
 
-## What's Next (build in this order)
-- [x] properties.html — list view + add/edit modal + detail panel
-- [x] contacts.html   — list view + add/edit modal + detail panel
-- [x] accounts.html   — list view + add/edit modal + detail panel
-- [x] deals.html      — kanban + list + map views, commission math, detail panel
-- [x] portal.html     — client-facing portal (buyer + seller), email gate, section logging
-- [x] import.html     — 5-step CSV/XLSX wizard, fuzzy field mapping, duplicate detection
+## What's Built
+
+### Core CRM (complete)
+- [x] properties.html — list view + server-side filters + detail page (property.html)
+- [x] contacts.html   — list view + server-side filters + detail page (contact.html)
+- [x] accounts.html   — list view + server-side filters + detail page (account.html)
+- [x] deals.html      — kanban + list + map + server-side filters + detail page (deal.html)
+- [x] portal.html     — client-facing portal, email gate, section logging
+- [x] Detail pages    — property/contact/account/deal with inline field editing
+- [x] Server-side filtering — 4-tab filter panels on all list pages, 50/page pagination
+
+### Data & Import (complete)
+- [x] import.html     — 5-step CSV/XLSX wizard, RESO fuzzy mapping, linked multi-silo
+- [x] Full commercial property fields — 108 columns across all 8 property types
+- [x] RESO Data Dictionary 2.1 — 77 fields, 400+ synonyms (see RESO_DATA_DICTIONARY.md)
+- [x] Linked silo import — owner columns create Accounts + Contacts from CSV
+
+### Market Intelligence (complete / in progress)
+- [x] finder.html     — Property Finder, Oakland County ArcGIS MapServer,
+                         Web Mercator → WGS84 projection, Add to Pipeline
+- [x] EnrichmentCache — local parcel cache, 7-day TTL, shared Option A store
+- [x] portfolio.html  — Portfolio Intelligence, 6 cross-silo queries:
+                         accounts by type, properties by owner location,
+                         portfolio size ranking, tenant search,
+                         LLC clustering / owner pattern, owner name search
+- [~] Finder owner name — NAME1 mapped correctly; 7-day cache may hold stale data
+                           until it expires or is cleared
 - [ ] comps.html      — comp table + CRE data import
-- [x] finder.html     — Property Finder (Oakland County ArcGIS, zip search, parcel map, Add to Pipeline)
-- [ ] GitHub init + Render deploy
+- [ ] Macomb County ArcGIS — second county for Property Finder
 
-## Property Finder (next feature)
-Market-facing property discovery tool powered by Oakland County ArcGIS public data.
+### Infrastructure (complete)
+- [x] Google OAuth 2.0 + email/password auth (both active)
+- [x] Alembic migrations — enrichment_cache, lat/lng, google_id, 108 commercial fields
+- [x] Render deploy — render.yaml, alembic upgrade on startup, no-cache HTML headers
 
-**Core flow:**
-1. Broker enters a zip code (or clicks a map area)
-2. App queries Oakland County ArcGIS REST API for all parcels in that zip
-3. Results rendered as parcel overlays on a Leaflet map
-4. Each parcel is clickable — shows assessor card (owner, address, SF, year built,
-   assessed value, tax, zoning, legal description)
-5. "Add to Pipeline" button on each parcel card → pre-fills a new Property record
-   and optionally creates a Prospecting deal in one click
-
-**ArcGIS source:**  `MICHIGAN_PUBLIC_RECORDS.md` — Oakland County endpoint
-**Map:**            Leaflet.js (already used in deals.html)
-**Dedup:**          Check against existing properties by parcel_id before adding
-**Enrichment:**     Feeds the ENRICHMENT_CACHE table (see Data Privacy Architecture)
-**Route:**          `/pages/finder.html` + `GET /api/finder/parcels?zip={zip}`
-
-**Key decisions to make before building:**
-- Zip code → ArcGIS bounding box vs. ArcGIS `where ZIPCODE='48226'` filter
-- How many parcels to show (cap at ~500 for map performance)
-- Whether parcel overlays use actual geometry or centroid points
-- "Add to Pipeline" flow: modal or direct create?
+## Next Session Priorities
+1. **Portfolio Intelligence testing** — verify all 6 query types against live data
+2. **Daily Digest** — morning email/dashboard summarizing activity, closes, pipeline moves
+3. **Macomb County ArcGIS** — second parcel source for Property Finder
+4. **LLC clustering deep-dive** — owner pattern query + visualization improvements
+5. **Constant Contact / email outreach** — native broker outreach from contact records
+6. **Buyer profile AI** — scrape acquisition criteria pages, match to pipeline properties
 
 ---
 
