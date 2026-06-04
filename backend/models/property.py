@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Float, ARRAY
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Float, ARRAY, Date
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
@@ -57,6 +57,13 @@ class Property(Base):
     # Geocoordinates (auto-set by Nominatim on save)
     lat             = Column(Float, nullable=True)
     lng             = Column(Float, nullable=True)
+
+    # Sale history
+    last_sale_price = Column(Float, nullable=True)
+    last_sale_date  = Column(Date, nullable=True)
+
+    # Tenant
+    tenant          = Column(String, nullable=True)
 
     # Notes
     notes           = Column(Text)

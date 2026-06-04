@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, List, Tuple
+from datetime import date
 import urllib.request, urllib.parse, json
 from database import get_db
 from models.property import Property
@@ -54,6 +55,9 @@ class PropertyCreate(BaseModel):
     noi: Optional[float] = None
     parcel_id: Optional[str] = None
     legal_desc: Optional[str] = None
+    tenant: Optional[str] = None
+    last_sale_price: Optional[float] = None
+    last_sale_date: Optional[date] = None
     notes: Optional[str] = None
     account_id: Optional[int] = None
     lat: Optional[float] = None

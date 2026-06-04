@@ -7,6 +7,8 @@ POST /api/import/execute  — import rows using confirmed mapping, detect duplic
 import csv
 import io
 import json
+import re
+from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
@@ -18,6 +20,7 @@ from models.user import User
 from models.property import Property
 from models.contact import Contact
 from models.account import Account
+from models.contact_account import ContactAccount
 from auth_utils import get_current_user
 
 router = APIRouter()
@@ -61,7 +64,19 @@ SYNONYMS = {
         "noi":                 ["noi","net operating income","net income","annual noi",
                                 "operating income"],
         "parcel_id":           ["parcel","parcel id","pin","apn","parcel number","tax id"],
+        "tenant":              ["tenant","tenants","current tenant","occupant"],
+        "last_sale_price":     ["last sale price","sale price","sold price","last sold price"],
+        "last_sale_date":      ["last sale date","sold date","sale date","last sold date"],
         "notes":               ["notes","comments","description","remarks","memo"],
+        # ── Owner / linked-silo fields (map to Account + Contact, not Property) ──
+        "owner_name":          ["owner name","owner","landlord","property owner",
+                                "ownername1","ownername"],
+        "owner_contact":       ["owner contact","contact name","contact person",
+                                "owner contact name"],
+        "owner_phone":         ["owner phone","phone","owner phone number","contact phone"],
+        "owner_email":         ["owner email","email","owner email address","contact email"],
+        "owner_address":       ["owner address","mailing address","owner mailing address"],
+        "owner_city_state_zip":["owner city state zip","city state zip","owner csz"],
     },
     "contact": {
         "first_name":    ["first name","first","fname","given name","forename"],
@@ -108,7 +123,10 @@ VALID_FIELDS = {
                  "status","year_built","sf_rentable","sf_land","units","stories","zoning",
                  "parking_ratio","occupancy_pct","asking_price","asking_price_per_sf",
                  "assessed_value","tax_amount","tax_year","cap_rate","noi",
-                 "parcel_id","legal_desc","notes"},
+                 "parcel_id","legal_desc","tenant","last_sale_price","last_sale_date","notes"},
+    # owner_* fields are virtual — handled in execute, never passed to Property()
+    "_owner_fields": {"owner_name","owner_contact","owner_phone",
+                      "owner_email","owner_address","owner_city_state_zip"},
     "contact":  {"first_name","last_name","email","phone","mobile","title",
                  "contact_type","source","notes"},
     "account":  {"name","entity_type","ein","website","phone","email",
@@ -122,7 +140,8 @@ NUMERIC_FIELDS = {
     "property": {"sf_rentable":float,"sf_land":float,"asking_price":float,
                  "asking_price_per_sf":float,"assessed_value":float,"tax_amount":float,
                  "year_built":int,"units":int,"stories":int,"tax_year":int,
-                 "parking_ratio":float,"occupancy_pct":float,"cap_rate":float,"noi":float},
+                 "parking_ratio":float,"occupancy_pct":float,"cap_rate":float,"noi":float,
+                 "last_sale_price":float},
     "contact":  {},
     "account":  {},
     "deal":     {"list_price":float,"sale_price":float,"commission_pct":float},
@@ -171,8 +190,32 @@ def _best_match(header: str, synonyms: dict):
     return (best_field if best_score >= 60 else None), best_score
 
 
+_DATE_FIELDS = {
+    "property": {"last_sale_date"},
+    "deal":     {"projected_close"},
+}
+
+_DATE_FMTS = ("%m/%d/%Y", "%Y-%m-%d", "%m/%d/%y", "%m-%d-%Y", "%Y/%m/%d")
+
+def _parse_date(val: str):
+    for fmt in _DATE_FMTS:
+        try:
+            return datetime.strptime(val.strip(), fmt).date()
+        except ValueError:
+            pass
+    return None
+
+
+def _parse_csz(val: str):
+    """Parse 'City, ST 12345' → (city, state, zip). Returns (None, None, None) on failure."""
+    m = re.match(r'^(.+),\s*([A-Za-z]{2})\s+(\d{5})', val.strip())
+    if m:
+        return m.group(1).strip(), m.group(2).upper(), m.group(3)
+    return None, None, None
+
+
 def _coerce(mapped: dict, record_type: str) -> dict:
-    """Numeric type coercion; silently skips unparseable values."""
+    """Numeric + date type coercion; silently skips unparseable values."""
     out = dict(mapped)
     for field, typ in NUMERIC_FIELDS.get(record_type, {}).items():
         if field in out and out[field]:
@@ -180,6 +223,13 @@ def _coerce(mapped: dict, record_type: str) -> dict:
                 out[field] = typ(str(out[field]).replace(",", "").replace("$", "")
                                  .replace("%", "").strip())
             except (ValueError, TypeError):
+                del out[field]
+    for field in _DATE_FIELDS.get(record_type, set()):
+        if field in out and out[field]:
+            parsed = _parse_date(str(out[field]))
+            if parsed:
+                out[field] = parsed
+            else:
                 del out[field]
     return out
 
@@ -210,12 +260,23 @@ async def preview_import(
             "confidence": "high" if score >= 85 else "medium" if score >= 60 else "none",
         }
 
+    owner_fields_present = (
+        record_type == "property" and
+        any(v.get("field") in VALID_FIELDS.get("_owner_fields", set())
+            for v in mapping.values())
+    )
+
     return {
-        "headers":          headers,
-        "preview_rows":     rows[:3],
-        "total_rows":       len(rows),
-        "suggested_mapping": mapping,
-        "available_fields": list(syns.keys()),
+        "headers":            headers,
+        "preview_rows":       rows[:3],
+        "total_rows":         len(rows),
+        "suggested_mapping":  mapping,
+        "available_fields":   list(syns.keys()),
+        "owner_columns_detected": owner_fields_present,
+        "owner_notice": (
+            "This import will also create Accounts and Contacts from owner data"
+            if owner_fields_present else None
+        ),
     }
 
 
@@ -234,7 +295,9 @@ async def execute_import(
     content   = await file.read()
     _, rows   = _read_file(content, file.filename or "")
 
-    valid     = VALID_FIELDS.get(record_type, set())
+    valid        = VALID_FIELDS.get(record_type, set())
+    owner_fields = VALID_FIELDS.get("_owner_fields", set())
+    all_allowed  = valid | owner_fields   # both sets pass through to mapped
     imported, skipped = 0, 0
     duplicates, flagged, errors = [], [], []
 
@@ -245,7 +308,7 @@ async def execute_import(
             for csv_col, field in confirmed.items():
                 if not field or field == "_skip":
                     continue
-                if field not in valid:
+                if field not in all_allowed:
                     continue
                 val = str(row.get(csv_col, "") or "").strip()
                 if val:
@@ -269,11 +332,88 @@ async def execute_import(
                                        "reason": f"{mapped.get('address')}, {mapped.get('city')} already exists"})
                     skipped += 1
                     continue
-                # Auto-populate name from address if not mapped
-                if not mapped.get("name"):
-                    mapped["name"] = mapped.get("address", "")
-                db.add(Property(**{k: v for k, v in mapped.items() if k in valid},
-                                owner_id=current_user.id))
+
+                # Separate owner fields (go to Account/Contact) from property fields
+                owner_fields = VALID_FIELDS.get("_owner_fields", set())
+                owner_data   = {k: v for k, v in mapped.items() if k in owner_fields}
+                prop_data    = {k: v for k, v in mapped.items() if k not in owner_fields}
+
+                if not prop_data.get("name"):
+                    prop_data["name"] = prop_data.get("address", "")
+
+                prop = Property(**{k: v for k, v in prop_data.items() if k in valid},
+                                owner_id=current_user.id)
+                db.add(prop)
+                db.flush()   # need prop.id for Account link
+
+                # ── Create / link Account from owner_name ──────────
+                acct = None
+                if owner_data.get("owner_name"):
+                    acct_name = owner_data["owner_name"].strip()
+                    acct = db.query(Account).filter(
+                        Account.owner_id == current_user.id,
+                        Account.name.ilike(acct_name),
+                    ).first()
+                    if not acct:
+                        city_o, state_o, zip_o = _parse_csz(
+                            owner_data.get("owner_city_state_zip") or "")
+                        acct = Account(
+                            owner_id = current_user.id,
+                            name     = acct_name,
+                            address  = owner_data.get("owner_address") or None,
+                            city     = city_o,
+                            state    = state_o,
+                            zip      = zip_o,
+                        )
+                        db.add(acct)
+                        db.flush()
+                    prop.account_id = acct.id
+
+                # ── Create / link Contact from owner_contact ───────
+                if owner_data.get("owner_contact"):
+                    parts   = owner_data["owner_contact"].strip().split(" ", 1)
+                    first   = parts[0]
+                    last    = parts[1] if len(parts) > 1 else ""
+                    email   = (owner_data.get("owner_email") or "").lower() or None
+                    phone   = owner_data.get("owner_phone") or None
+
+                    contact = None
+                    if email:
+                        contact = db.query(Contact).filter(
+                            Contact.owner_id == current_user.id,
+                            Contact.email == email,
+                        ).first()
+                    if not contact:
+                        contact = db.query(Contact).filter(
+                            Contact.owner_id == current_user.id,
+                            Contact.first_name.ilike(first),
+                            Contact.last_name.ilike(last),
+                        ).first()
+                    if not contact:
+                        contact = Contact(
+                            owner_id     = current_user.id,
+                            first_name   = first,
+                            last_name    = last,
+                            email        = email,
+                            phone        = phone,
+                            contact_type = "Owner",
+                        )
+                        db.add(contact)
+                        db.flush()
+
+                    # Link contact ↔ account (if account exists and not already linked)
+                    if acct:
+                        already = db.query(ContactAccount).filter(
+                            ContactAccount.contact_id == contact.id,
+                            ContactAccount.account_id == acct.id,
+                        ).first()
+                        if not already:
+                            db.add(ContactAccount(
+                                contact_id = contact.id,
+                                account_id = acct.id,
+                                role       = "Owner",
+                                is_primary = True,
+                            ))
 
             # ── Contact ───────────────────────────────────────────
             elif record_type == "contact":
