@@ -1,9 +1,9 @@
 """
-Property Finder — Oakland County ArcGIS parcel discovery.
+Property Finder — Oakland County ArcGIS parcel lookup.
 
-GET  /api/finder/discover          → find + cache the current parcel layer URL
-GET  /api/finder/parcels?zip=      → CRE parcels for a zip, with exists_in_db flag
-POST /api/finder/add               → create Property (+ optional Deal) from parcel data
+GET  /api/finder/debug     → probe base URLs (diagnostic)
+GET  /api/finder/parcels?zip= → CRE parcels for a zip, with exists_in_db flag
+POST /api/finder/add          → create Property (+ optional Deal) from parcel data
 """
 import json
 import urllib.request
@@ -25,18 +25,19 @@ router = APIRouter()
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
-ARCGIS_SERVICES = "https://gis.oakgov.com/arcgis/rest/services"
-MAX_PARCELS     = 500
+# ── Confirmed endpoint (found via /api/finder/debug) ─────────────────────────
+OAKLAND_PARCELS_URL = (
+    "https://services1.arcgis.com/QHF6KMnTeiUQgmFe/arcgis/rest/services"
+    "/OC_Tax_Parcels_Public/FeatureServer/0"
+)
+# Single fallback in case the primary URL changes
+OAKLAND_FALLBACK_URL = "https://gis.oakgov.com/arcgis/rest/services/Property/Parcels/FeatureServer/0"
 
-# Candidate layer names to try during discovery (most likely first)
-LAYER_CANDIDATES = [
-    "Parcels_and_Zoning/Oakland_County_Parcels",
-    "Property/Parcels",
-    "BaseMap/Parcels",
-    "Parcels/Parcels",
-]
+MAX_PARCELS      = 500
+CACHE_ZIP_PREFIX = "oakland_zip_"
+ZIP_TTL_DAYS     = 7
 
-# Alternative base URLs to try if the primary base returns 404
+# Kept for /debug endpoint
 ALT_BASES = [
     "https://gis.oakgov.com/arcgis/rest/services",
     "https://gis.oakgov.com/arcgis/rest/services/Property",
@@ -44,11 +45,6 @@ ALT_BASES = [
     "https://oakgov.maps.arcgis.com/arcgis/rest/services",
     "https://services1.arcgis.com/QHF6KMnTeiUQgmFe/arcgis/rest/services",
 ]
-
-CACHE_LAYER_KEY   = "oakland_parcel_layer"
-CACHE_ZIP_PREFIX  = "oakland_zip_"
-LAYER_TTL_DAYS    = 90
-ZIP_TTL_DAYS      = 7
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -195,61 +191,6 @@ def debug_arcgis(current_user: User = Depends(get_current_user)):
     return results
 
 
-@router.get("/discover")
-def discover_layer(
-    db:           Session = Depends(get_db),
-    current_user: User    = Depends(get_current_user),
-):
-    """Find the current Oakland County parcel FeatureServer layer URL."""
-    cached = _get_or_set_cache(db, "arcgis_layer", CACHE_LAYER_KEY, LAYER_TTL_DAYS)
-    if cached:
-        return cached
-
-    found_url   = None
-    probe_errors = []
-
-    for base in ALT_BASES:
-        # 1. Try the services directory for this base
-        try:
-            directory = _get(f"{base}?f=json")
-            for svc in directory.get("services", []):
-                if (svc.get("type") == "FeatureServer"
-                        and "parcel" in svc.get("name", "").lower()):
-                    found_url = f"{base}/{svc['name']}/FeatureServer/0"
-                    break
-            if found_url:
-                break
-        except Exception as exc:
-            probe_errors.append(f"directory {base}: {exc}")
-
-        # 2. Try candidate layer paths under this base
-        if not found_url:
-            for candidate in LAYER_CANDIDATES:
-                test_url = f"{base}/{candidate}/FeatureServer/0?f=json"
-                try:
-                    result = _get(test_url)
-                    if "fields" in result or "name" in result:
-                        found_url = f"{base}/{candidate}/FeatureServer/0"
-                        break
-                except Exception as exc:
-                    probe_errors.append(f"layer {test_url}: {exc}")
-            if found_url:
-                break
-
-    if not found_url:
-        raise HTTPException(
-            404,
-            f"Could not locate Oakland County parcel layer. "
-            f"Hit GET /api/finder/debug to inspect available services. "
-            f"Probe errors: {probe_errors[:5]}"
-        )
-
-    result = {"layer_url": found_url}
-    _save_cache(db, "arcgis_layer", CACHE_LAYER_KEY, "Oakland_ArcGIS",
-                result, LAYER_TTL_DAYS)
-    return result
-
-
 @router.get("/parcels")
 def get_parcels(
     zip:          str     = Query(..., min_length=5, max_length=5),
@@ -263,13 +204,7 @@ def get_parcels(
     cached_parcels = _get_or_set_cache(db, "parcels_by_zip", cache_key, ZIP_TTL_DAYS)
 
     if not cached_parcels:
-        # Discover or load layer URL
-        layer_cache = _get_or_set_cache(db, "arcgis_layer", CACHE_LAYER_KEY, LAYER_TTL_DAYS)
-        if layer_cache:
-            layer_url = layer_cache["layer_url"]
-        else:
-            # Quick attempt with first candidate
-            layer_url = (f"{ARCGIS_SERVICES}/{LAYER_CANDIDATES[0]}/FeatureServer/0")
+        layer_url = OAKLAND_PARCELS_URL
 
         params = urllib.parse.urlencode({
             "where":             f"SITUSZIP='{zip}'",
@@ -290,7 +225,12 @@ def get_parcels(
         try:
             data = _get(url)
         except Exception as exc:
-            raise HTTPException(503, f"ArcGIS request failed: {exc}")
+            # One retry with the fallback URL
+            try:
+                fallback_params = url.split("/query?", 1)[1]
+                data = _get(f"{OAKLAND_FALLBACK_URL}/query?{fallback_params}")
+            except Exception:
+                raise HTTPException(503, f"ArcGIS request failed: {exc}")
 
         if "error" in data:
             raise HTTPException(502, f"ArcGIS error: {data['error'].get('message','unknown')}")
@@ -309,7 +249,7 @@ def get_parcels(
             parcels.append(p)
 
         cached_parcels = {"parcels": parcels, "total": len(parcels), "zip": zip,
-                          "layer_url": layer_url}
+                          "layer_url": OAKLAND_PARCELS_URL}
         _save_cache(db, "parcels_by_zip", cache_key, "Oakland_ArcGIS",
                     cached_parcels, ZIP_TTL_DAYS)
 
