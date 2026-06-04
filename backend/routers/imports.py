@@ -413,6 +413,462 @@ RESO_SYNONYMS = {
         "type": "both",
         "synonyms": ["owner city state zip","city state zip","owner csz"],
     },
+    # ── New commercial fields ────────────────────────────────────────────────
+    "clear_height_min": {
+        "type": "commercial",
+        "synonyms": ["ClearHeight","clear_height","MinClearCeilingHeight","ceiling_height",
+                     "WarehouseClearHeight","clear height","min clear height","eave height"],
+    },
+    "clear_height_max": {
+        "type": "commercial",
+        "synonyms": ["MaxClearHeight","max_clear_height","MaxCeilingHeight",
+                     "max clear height","ridge height","peak height"],
+    },
+    "power_phase": {
+        "type": "commercial",
+        "synonyms": ["ThreePhaseElectric","power_phase","ElectricPhase","Phase",
+                     "3 phase","three phase","single phase","electric phase"],
+    },
+    "power_volts": {
+        "type": "commercial",
+        "synonyms": ["Voltage","power_volts","ElectricVoltage","volts","voltage"],
+    },
+    "column_spacing": {
+        "type": "commercial",
+        "synonyms": ["ColumnSpacing","column_spacing","BaySize","BayDepth","bay spacing",
+                     "bay size","structural bays"],
+    },
+    "floor_thickness": {
+        "type": "commercial",
+        "synonyms": ["FloorThickness","floor_thickness","ConcreteThickness","slab thickness",
+                     "floor slab","concrete floor"],
+    },
+    "floor_load": {
+        "type": "commercial",
+        "synonyms": ["FloorLoad","floor_load","FloorLoadCapacity","load capacity",
+                     "floor capacity","pounds per sf"],
+    },
+    "sprinkler_type": {
+        "type": "commercial",
+        "synonyms": ["SprinklerType","sprinkler_type","FireSprinklerType",
+                     "wet sprinkler","dry sprinkler","ESFR"],
+    },
+    "crane_capacity": {
+        "type": "commercial",
+        "synonyms": ["CraneCapacity","crane_capacity","CraneTons","overhead crane",
+                     "crane tons","bridge crane"],
+    },
+    "crane_height": {
+        "type": "commercial",
+        "synonyms": ["CraneHeight","crane_height","CraneHookHeight",
+                     "crane hook height","hook height"],
+    },
+    "office_pct": {
+        "type": "commercial",
+        "synonyms": ["OfficePct","office_pct","OfficePercent","office percent",
+                     "% office","office ratio"],
+    },
+    "office_sf": {
+        "type": "commercial",
+        "synonyms": ["OfficeSF","office_sf","OfficeArea","office area","office square feet",
+                     "office space"],
+    },
+    "yard_area": {
+        "type": "commercial",
+        "synonyms": ["YardArea","yard_area","OutdoorStorageArea","yard","storage yard",
+                     "outdoor storage","truck yard"],
+    },
+    "secured_yard": {
+        "type": "commercial",
+        "synonyms": ["SecuredYard","secured_yard","FencedYard","fenced yard",
+                     "secured storage","gated yard"],
+    },
+    "cross_dock": {
+        "type": "commercial",
+        "synonyms": ["CrossDock","cross_dock","CrossDocking","cross dock",
+                     "cross-dock","cross docking"],
+    },
+    "anchor_tenant": {
+        "type": "commercial",
+        "synonyms": ["AnchorTenant","anchor_tenant","MajorTenant","PrimaryTenant",
+                     "anchor store","anchor","major tenant"],
+    },
+    "inline_space": {
+        "type": "commercial",
+        "synonyms": ["InlineSpace","inline_space","InlineUnit","inline unit","in-line",
+                     "inline store"],
+    },
+    "end_cap": {
+        "type": "commercial",
+        "synonyms": ["EndCap","end_cap","EndUnit","end unit","end cap unit"],
+    },
+    "pylon_sign": {
+        "type": "commercial",
+        "synonyms": ["PylonSign","pylon_sign","PylonSignYN","pylon","pole sign",
+                     "freestanding sign"],
+    },
+    "monument_sign": {
+        "type": "commercial",
+        "synonyms": ["MonumentSign","monument_sign","MonumentSignYN","monument",
+                     "ground sign","low profile sign"],
+    },
+    "traffic_count": {
+        "type": "commercial",
+        "synonyms": ["TrafficCount","traffic_count","VehicleCount","DailyTrafficCount",
+                     "AADT","cars per day","average daily traffic","vehicles per day"],
+    },
+    "frontage_ft": {
+        "type": "commercial",
+        "synonyms": ["Frontage","frontage_ft","StreetFrontage","LotFrontage",
+                     "road frontage","frontage","linear feet"],
+    },
+    "drive_through": {
+        "type": "commercial",
+        "synonyms": ["DriveThrough","drive_through","DriveThroughYN","drive-through",
+                     "drive thru","drive-thru"],
+    },
+    "number_of_buildings": {
+        "type": "commercial",
+        "synonyms": ["NumberOfBuildings","number_of_buildings","BuildingCount",
+                     "# buildings","number buildings","buildings on site"],
+    },
+    "building_class": {
+        "type": "commercial",
+        "synonyms": ["BuildingClass","building_class","Class","PropertyClass",
+                     "building grade","office class","class a","class b","class c"],
+    },
+    "fiber_optic": {
+        "type": "commercial",
+        "synonyms": ["FiberOptic","fiber_optic","FiberOpticYN","fiber","fiber internet",
+                     "fiber connectivity","dark fiber"],
+    },
+    "generator": {
+        "type": "commercial",
+        "synonyms": ["Generator","generator","GeneratorYN","backup generator",
+                     "emergency generator","standby generator"],
+    },
+    "raised_floor": {
+        "type": "commercial",
+        "synonyms": ["RaisedFloor","raised_floor","RaisedFloorYN","raised access floor",
+                     "access floor","computer floor"],
+    },
+    "data_center_ready": {
+        "type": "commercial",
+        "synonyms": ["DataCenterReady","data_center_ready","DataCenterYN",
+                     "data center","tech ready","mission critical"],
+    },
+    "leed_certified": {
+        "type": "commercial",
+        "synonyms": ["LEED","leed_certified","GreenCertification","EnergyStarYN",
+                     "leed gold","leed silver","leed platinum","green building",
+                     "energy certification"],
+    },
+    "energy_star": {
+        "type": "commercial",
+        "synonyms": ["EnergyStar","energy_star","EnergyStarYN","energy star certified",
+                     "EPA energy star"],
+    },
+    "unit_mix": {
+        "type": "commercial",
+        "synonyms": ["UnitMix","unit_mix","UnitTypes","ApartmentMix","unit breakdown",
+                     "unit type mix","bedroom mix"],
+    },
+    "avg_unit_sf": {
+        "type": "commercial",
+        "synonyms": ["AverageUnitSize","avg_unit_sf","AvgUnitSF","average unit size",
+                     "avg unit size","average unit sf"],
+    },
+    "avg_rent_per_unit": {
+        "type": "commercial",
+        "synonyms": ["AverageRent","avg_rent_per_unit","AvgMonthlyRent",
+                     "AverageMonthlyRent","average rent","avg monthly rent",
+                     "average monthly rent per unit"],
+    },
+    "avg_rent_per_sf": {
+        "type": "commercial",
+        "synonyms": ["AverageRentPerSF","avg_rent_per_sf","AvgRentPSF",
+                     "average rent per sf","avg rent psf","rent psf"],
+    },
+    "laundry": {
+        "type": "commercial",
+        "synonyms": ["LaundryFeatures","laundry","LaundryFacilities","WasherDryer",
+                     "laundry facilities","on-site laundry","laundry room"],
+    },
+    "pet_friendly": {
+        "type": "commercial",
+        "synonyms": ["PetPolicy","pet_friendly","PetsAllowed","PetFriendlyYN",
+                     "pets allowed","dogs allowed","pet policy"],
+    },
+    "affordable_units": {
+        "type": "commercial",
+        "synonyms": ["AffordableUnits","affordable_units","LowIncomeUnits",
+                     "subsidized units","income restricted","affordable housing units"],
+    },
+    "market_rate_units": {
+        "type": "commercial",
+        "synonyms": ["MarketRateUnits","market_rate_units","MarketUnits",
+                     "market rate","unrestricted units"],
+    },
+    "number_of_rooms": {
+        "type": "commercial",
+        "synonyms": ["NumberOfRooms","number_of_rooms","RoomCount","HotelRooms",
+                     "Rooms","total rooms","room count","keys","number of keys"],
+    },
+    "flag": {
+        "type": "commercial",
+        "synonyms": ["Flag","flag","HotelFlag","HotelBrand","brand","hotel brand",
+                     "franchise flag","hotel chain"],
+    },
+    "franchise_expiry": {
+        "type": "commercial",
+        "synonyms": ["FranchiseExpiry","franchise_expiry","FranchiseExpiration",
+                     "LicenseExpiry","PLA expiry","franchise expiration date"],
+    },
+    "adr": {
+        "type": "commercial",
+        "synonyms": ["AverageDailyRate","ADR","adr","AvgDailyRate",
+                     "average daily rate","room rate","average room rate"],
+    },
+    "revpar": {
+        "type": "commercial",
+        "synonyms": ["RevPAR","revpar","RevenuePerAvailableRoom","RevPar",
+                     "revenue per available room"],
+    },
+    "restaurant_seats": {
+        "type": "commercial",
+        "synonyms": ["RestaurantSeats","restaurant_seats","DiningCapacity",
+                     "seating capacity","restaurant capacity","f&b seats"],
+    },
+    "meeting_space_sf": {
+        "type": "commercial",
+        "synonyms": ["MeetingSpaceSF","meeting_space_sf","MeetingRoomSF",
+                     "conference space","event space sf","ballroom sf","meeting room area"],
+    },
+    "pool_hotel": {
+        "type": "commercial",
+        "synonyms": ["PoolYN","pool_hotel","PoolFeatures","has pool","swimming pool",
+                     "indoor pool","outdoor pool"],
+    },
+    "fitness_center": {
+        "type": "commercial",
+        "synonyms": ["FitnessCenter","fitness_center","FitnessCenterYN","gym",
+                     "exercise room","health club","fitness room"],
+    },
+    "exam_rooms": {
+        "type": "commercial",
+        "synonyms": ["ExamRooms","exam_rooms","MedicalRooms","ClinicalRooms",
+                     "examination rooms","clinical spaces","consult rooms"],
+    },
+    "procedure_rooms": {
+        "type": "commercial",
+        "synonyms": ["ProcedureRooms","procedure_rooms","TreatmentRooms",
+                     "procedure suites","treatment rooms","minor procedure rooms"],
+    },
+    "imaging_rooms": {
+        "type": "commercial",
+        "synonyms": ["ImagingRooms","imaging_rooms","RadiologyRooms",
+                     "imaging suites","radiology","x-ray rooms","MRI rooms"],
+    },
+    "surgical_suites": {
+        "type": "commercial",
+        "synonyms": ["SurgicalSuites","surgical_suites","ORs","OperatingRooms",
+                     "operating suites","OR count","operating rooms"],
+    },
+    "icu_beds": {
+        "type": "commercial",
+        "synonyms": ["ICUBeds","icu_beds","IntensiveCareUnit","critical care beds",
+                     "ICU capacity","intensive care beds"],
+    },
+    "licensed_beds": {
+        "type": "commercial",
+        "synonyms": ["LicensedBeds","licensed_beds","HospitalBeds","TotalBeds",
+                     "bed count","total licensed beds","hospital capacity"],
+    },
+    "medical_gas": {
+        "type": "commercial",
+        "synonyms": ["MedicalGas","medical_gas","MedicalGasYN","oxygen","med gas",
+                     "piped oxygen","medical gases"],
+    },
+    "emergency_power": {
+        "type": "commercial",
+        "synonyms": ["EmergencyPower","emergency_power","BackupPower","UPS",
+                     "emergency generator","backup power system","emergency electrical"],
+    },
+    "zoning_jurisdiction": {
+        "type": "both",
+        "synonyms": ["ZoningJurisdiction","zoning_jurisdiction","Municipality",
+                     "governing body","zoning authority","jurisdiction"],
+    },
+    "floodplain": {
+        "type": "both",
+        "synonyms": ["FloodZone","floodplain","FloodPlainYN","FEMA_Zone",
+                     "flood zone","in floodplain","FEMA flood"],
+    },
+    "floodplain_zone": {
+        "type": "both",
+        "synonyms": ["FloodZoneCode","FEMAFloodZone","floodplain_zone",
+                     "FloodZoneDescription","FEMA zone","flood designation","AE zone"],
+    },
+    "wetlands": {
+        "type": "both",
+        "synonyms": ["WetlandsYN","wetlands","WetlandArea","HasWetlands",
+                     "has wetlands","wetland","delineated wetlands"],
+    },
+    "wetlands_acres": {
+        "type": "both",
+        "synonyms": ["WetlandsAcres","wetlands_acres","WetlandAreaAcres",
+                     "wetland acres","wetland area"],
+    },
+    "utilities_to_site": {
+        "type": "both",
+        "synonyms": ["UtilitiesToSite","utilities_to_site","UtilitiesAvailable",
+                     "utilities at site","utilities stubbed","site utilities"],
+    },
+    "road_frontage_ft": {
+        "type": "both",
+        "synonyms": ["RoadFrontage","road_frontage_ft","StreetFrontage",
+                     "road frontage feet","highway frontage","arterial frontage"],
+    },
+    "corner_lot": {
+        "type": "both",
+        "synonyms": ["CornerLot","corner_lot","CornerLotYN","corner","corner location",
+                     "corner parcel"],
+    },
+    "subdivided": {
+        "type": "both",
+        "synonyms": ["Subdivided","subdivided","SubdividedYN","can be subdivided",
+                     "divisible","subdividable"],
+    },
+    "number_of_lots": {
+        "type": "both",
+        "synonyms": ["NumberOfLots","number_of_lots","LotCount","total lots",
+                     "# lots","parcels","parcel count"],
+    },
+    "plat_recorded": {
+        "type": "both",
+        "synonyms": ["PlatRecorded","plat_recorded","PlatRecordedYN","platted",
+                     "plat filed","recorded plat"],
+    },
+    "environmental": {
+        "type": "both",
+        "synonyms": ["Environmental","environmental","EnvironmentalSurvey","Phase1",
+                     "Phase2","environmental study","ESA","environmental report"],
+    },
+    "expense_ratio": {
+        "type": "commercial",
+        "synonyms": ["ExpenseRatio","expense_ratio","OperatingExpenseRatio",
+                     "expense ratio","opex ratio","expense to income"],
+    },
+    "debt_service": {
+        "type": "commercial",
+        "synonyms": ["DebtService","debt_service","AnnualDebtService","DSCR",
+                     "mortgage payment","loan payment","annual debt service"],
+    },
+    "cash_flow": {
+        "type": "commercial",
+        "synonyms": ["CashFlow","cash_flow","NetCashFlow","AfterTaxCashFlow",
+                     "cash flow","net cash flow","free cash flow"],
+    },
+    "price_per_unit": {
+        "type": "commercial",
+        "synonyms": ["PricePerUnit","price_per_unit","CostPerUnit","ValuePerUnit",
+                     "price per unit","per unit price","unit value"],
+    },
+    "price_per_room": {
+        "type": "commercial",
+        "synonyms": ["PricePerRoom","price_per_room","CostPerRoom","ValuePerKey",
+                     "price per room","per key","per room"],
+    },
+    "lease_expiration": {
+        "type": "commercial",
+        "synonyms": ["LeaseExpiration","lease_expiration","LeaseEndDate","LeaseTerm",
+                     "LeaseExpiryDate","lease expiry","lease end","expiry date"],
+    },
+    "lease_term_months": {
+        "type": "commercial",
+        "synonyms": ["LeaseTerm","lease_term_months","LeaseTermMonths","term months",
+                     "lease term","lease length months"],
+    },
+    "renewal_options": {
+        "type": "commercial",
+        "synonyms": ["RenewalOptions","renewal_options","LeaseRenewalOption",
+                     "renewal terms","options to renew","lease options"],
+    },
+    "rent_bumps": {
+        "type": "commercial",
+        "synonyms": ["RentBumps","rent_bumps","RentEscalations","CPI adjustments",
+                     "annual increases","rent steps","rent escalations"],
+    },
+    "employee_count": {
+        "type": "commercial",
+        "synonyms": ["EmployeeCount","employee_count","NumberOfEmployees","Employees",
+                     "staff count","headcount","employees"],
+    },
+    "franchise": {
+        "type": "commercial",
+        "synonyms": ["Franchise","franchise","FranchiseYN","franchised","is franchise",
+                     "franchise business"],
+    },
+    "franchise_name": {
+        "type": "commercial",
+        "synonyms": ["FranchiseName","franchise_name","FranchiseBrand","franchise brand",
+                     "franchisor","franchise company"],
+    },
+    "opportunity_zone": {
+        "type": "both",
+        "synonyms": ["OpportunityZone","opportunity_zone","OZone","QOZ","qualified OZ",
+                     "opportunity fund zone","OZ designation"],
+    },
+    "enterprise_zone": {
+        "type": "both",
+        "synonyms": ["EnterpriseZone","enterprise_zone","EZ","economic development zone",
+                     "development zone","EDZ"],
+    },
+    "historic_district": {
+        "type": "both",
+        "synonyms": ["HistoricDistrict","historic_district","HistoricYN","HistoricSite",
+                     "historic","national register","listed building"],
+    },
+    "tif_district": {
+        "type": "both",
+        "synonyms": ["TIFDistrict","tif_district","TaxIncrementFinancing","TIF",
+                     "tax increment","TIF zone","brownfield TIF"],
+    },
+    "hoa_frequency": {
+        "type": "residential",
+        "synonyms": ["AssociationFeeFrequency","hoa_frequency","HOAFrequency",
+                     "hoa billing","monthly quarterly annual","hoa period"],
+    },
+    "has_basement": {
+        "type": "residential",
+        "synonyms": ["BasementYN","has_basement","Basement","finished basement",
+                     "unfinished basement","basement"],
+    },
+    "has_fireplace": {
+        "type": "residential",
+        "synonyms": ["FireplaceYN","has_fireplace","FireplacesTotal","fireplace",
+                     "wood burning","gas fireplace"],
+    },
+    "has_pool": {
+        "type": "residential",
+        "synonyms": ["PoolPrivateYN","has_pool","PoolYN","private pool",
+                     "swimming pool","in-ground pool"],
+    },
+    "list_date": {
+        "type": "both",
+        "synonyms": ["ListingContractDate","ListDate","list_date","OnMarketDate",
+                     "OriginalEntryTimestamp","listing date","on market date","listed"],
+    },
+    "days_on_market": {
+        "type": "both",
+        "synonyms": ["DaysOnMarket","days_on_market","DOM","CumulativeDaysOnMarket",
+                     "CDOM","days on market","cumulative dom"],
+    },
+    "mls_number": {
+        "type": "both",
+        "synonyms": ["ListingId","MLSNumber","MLS#","mls_number","listing_id","MLSID",
+                     "MatrixUniqueID","ListingKey","mls number","mls id"],
+    },
 }
 
 # ── Flatten RESO_SYNONYMS into SYNONYMS["property"] ──────────────────────────
@@ -464,11 +920,51 @@ SYNONYMS = {
 
 # Valid model fields — prevents unknown-kwarg crashes on model instantiation
 VALID_FIELDS = {
-    "property": {"name","address","city","state","zip","county","property_type","subtype",
-                 "status","year_built","sf_rentable","sf_land","units","stories","zoning",
-                 "parking_ratio","occupancy_pct","asking_price","asking_price_per_sf",
-                 "assessed_value","tax_amount","tax_year","cap_rate","noi",
-                 "parcel_id","legal_desc","tenant","last_sale_price","last_sale_date","notes"},
+    "property": {
+        # Core
+        "name","address","city","state","zip","county","property_type","subtype",
+        "status","year_built","sf_rentable","sf_land","units","stories","zoning",
+        "parking_ratio","occupancy_pct","asking_price","asking_price_per_sf",
+        "assessed_value","tax_amount","tax_year","cap_rate","noi",
+        "parcel_id","legal_desc","tenant","last_sale_price","last_sale_date","notes",
+        # Industrial
+        "clear_height_min","clear_height_max","dock_doors","drive_in_doors",
+        "rail_service","rail_service_type","power_amps","power_volts","power_phase",
+        "column_spacing","floor_thickness","floor_load","sprinklers","sprinkler_type",
+        "crane_capacity","crane_height","office_pct","office_sf","yard_area",
+        "secured_yard","cross_dock",
+        # Retail
+        "anchor_tenant","inline_space","end_cap","pylon_sign","monument_sign",
+        "traffic_count","frontage_ft","drive_through","number_of_buildings",
+        # Office
+        "building_class","fiber_optic","generator","raised_floor",
+        "data_center_ready","leed_certified","energy_star",
+        # Multifamily
+        "unit_mix","avg_unit_sf","avg_rent_per_unit","avg_rent_per_sf",
+        "laundry","pet_friendly","affordable_units","market_rate_units",
+        # Hospitality
+        "number_of_rooms","flag","franchise_expiry","adr","revpar",
+        "restaurant_seats","meeting_space_sf","pool_hotel","fitness_center",
+        # Medical
+        "exam_rooms","procedure_rooms","imaging_rooms","surgical_suites",
+        "icu_beds","licensed_beds","medical_gas","emergency_power",
+        # Land
+        "zoning_jurisdiction","floodplain","floodplain_zone","wetlands",
+        "wetlands_acres","utilities_to_site","road_frontage_ft","corner_lot",
+        "subdivided","number_of_lots","plat_recorded","environmental",
+        # Extended financial
+        "gross_income","operating_expense","vacancy_allowance","expense_ratio",
+        "debt_service","cash_flow","price_per_unit","price_per_room",
+        "lease_type","tenant_pays","owner_pays","lease_expiration",
+        "lease_term_months","renewal_options","rent_bumps",
+        # General commercial
+        "business_name","business_type","employee_count","franchise","franchise_name",
+        "opportunity_zone","enterprise_zone","historic_district","tif_district",
+        # Residential
+        "bedrooms","bathrooms","garage_spaces","hoa_fee","hoa_frequency",
+        "school_district","has_basement","has_fireplace","has_pool",
+        "mls_number","list_date","days_on_market",
+    },
     # owner_* fields are virtual — handled in execute, never passed to Property()
     "_owner_fields": {"owner_name","owner_contact","owner_phone",
                       "owner_email","owner_address","owner_city_state_zip"},
@@ -482,11 +978,43 @@ VALID_FIELDS = {
 
 # Fields that need numeric coercion
 NUMERIC_FIELDS = {
-    "property": {"sf_rentable":float,"sf_land":float,"asking_price":float,
-                 "asking_price_per_sf":float,"assessed_value":float,"tax_amount":float,
-                 "year_built":int,"units":int,"stories":int,"tax_year":int,
-                 "parking_ratio":float,"occupancy_pct":float,"cap_rate":float,"noi":float,
-                 "last_sale_price":float},
+    "property": {
+        # Core
+        "sf_rentable":float,"sf_land":float,"asking_price":float,
+        "asking_price_per_sf":float,"assessed_value":float,"tax_amount":float,
+        "year_built":int,"units":int,"stories":int,"tax_year":int,
+        "parking_ratio":float,"occupancy_pct":float,"cap_rate":float,"noi":float,
+        "last_sale_price":float,
+        # Industrial
+        "clear_height_min":float,"clear_height_max":float,
+        "dock_doors":int,"drive_in_doors":int,
+        "floor_thickness":float,"floor_load":float,
+        "crane_capacity":float,"crane_height":float,
+        "office_pct":float,"office_sf":float,"yard_area":float,
+        # Retail
+        "traffic_count":int,"frontage_ft":float,"number_of_buildings":int,
+        # Multifamily
+        "avg_unit_sf":float,"avg_rent_per_unit":float,"avg_rent_per_sf":float,
+        "affordable_units":int,"market_rate_units":int,
+        # Hospitality
+        "number_of_rooms":int,"adr":float,"revpar":float,
+        "restaurant_seats":int,"meeting_space_sf":float,
+        # Medical
+        "exam_rooms":int,"procedure_rooms":int,"imaging_rooms":int,
+        "surgical_suites":int,"icu_beds":int,"licensed_beds":int,
+        # Land
+        "wetlands_acres":float,"road_frontage_ft":float,"number_of_lots":int,
+        # Extended financial
+        "gross_income":float,"operating_expense":float,"vacancy_allowance":float,
+        "expense_ratio":float,"debt_service":float,"cash_flow":float,
+        "price_per_unit":float,"price_per_room":float,
+        "lease_term_months":int,
+        # General commercial
+        "employee_count":int,
+        # Residential
+        "bedrooms":int,"bathrooms":float,"garage_spaces":int,
+        "hoa_fee":float,"days_on_market":int,
+    },
     "contact":  {},
     "account":  {},
     "deal":     {"list_price":float,"sale_price":float,"commission_pct":float},
@@ -536,7 +1064,7 @@ def _best_match(header: str, synonyms: dict):
 
 
 _DATE_FIELDS = {
-    "property": {"last_sale_date"},
+    "property": {"last_sale_date","franchise_expiry","lease_expiration","list_date"},
     "deal":     {"projected_close"},
 }
 

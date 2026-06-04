@@ -74,6 +74,181 @@
     } catch(e) { Toast.error('Failed to load: ' + e.message); }
   }
 
+  // Boolean field row — displays Yes/No/— and renders a select on click
+  function brow(label, field, value) {
+    const display = value === true ? 'Yes' : value === false ? 'No' : '';
+    const attrs = display ? `data-raw="${display}"` : 'data-empty data-raw=""';
+    return `<div class="fr"><span class="fl">${label}</span>
+      <span class="fv" ${attrs} onclick="ef(this,'${field}',{choices:[['true','Yes'],['false','No']]})">${display}</span></div>`;
+  }
+
+  // Type-specific section HTML generators
+  function typeSection(p) {
+    const pt = p.property_type || '';
+    let html = '';
+    if (pt === 'Industrial') html = industrialSection(p);
+    else if (pt === 'Retail') html = retailSection(p);
+    else if (pt === 'Office') html = officeSection(p);
+    else if (pt === 'Multifamily') html = multifamilySection(p);
+    else if (pt === 'Hospitality') html = hospitalitySection(p);
+    else if (pt === 'Medical') html = medicalSection(p);
+    else if (pt === 'Land') html = landSection(p);
+    // Extended financial for all commercial types
+    if (['Industrial','Retail','Office','Multifamily','Hospitality','Medical','STNL','Self Storage'].includes(pt)) {
+      html += extFinancialSection(p);
+    }
+    html += generalSection(p);
+    return html;
+  }
+
+  function industrialSection(p) {
+    return `<div class="dc"><div class="dc-title">🏭 Industrial</div><div class="dc-body">
+      ${frow('Clear Ht Min', 'clear_height_min', p.clear_height_min ? p.clear_height_min + "'" : null)}
+      ${frow('Clear Ht Max', 'clear_height_max', p.clear_height_max ? p.clear_height_max + "'" : null)}
+      ${frow('Dock Doors',   'dock_doors',       p.dock_doors)}
+      ${frow('Drive-In Doors','drive_in_doors',  p.drive_in_doors)}
+      ${brow('Rail Service', 'rail_service',     p.rail_service)}
+      ${frow('Rail Type',    'rail_service_type', p.rail_service_type)}
+      ${frow('Power Amps',   'power_amps',       p.power_amps)}
+      ${frow('Power Volts',  'power_volts',      p.power_volts)}
+      ${frow('Power Phase',  'power_phase',      p.power_phase)}
+      ${frow('Column Spacing','column_spacing',  p.column_spacing)}
+      ${frow('Floor Thickness','floor_thickness',p.floor_thickness ? p.floor_thickness + '"' : null)}
+      ${frow('Floor Load',   'floor_load',       p.floor_load ? p.floor_load + ' lbs/SF' : null)}
+      ${brow('Sprinklers',   'sprinklers',       p.sprinklers)}
+      ${frow('Sprinkler Type','sprinkler_type',  p.sprinkler_type)}
+      ${frow('Crane Capacity','crane_capacity',  p.crane_capacity ? p.crane_capacity + ' tons' : null)}
+      ${frow('Crane Height', 'crane_height',     p.crane_height ? p.crane_height + "'" : null)}
+      ${frow('Office %',     'office_pct',       p.office_pct != null ? p.office_pct + '%' : null)}
+      ${frow('Office SF',    'office_sf',        p.office_sf ? Fmt.sf(p.office_sf) : null)}
+      ${frow('Yard Area',    'yard_area',        p.yard_area ? Fmt.sf(p.yard_area) : null)}
+      ${brow('Secured Yard', 'secured_yard',     p.secured_yard)}
+      ${brow('Cross Dock',   'cross_dock',       p.cross_dock)}
+    </div></div>`;
+  }
+
+  function retailSection(p) {
+    return `<div class="dc"><div class="dc-title">🏪 Retail</div><div class="dc-body">
+      ${frow('Anchor Tenant', 'anchor_tenant',      p.anchor_tenant)}
+      ${frow('Traffic Count', 'traffic_count',      p.traffic_count ? p.traffic_count.toLocaleString() + ' VPD' : null)}
+      ${frow('Frontage',      'frontage_ft',        p.frontage_ft ? p.frontage_ft + "'" : null)}
+      ${frow('# Buildings',   'number_of_buildings',p.number_of_buildings)}
+      ${brow('Drive-Through', 'drive_through',      p.drive_through)}
+      ${brow('Pylon Sign',    'pylon_sign',         p.pylon_sign)}
+      ${brow('Monument Sign', 'monument_sign',      p.monument_sign)}
+      ${brow('Inline Space',  'inline_space',       p.inline_space)}
+      ${brow('End Cap',       'end_cap',            p.end_cap)}
+    </div></div>`;
+  }
+
+  function officeSection(p) {
+    return `<div class="dc"><div class="dc-title">🏢 Office</div><div class="dc-body">
+      ${frow('Building Class', 'building_class',   p.building_class, {choices:['A','B','C','A+','B+']})}
+      ${frow('LEED',           'leed_certified',   p.leed_certified)}
+      ${brow('Energy Star',    'energy_star',      p.energy_star)}
+      ${brow('Fiber Optic',    'fiber_optic',      p.fiber_optic)}
+      ${brow('Generator',      'generator',        p.generator)}
+      ${brow('Raised Floor',   'raised_floor',     p.raised_floor)}
+      ${brow('Data Center Ready','data_center_ready',p.data_center_ready)}
+    </div></div>`;
+  }
+
+  function multifamilySection(p) {
+    return `<div class="dc"><div class="dc-title">🏘️ Multifamily</div><div class="dc-body">
+      ${frow('Unit Mix',       'unit_mix',          p.unit_mix)}
+      ${frow('Avg Unit SF',    'avg_unit_sf',       p.avg_unit_sf ? Fmt.sf(p.avg_unit_sf) : null)}
+      ${frow('Avg Rent/Unit',  'avg_rent_per_unit', p.avg_rent_per_unit ? Fmt.currency(p.avg_rent_per_unit) : null)}
+      ${frow('Avg Rent/SF',    'avg_rent_per_sf',   p.avg_rent_per_sf ? '$' + p.avg_rent_per_sf + '/SF' : null)}
+      ${frow('Laundry',        'laundry',           p.laundry)}
+      ${brow('Pet Friendly',   'pet_friendly',      p.pet_friendly)}
+      ${frow('Affordable Units','affordable_units', p.affordable_units)}
+      ${frow('Market Rate Units','market_rate_units',p.market_rate_units)}
+    </div></div>`;
+  }
+
+  function hospitalitySection(p) {
+    return `<div class="dc"><div class="dc-title">🏨 Hospitality</div><div class="dc-body">
+      ${frow('Rooms',          'number_of_rooms', p.number_of_rooms)}
+      ${frow('Flag / Brand',   'flag',            p.flag)}
+      ${frow('Franchise Expiry','franchise_expiry',p.franchise_expiry ? Fmt.date(p.franchise_expiry) : null, {inputType:'date'})}
+      ${frow('ADR',            'adr',             p.adr ? Fmt.currency(p.adr) : null)}
+      ${frow('RevPAR',         'revpar',          p.revpar ? Fmt.currency(p.revpar) : null)}
+      ${frow('Restaurant Seats','restaurant_seats',p.restaurant_seats)}
+      ${frow('Meeting Space',  'meeting_space_sf', p.meeting_space_sf ? Fmt.sf(p.meeting_space_sf) : null)}
+      ${brow('Pool',           'pool_hotel',      p.pool_hotel)}
+      ${brow('Fitness Center', 'fitness_center',  p.fitness_center)}
+    </div></div>`;
+  }
+
+  function medicalSection(p) {
+    return `<div class="dc"><div class="dc-title">🏥 Medical</div><div class="dc-body">
+      ${frow('Exam Rooms',      'exam_rooms',      p.exam_rooms)}
+      ${frow('Procedure Rooms', 'procedure_rooms', p.procedure_rooms)}
+      ${frow('Imaging Rooms',   'imaging_rooms',   p.imaging_rooms)}
+      ${frow('Surgical Suites', 'surgical_suites', p.surgical_suites)}
+      ${frow('ICU Beds',        'icu_beds',        p.icu_beds)}
+      ${frow('Licensed Beds',   'licensed_beds',   p.licensed_beds)}
+      ${brow('Medical Gas',     'medical_gas',     p.medical_gas)}
+      ${brow('Emergency Power', 'emergency_power', p.emergency_power)}
+    </div></div>`;
+  }
+
+  function landSection(p) {
+    return `<div class="dc"><div class="dc-title">🌿 Land</div><div class="dc-body">
+      ${frow('Zoning Jurisdiction','zoning_jurisdiction',p.zoning_jurisdiction)}
+      ${brow('Floodplain',   'floodplain',      p.floodplain)}
+      ${frow('Flood Zone',   'floodplain_zone', p.floodplain_zone)}
+      ${brow('Wetlands',     'wetlands',        p.wetlands)}
+      ${frow('Wetland Acres','wetlands_acres',  p.wetlands_acres ? p.wetlands_acres + ' ac' : null)}
+      ${brow('Utilities to Site','utilities_to_site',p.utilities_to_site)}
+      ${frow('Road Frontage','road_frontage_ft', p.road_frontage_ft ? p.road_frontage_ft + "'" : null)}
+      ${brow('Corner Lot',   'corner_lot',      p.corner_lot)}
+      ${brow('Subdivided',   'subdivided',      p.subdivided)}
+      ${frow('# Lots',       'number_of_lots',  p.number_of_lots)}
+      ${brow('Plat Recorded','plat_recorded',   p.plat_recorded)}
+      ${frow('Environmental','environmental',   p.environmental)}
+    </div></div>`;
+  }
+
+  function extFinancialSection(p) {
+    const hasData = p.gross_income || p.operating_expense || p.lease_type || p.tenant_pays;
+    if (!hasData) return '';
+    return `<div class="dc"><div class="dc-title">Operations & Lease</div><div class="dc-body">
+      ${frow('Gross Income',     'gross_income',      p.gross_income ? Fmt.currency(p.gross_income) : null)}
+      ${frow('Operating Expense','operating_expense', p.operating_expense ? Fmt.currency(p.operating_expense) : null)}
+      ${frow('Vacancy Allowance','vacancy_allowance', p.vacancy_allowance != null ? p.vacancy_allowance + '%' : null)}
+      ${frow('Expense Ratio',    'expense_ratio',     p.expense_ratio != null ? p.expense_ratio + '%' : null)}
+      ${frow('Debt Service',     'debt_service',      p.debt_service ? Fmt.currency(p.debt_service) : null)}
+      ${frow('Cash Flow',        'cash_flow',         p.cash_flow ? Fmt.currency(p.cash_flow) : null)}
+      ${frow('Price / Unit',     'price_per_unit',    p.price_per_unit ? Fmt.currency(p.price_per_unit) : null)}
+      ${frow('Price / Room',     'price_per_room',    p.price_per_room ? Fmt.currency(p.price_per_room) : null)}
+      ${frow('Lease Type',       'lease_type',        p.lease_type)}
+      ${frow('Tenant Pays',      'tenant_pays',       p.tenant_pays)}
+      ${frow('Owner Pays',       'owner_pays',        p.owner_pays)}
+      ${frow('Lease Expiration', 'lease_expiration',  p.lease_expiration ? Fmt.date(p.lease_expiration) : null, {inputType:'date'})}
+      ${frow('Lease Term',       'lease_term_months', p.lease_term_months ? p.lease_term_months + ' mo' : null)}
+      ${frow('Renewal Options',  'renewal_options',   p.renewal_options)}
+      ${frow('Rent Bumps',       'rent_bumps',        p.rent_bumps)}
+    </div></div>`;
+  }
+
+  function generalSection(p) {
+    const hasData = p.business_name || p.business_type || p.opportunity_zone ||
+                    p.tif_district || p.historic_district;
+    if (!hasData) return '';
+    return `<div class="dc"><div class="dc-title">General Commercial</div><div class="dc-body">
+      ${frow('Business Name', 'business_name',    p.business_name)}
+      ${frow('Business Type', 'business_type',    p.business_type)}
+      ${frow('Employee Count','employee_count',   p.employee_count)}
+      ${brow('Franchise',     'franchise',        p.franchise)}
+      ${frow('Franchise Name','franchise_name',   p.franchise_name)}
+      ${brow('Opportunity Zone','opportunity_zone',p.opportunity_zone)}
+      ${brow('Enterprise Zone','enterprise_zone', p.enterprise_zone)}
+      ${brow('Historic District','historic_district',p.historic_district)}
+      ${brow('TIF District',  'tif_district',     p.tif_district)}
+    </div></div>`;
+  }
+
   function frow(label, field, value, opts) {
     const display = value != null && value !== '' ? String(value) : '';
     const attrs = display ? `data-raw="${display.replace(/"/g,'&quot;')}"` : 'data-empty data-raw=""';
@@ -114,6 +289,8 @@
             ${frow('Parcel ID',    'parcel_id',     p.parcel_id)}
             ${frow('Tenant',       'tenant',        p.tenant)}
           </div></div>
+
+          ${typeSection(p)}
 
           <div class="dc"><div class="dc-title">Financial</div><div class="dc-body">
             ${frow('Asking Price',    'asking_price',        p.asking_price ? Fmt.currency(p.asking_price) : null)}

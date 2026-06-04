@@ -131,6 +131,50 @@ Office, Industrial, Retail, Land, Multifamily, STNL, Self Storage, Hospitality, 
 
 Residential is on the roadmap but explicitly out of scope for v1.
 
+## Property Model — Field Groups
+
+**Core (all types):** name, address, city, state, zip, county, property_type, subtype,
+status, year_built, sf_rentable, sf_land, units, stories, zoning, parking_ratio,
+occupancy_pct, asking_price, asking_price_per_sf, assessed_value, tax_amount,
+tax_year, cap_rate, noi, parcel_id, legal_desc, tenant, last_sale_price,
+last_sale_date, lat, lng, notes
+
+**Industrial:** clear_height_min/max, dock_doors, drive_in_doors, rail_service,
+rail_service_type, power_amps/volts/phase, column_spacing, floor_thickness,
+floor_load, sprinklers, sprinkler_type, crane_capacity/height, office_pct/sf,
+yard_area, secured_yard, cross_dock
+
+**Retail:** anchor_tenant, inline_space, end_cap, pylon_sign, monument_sign,
+traffic_count, frontage_ft, drive_through, number_of_buildings
+
+**Office:** building_class, fiber_optic, generator, raised_floor,
+data_center_ready, leed_certified, energy_star
+
+**Multifamily:** unit_mix, avg_unit_sf, avg_rent_per_unit/sf, laundry,
+pet_friendly, affordable_units, market_rate_units
+
+**Hospitality:** number_of_rooms, flag, franchise_expiry, adr, revpar,
+restaurant_seats, meeting_space_sf, pool_hotel, fitness_center
+
+**Medical:** exam_rooms, procedure_rooms, imaging_rooms, surgical_suites,
+icu_beds, licensed_beds, medical_gas, emergency_power
+
+**Land:** zoning_jurisdiction, floodplain/zone, wetlands/acres,
+utilities_to_site, road_frontage_ft, corner_lot, subdivided, number_of_lots,
+plat_recorded, environmental
+
+**Extended Financial:** gross_income, operating_expense, vacancy_allowance,
+expense_ratio, debt_service, cash_flow, price_per_unit/room, lease_type,
+tenant_pays, owner_pays, lease_expiration, lease_term_months, renewal_options,
+rent_bumps
+
+**General Commercial:** business_name, business_type, employee_count, franchise,
+franchise_name, opportunity_zone, enterprise_zone, historic_district, tif_district
+
+**Residential (future, nullable):** bedrooms, bathrooms, garage_spaces, hoa_fee,
+hoa_frequency, school_district, has_basement, has_fireplace, has_pool,
+mls_number, list_date, days_on_market
+
 ---
 
 ## Deal Stages (in order)
