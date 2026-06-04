@@ -336,16 +336,9 @@ def get_parcels(
                 (features[0].get("attributes") or {}).get("Shape.area"),
             )
         for feat in features:
-            attrs = feat.get("attributes") or {}
-            # Skip residential: CLASSCODE 1xx OR NUM_BEDS > 0
-            classcode = attrs.get("CLASSCODE")
-            num_beds  = attrs.get("NUM_BEDS")
-            if num_beds and float(num_beds) > 0:
-                continue
-            prop_type = _classcode_to_type(classcode)
-            if prop_type is None:
-                continue   # skip unclassified / residential
-            p = _parcel_from_attrs(attrs)
+            attrs     = feat.get("attributes") or {}
+            prop_type = _classcode_to_type(attrs.get("CLASSCODE"))
+            p         = _parcel_from_attrs(attrs)
 
             geometry = feat.get("geometry")
             p["lat"], p["lng"] = _centroid(geometry)
