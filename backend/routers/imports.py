@@ -25,59 +25,404 @@ from auth_utils import get_current_user
 
 router = APIRouter()
 
+# ── RESO Data Dictionary 2.1 — complete field + synonym registry ─────────────
+# type: "commercial" | "residential" | "both"
+# synonyms: RESO CamelCase field names + human-readable variants
+# When record_type="property" all synonyms are used regardless of type.
+# The type tag enables future residential-only / commercial-only filtering.
+
+RESO_SYNONYMS = {
+    # ── Location ────────────────────────────────────────────────────────────
+    "address": {
+        "type": "both",
+        "synonyms": ["UnparsedAddress","StreetAddress","FullStreetAddress","PropertyAddress",
+                     "SiteAddress","BuildingAddress","address","property address",
+                     "street address","street","addr","property addr","site address","location"],
+    },
+    "city": {
+        "type": "both",
+        "synonyms": ["City","PostalCity","city","municipality","town"],
+    },
+    "state": {
+        "type": "both",
+        "synonyms": ["StateOrProvince","State","state","st","province"],
+    },
+    "zip": {
+        "type": "both",
+        "synonyms": ["PostalCode","Zip","ZipCode","zip","zip code","postal","postal code"],
+    },
+    "county": {
+        "type": "both",
+        "synonyms": ["CountyOrParish","County","county","county name","jurisdiction"],
+    },
+    # ── Classification ───────────────────────────────────────────────────────
+    "property_type": {
+        "type": "both",
+        "synonyms": ["PropertyType","PropertySubType","PropertyUse","LandUse",
+                     "type","property type","asset type","use type","space use","building type"],
+    },
+    "subtype": {
+        "type": "both",
+        "synonyms": ["PropertySubType","PropertySubTypeAdditional","ArchitecturalStyle",
+                     "subtype","sub type","sub-type","secondary type","building class",
+                     "property subtype","class"],
+    },
+    "status": {
+        "type": "both",
+        "synonyms": ["StandardStatus","MlsStatus","ListingStatus",
+                     "status","listing status","property status"],
+    },
+    # ── Physical — commercial ────────────────────────────────────────────────
+    "sf_rentable": {
+        "type": "commercial",
+        "synonyms": ["BuildingAreaTotal","LeasableArea","LeasableAreaUnits",
+                     "GrossLeasableArea","GLA","RentableArea","BuildingAreaUnits",
+                     "sf","sqft","square feet","building size","rentable sf","rba",
+                     "building sf","size","gla","rentable area"],
+    },
+    "sf_land": {
+        "type": "commercial",
+        "synonyms": ["LotSizeSquareFeet","LotSizeArea","LotSizeUnits","LandArea",
+                     "sf land","land sf","land area sf","land size","lot size sf",
+                     "land square feet","lot sf","acreage sf","land area"],
+    },
+    "units": {
+        "type": "both",
+        "synonyms": ["NumberOfUnitsTotal","NumberOfUnitsInCommunity","UnitCount",
+                     "NumberOfBuildings","units","unit count","number of units",
+                     "# units","apt units"],
+    },
+    "stories": {
+        "type": "both",
+        "synonyms": ["StoriesTotal","Levels","NumberOfFloors",
+                     "stories","floors","number of floors","num floors",
+                     "building stories","number of stories","# floors","# stories"],
+    },
+    "year_built": {
+        "type": "both",
+        "synonyms": ["YearBuilt","YearBuiltEffective","YearEstablished",
+                     "year built","year","built","year constructed"],
+    },
+    "zoning": {
+        "type": "both",
+        "synonyms": ["Zoning","ZoningDescription","zoning","zone","land use code"],
+    },
+    "parking_ratio": {
+        "type": "commercial",
+        "synonyms": ["ParkingRatio","ParkingTotal","GarageSpaces","ParkingFeatures",
+                     "parking ratio","parking","parking spaces per 1000",
+                     "parking/1000","p/1000","parking rate"],
+    },
+    "occupancy_pct": {
+        "type": "commercial",
+        "synonyms": ["OccupancyRate","OccupancyPercent","PercentLeased",
+                     "occupancy pct","occupancy %","occupancy percent","occupancy",
+                     "occupied pct","leased pct","leased %","percent leased",
+                     "percent occupied","current occupancy","occ %","occ pct"],
+    },
+    # ── Physical — residential ───────────────────────────────────────────────
+    "bedrooms": {
+        "type": "residential",
+        "synonyms": ["BedroomsTotal","Bedrooms","BedsBaths","bedroom_count",
+                     "beds","# bedrooms","bed count"],
+    },
+    "bathrooms": {
+        "type": "residential",
+        "synonyms": ["BathroomsTotalInteger","Bathrooms","BathroomsFull","BathroomsHalf",
+                     "BathroomsThreeQuarter","bathroom_count","baths","beds_baths",
+                     "# bathrooms","bath count"],
+    },
+    "garage_spaces": {
+        "type": "residential",
+        "synonyms": ["GarageSpaces","CarportSpaces","ParkingTotal","garage_spaces",
+                     "parking_spaces","GarageYN","attached garage","detached garage"],
+    },
+    "lot_size_acres": {
+        "type": "residential",
+        "synonyms": ["LotSizeAcres","LotSizeArea","lot_size_acres","LotSizeSquareFeet",
+                     "lot_acres","acreage","lot size","lot acres"],
+    },
+    "hoa_fee": {
+        "type": "residential",
+        "synonyms": ["AssociationFee","HOAFee","AssociationFeeFrequency","hoa_fee",
+                     "association_fee","HOADues","MonthlyHOA","hoa","monthly hoa",
+                     "association fee"],
+    },
+    "school_district": {
+        "type": "residential",
+        "synonyms": ["ElementarySchool","MiddleSchool","HighSchool","SchoolDistrict",
+                     "school_district","ElementarySchoolDistrict","school district",
+                     "schools","school"],
+    },
+    "basement": {
+        "type": "residential",
+        "synonyms": ["BasementYN","Basement","BelowGradeFinishedArea","basement",
+                     "has_basement","finished basement","unfinished basement"],
+    },
+    "fireplace": {
+        "type": "residential",
+        "synonyms": ["FireplaceYN","FireplacesTotal","Fireplace","fireplace",
+                     "fireplace_count","# fireplaces","has fireplace"],
+    },
+    "pool": {
+        "type": "residential",
+        "synonyms": ["PoolYN","PoolFeatures","pool","has_pool","PoolPrivateYN",
+                     "private pool","community pool"],
+    },
+    # ── Physical — both ──────────────────────────────────────────────────────
+    "heating": {
+        "type": "both",
+        "synonyms": ["Heating","HeatingYN","CoolingYN","Cooling","HeatingFeatures",
+                     "CoolingFeatures","HVAC","hvac_type","heating type","cooling type",
+                     "heat","air conditioning","hvac"],
+    },
+    "roof": {
+        "type": "both",
+        "synonyms": ["Roof","RoofFeatures","roof_type","roofing",
+                     "roof material","roof type"],
+    },
+    "construction": {
+        "type": "both",
+        "synonyms": ["ConstructionMaterials","construction_materials","FoundationDetails",
+                     "foundation","ArchitecturalStyle","construction_type",
+                     "building construction","construction material"],
+    },
+    # ── Commercial specialty ─────────────────────────────────────────────────
+    "clear_height": {
+        "type": "commercial",
+        "synonyms": ["ClearHeight","clear_height","CeilingHeight","ceiling_height",
+                     "WarehouseCeilingHeight","MinClearCeilingHeight",
+                     "clear span height","warehouse height"],
+    },
+    "dock_doors": {
+        "type": "commercial",
+        "synonyms": ["DockHighDoors","dock_doors","NumberOfDockDoors","LoadingDocks",
+                     "DockHighDoorsCount","# dock doors","loading dock doors",
+                     "truck docks"],
+    },
+    "drive_in_doors": {
+        "type": "commercial",
+        "synonyms": ["DriveInDoors","drive_in_doors","GradeLevel","GradeLevelDoors",
+                     "DriveInDoorsCount","grade level doors","drive-in doors",
+                     "grade level access"],
+    },
+    "rail_service": {
+        "type": "commercial",
+        "synonyms": ["RailServiceType","rail_service","RailAccess","RailServiceYN",
+                     "rail access","railroad siding","rail spur"],
+    },
+    "power_amps": {
+        "type": "commercial",
+        "synonyms": ["ElectricOnPropertyYN","power_amps","Voltage","Amps",
+                     "ElectricService","ThreePhaseElectric","electrical service",
+                     "3 phase","three phase","amps","voltage"],
+    },
+    "sprinklers": {
+        "type": "commercial",
+        "synonyms": ["SprinklersYN","sprinklers","FireSprinklerYN","SprinklerSystem",
+                     "FireProtection","fire sprinkler","sprinkler system",
+                     "wet sprinkler","dry sprinkler"],
+    },
+    "lease_type": {
+        "type": "commercial",
+        "synonyms": ["LeaseType","lease_type","LeaseTerm","LeaseExpiration",
+                     "LeaseRenewalOption","LeaseAssignableTo","CurrentLeaseType",
+                     "NNNLeaseYN","nnn","gross lease","modified gross",
+                     "absolute net"],
+    },
+    "tenant_pays": {
+        "type": "commercial",
+        "synonyms": ["TenantPays","tenant_pays","TenantExpenses","LesseeResponsibility",
+                     "tenant expenses","lessee pays"],
+    },
+    "owner_pays": {
+        "type": "commercial",
+        "synonyms": ["OwnerPays","owner_pays","LandlordResponsibility","OwnerExpenses",
+                     "landlord pays","lessor pays"],
+    },
+    "gross_income": {
+        "type": "commercial",
+        "synonyms": ["GrossIncome","gross_income","GrossScheduledIncome","GrossRentalIncome",
+                     "PotentialGrossIncome","egi","effective gross income",
+                     "scheduled gross income"],
+    },
+    "operating_expense": {
+        "type": "commercial",
+        "synonyms": ["OperatingExpense","operating_expense","AnnualExpense","TotalExpenses",
+                     "OperatingExpenses","opex","total operating expenses",
+                     "annual operating expenses"],
+    },
+    "vacancy_allowance": {
+        "type": "commercial",
+        "synonyms": ["VacancyAllowance","vacancy_allowance","VacancyRate","VacancyPercent",
+                     "EstimatedVacancy","vacancy rate","vacancy %","vacancy factor"],
+    },
+    "business_name": {
+        "type": "commercial",
+        "synonyms": ["BusinessName","business_name","TenantName","CurrentTenant",
+                     "OccupantName","Occupant","business name","current occupant",
+                     "tenant","tenants","current tenant","occupant"],
+    },
+    "business_type": {
+        "type": "commercial",
+        "synonyms": ["BusinessType","business_type","PropertyUse","CurrentUse",
+                     "LandUse","UseCode","business type","property use",
+                     "current use","land use"],
+    },
+    # ── Financial ────────────────────────────────────────────────────────────
+    "asking_price": {
+        "type": "both",
+        "synonyms": ["ListPrice","OriginalListPrice","CurrentPrice","ClosePrice",
+                     "asking price","list price","total price","offer price","asking total"],
+    },
+    "asking_price_per_sf": {
+        "type": "commercial",
+        "synonyms": ["PricePerSquareFoot","ListPricePerUnit",
+                     "asking price per sf","asking psf","price per sf","$/sf",
+                     "price/sf","asking $/sf","list price psf","per sf","psf"],
+    },
+    "assessed_value": {
+        "type": "both",
+        "synonyms": ["TaxAssessedValue","AssessedValue","TaxAppraisedValue",
+                     "assessed value","assessment","tax value","assessed"],
+    },
+    "tax_amount": {
+        "type": "both",
+        "synonyms": ["TaxAnnualAmount","TaxAmount","RealEstateTaxes",
+                     "tax amount","taxes","tax","annual tax","property tax",
+                     "tax bill","real estate tax","tax assessment amount"],
+    },
+    "tax_year": {
+        "type": "both",
+        "synonyms": ["TaxYear","TaxAssessmentYear",
+                     "tax year","assessment year","tax yr","year assessed"],
+    },
+    "cap_rate": {
+        "type": "commercial",
+        "synonyms": ["CapRate","CapitalizationRate","cap rate","cap","capitalization rate"],
+    },
+    "noi": {
+        "type": "commercial",
+        "synonyms": ["NetOperatingIncome","NOI","noi","net operating income","net income",
+                     "annual noi","operating income"],
+    },
+    "last_sale_price": {
+        "type": "both",
+        "synonyms": ["ClosePrice","SalePrice","PreviousSalePrice",
+                     "last sale price","sold price","last sold price","close price"],
+    },
+    "last_sale_date": {
+        "type": "both",
+        "synonyms": ["CloseDate","PurchaseContractDate","PreviousSaleDate",
+                     "last sale date","sold date","sale date","last sold date","close date"],
+    },
+    # ── Public records ───────────────────────────────────────────────────────
+    "parcel_id": {
+        "type": "both",
+        "synonyms": ["ParcelNumber","AssessorsParcelNumber","APN","PIN","TaxId",
+                     "TaxParcelNumber","TaxLot","KeyPin",
+                     "parcel","parcel id","pin","apn","parcel number","tax id"],
+    },
+    "zoning": {
+        "type": "both",
+        "synonyms": ["Zoning","ZoningDescription","ZoningCode",
+                     "zoning","zone","zoning code","land use code"],
+    },
+    "tenant": {
+        "type": "commercial",
+        "synonyms": ["TenantName","CurrentTenant","OccupantName",
+                     "tenant","tenants","current tenant","occupant"],
+    },
+    # ── Listing / MLS ────────────────────────────────────────────────────────
+    "mls_number": {
+        "type": "both",
+        "synonyms": ["ListingId","MLSNumber","MLS#","mls_number","listing_id","MLSID",
+                     "MatrixUniqueID","ListingKey","mls number","mls id","listing number"],
+    },
+    "days_on_market": {
+        "type": "both",
+        "synonyms": ["DaysOnMarket","days_on_market","DOM","CumulativeDaysOnMarket","CDOM",
+                     "days on market","dom","cumulative dom"],
+    },
+    "list_date": {
+        "type": "both",
+        "synonyms": ["ListingContractDate","ListDate","list_date","OnMarketDate",
+                     "OriginalEntryTimestamp","listing date","on market date","listed date"],
+    },
+    "expiration_date": {
+        "type": "both",
+        "synonyms": ["ExpirationDate","expiration_date","ContractStatusChangeDate",
+                     "ListingExpirationDate","expiration","listing expiration"],
+    },
+    "listing_agent": {
+        "type": "both",
+        "synonyms": ["ListAgentFullName","ListAgentFirstName","ListAgentLastName",
+                     "ListAgentEmail","ListAgentDirectPhone","listing_agent",
+                     "AgentName","ListingAgent","listing agent","agent name","agent"],
+    },
+    "listing_office": {
+        "type": "both",
+        "synonyms": ["ListOfficeName","ListOfficePhone","ListOfficeEmail","listing_office",
+                     "OfficeName","BrokerageName","listing office","brokerage","office name"],
+    },
+    "showing_instructions": {
+        "type": "both",
+        "synonyms": ["ShowingInstructions","showing_instructions","ShowingContactName",
+                     "ShowingContactPhone","showing instructions","access instructions"],
+    },
+    "virtual_tour": {
+        "type": "both",
+        "synonyms": ["VirtualTourURLUnbranded","VirtualTourURLBranded","virtual_tour",
+                     "TourURL","Video3DTourURL","virtual tour","tour url","3d tour"],
+    },
+    # ── General ──────────────────────────────────────────────────────────────
+    "name": {
+        "type": "both",
+        "synonyms": ["PropertyName","BuildingName","name","property name","building name"],
+    },
+    "notes": {
+        "type": "both",
+        "synonyms": ["PublicRemarks","PrivateRemarks","SyndicationRemarks",
+                     "notes","comments","description","remarks","memo","public remarks"],
+    },
+    # ── Owner / linked-silo fields ───────────────────────────────────────────
+    "owner_name": {
+        "type": "both",
+        "synonyms": ["ListOwnerName","OwnerName","TaxOwner",
+                     "owner name","owner","landlord","property owner",
+                     "ownername1","ownername"],
+    },
+    "owner_contact": {
+        "type": "both",
+        "synonyms": ["owner contact","contact name","contact person","owner contact name"],
+    },
+    "owner_phone": {
+        "type": "both",
+        "synonyms": ["OwnerPhone","owner phone","phone","owner phone number","contact phone"],
+    },
+    "owner_email": {
+        "type": "both",
+        "synonyms": ["OwnerEmail","owner email","email","owner email address","contact email"],
+    },
+    "owner_address": {
+        "type": "both",
+        "synonyms": ["OwnerAddress","TaxOwnerAddress",
+                     "owner address","mailing address","owner mailing address"],
+    },
+    "owner_city_state_zip": {
+        "type": "both",
+        "synonyms": ["owner city state zip","city state zip","owner csz"],
+    },
+}
+
+# ── Flatten RESO_SYNONYMS into SYNONYMS["property"] ──────────────────────────
+# All fields used regardless of type — type tag is for future filtering only.
+_RESO_PROP = {field: data["synonyms"] for field, data in RESO_SYNONYMS.items()}
+
 # ── Synonym dictionaries ──────────────────────────────────────────────────────
 
 SYNONYMS = {
-    "property": {
-        "address":             ["address","property address","street address","street","addr",
-                                "property addr","site address","location"],
-        "city":                ["city","municipality","town"],
-        "state":               ["state","st","province"],
-        "zip":                 ["zip","zip code","postal","postal code"],
-        "county":              ["county","county name","jurisdiction"],
-        "property_type":       ["type","property type","asset type","use type","space use",
-                                "building type"],
-        "subtype":             ["subtype","sub type","sub-type","secondary type",
-                                "building class","property subtype","class"],
-        "sf_rentable":         ["sf","sqft","square feet","building size","rentable sf","rba",
-                                "building sf","size","gla","rentable area"],
-        "sf_land":             ["sf land","land sf","land area sf","land size","lot size sf",
-                                "land square feet","lot sf","acreage sf","land area"],
-        "asking_price":        ["asking price","list price","total price","sale price",
-                                "list","offer price","asking total"],
-        "asking_price_per_sf": ["asking price per sf","asking psf","price per sf","$/sf",
-                                "price/sf","asking $/sf","list price psf","per sf","psf"],
-        "year_built":          ["year built","year","built","year constructed"],
-        "units":               ["units","unit count","number of units","# units","apt units"],
-        "stories":             ["stories","floors","number of floors","num floors",
-                                "building stories","number of stories","# floors","# stories"],
-        "parking_ratio":       ["parking ratio","parking","parking spaces per 1000",
-                                "parking/1000","p/1000","parking rate"],
-        "occupancy_pct":       ["occupancy pct","occupancy %","occupancy percent","occupancy",
-                                "occupied pct","leased pct","leased %","percent leased",
-                                "percent occupied","current occupancy","occ %","occ pct"],
-        "cap_rate":            ["cap rate","cap","capitalization rate"],
-        "assessed_value":      ["assessed value","assessment","tax value","assessed"],
-        "tax_amount":          ["tax amount","taxes","tax","annual tax","property tax",
-                                "tax bill","real estate tax","tax assessment amount"],
-        "tax_year":            ["tax year","assessment year","tax yr","year assessed"],
-        "noi":                 ["noi","net operating income","net income","annual noi",
-                                "operating income"],
-        "parcel_id":           ["parcel","parcel id","pin","apn","parcel number","tax id"],
-        "tenant":              ["tenant","tenants","current tenant","occupant"],
-        "last_sale_price":     ["last sale price","sale price","sold price","last sold price"],
-        "last_sale_date":      ["last sale date","sold date","sale date","last sold date"],
-        "notes":               ["notes","comments","description","remarks","memo"],
-        # ── Owner / linked-silo fields (map to Account + Contact, not Property) ──
-        "owner_name":          ["owner name","owner","landlord","property owner",
-                                "ownername1","ownername"],
-        "owner_contact":       ["owner contact","contact name","contact person",
-                                "owner contact name"],
-        "owner_phone":         ["owner phone","phone","owner phone number","contact phone"],
-        "owner_email":         ["owner email","email","owner email address","contact email"],
-        "owner_address":       ["owner address","mailing address","owner mailing address"],
-        "owner_city_state_zip":["owner city state zip","city state zip","owner csz"],
-    },
+    "property": _RESO_PROP,
     "contact": {
         "first_name":    ["first name","first","fname","given name","forename"],
         "last_name":     ["last name","last","lname","surname","family name"],
