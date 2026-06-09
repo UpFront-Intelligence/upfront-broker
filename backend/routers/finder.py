@@ -338,110 +338,94 @@ def get_parcels(
     db:           Session = Depends(get_db),
     current_user: User    = Depends(get_current_user),
 ):
-    """Return CRE parcels for a zip code with per-user exists_in_db flag."""
-    cache_key = f"{CACHE_ZIP_PREFIX}{zip}"
+    """Return all parcels for a zip code with per-user exists_in_db flag."""
+    parcels: list = []
 
-    # Check parcel cache
-    cached_parcels = _get_or_set_cache(db, "parcels_v2_by_zip", cache_key, ZIP_TTL_DAYS)
+    # ── 1. Attributes from local parcels table (no record limit) ─────────────
+    local_rows = []
+    try:
+        local_rows = db.execute(
+            text("SELECT keypin, pin, siteaddress, sitecity, sitestate, sitezip5,"
+                 " name1, name2, classcode, cvttaxdescription,"
+                 " assessedvalue, taxablevalue, living_area_sqft, shapearea,"
+                 " num_beds, num_baths, structure_desc"
+                 " FROM parcels WHERE sitezip5 = :z"),
+            {"z": zip},
+        ).fetchall()
+    except Exception:
+        local_rows = []   # table doesn't exist yet — fall through to ArcGIS
 
-    if not cached_parcels:
-        parcels = []
-
-        # ── 1. Attributes from local parcels table (no record limit) ─────────
-        local_rows = []
+    if local_rows:
+        # ── 2. Geometry-only query to ArcGIS (KEYPIN + rings, no attrs) ──────
+        geo_params = urllib.parse.urlencode({
+            "where":             f"SITEZIP5='{zip}'",
+            "outFields":         "KEYPIN",
+            "returnGeometry":    "true",
+            "geometryPrecision": "4",
+            "resultRecordCount": max(MAX_PARCELS, len(local_rows)),
+            "f":                 "json",
+        })
+        coord_map: dict = {}
         try:
-            local_rows = db.execute(
-                text("SELECT keypin, pin, siteaddress, sitecity, sitestate, sitezip5,"
-                     " name1, name2, classcode, cvttaxdescription,"
-                     " assessedvalue, taxablevalue, living_area_sqft, shapearea,"
-                     " num_beds, num_baths, structure_desc"
-                     " FROM parcels WHERE sitezip5 = :z"),
-                {"z": zip},
-            ).fetchall()
+            geo_data = _get(f"{OAKLAND_PARCELS_URL}/query?{geo_params}")
+            for feat in geo_data.get("features", []):
+                kp = (feat.get("attributes") or {}).get("KEYPIN", "")
+                if kp and feat.get("geometry"):
+                    lat, lng = _centroid(feat["geometry"])
+                    if lat is not None:
+                        coord_map[kp] = (lat, lng)
         except Exception:
-            local_rows = []   # table doesn't exist yet — fall through to ArcGIS
+            pass   # no coordinates — parcels still returned without map pins
 
-        if local_rows:
-            # ── 2. Geometry-only query to ArcGIS (KEYPIN + rings, no attrs) ──
-            geo_params = urllib.parse.urlencode({
-                "where":             f"SITEZIP5='{zip}'",
-                "outFields":         "KEYPIN",
-                "returnGeometry":    "true",
-                "geometryPrecision": "4",
-                "resultRecordCount": max(MAX_PARCELS, len(local_rows)),
-                "f":                 "json",
-            })
-            geo_url = f"{OAKLAND_PARCELS_URL}/query?{geo_params}"
-            coord_map: dict = {}
-            try:
-                geo_data = _get(geo_url)
-                for feat in geo_data.get("features", []):
-                    kp = (feat.get("attributes") or {}).get("KEYPIN", "")
-                    if kp and feat.get("geometry"):
-                        lat, lng = _centroid(feat["geometry"])
-                        if lat is not None:
-                            coord_map[kp] = (lat, lng)
-            except Exception:
-                pass   # no coordinates — parcels still returned without pins
+        # ── 3. Join attributes + coordinates ─────────────────────────────────
+        for row in local_rows:
+            p = _parcel_from_local_row(row)
+            kp = p.get("keypin", "")
+            p["lat"], p["lng"] = coord_map.get(kp, (None, None))
+            parcels.append(p)
 
-            # ── 3. Join attributes + coordinates ─────────────────────────────
-            for row in local_rows:
-                p = _parcel_from_local_row(row)
-                kp = p.get("keypin", "")
-                if kp in coord_map:
-                    p["lat"], p["lng"] = coord_map[kp]
-                else:
-                    p["lat"], p["lng"] = None, None
-                parcels.append(p)
-
-        else:
-            # ── Fallback: full ArcGIS query when local table is empty/missing ─
-            params = urllib.parse.urlencode({
-                "where":             f"SITEZIP5='{zip}'",
-                "outFields":         ("KEYPIN,PIN,SITEADDRESS,SITECITY,SITESTATE,SITEZIP5,"
-                                      "NAME1,NAME2,CLASSCODE,CVTTAXDESCRIPTION,"
-                                      "ASSESSEDVALUE,TAXABLEVALUE,"
-                                      "LIVING_AREA_SQFT,Shape.area,"
-                                      "NUM_BEDS,NUM_BATHS,STRUCTURE_DESC"),
-                "returnGeometry":    "true",
-                "geometryPrecision": "4",
-                "resultRecordCount": MAX_PARCELS,
-                "f":                 "json",
-            })
-            url  = f"{OAKLAND_PARCELS_URL}/query?{params}"
-            data = None
-            try:
-                data = _get(url)
-            except Exception as primary_exc:
-                qs = url.split("/query?", 1)[1]
-                for fallback in OAKLAND_CANDIDATES[1:]:
-                    try:
-                        data = _get(f"{fallback}/query?{qs}")
-                        break
-                    except Exception:
-                        continue
-                if data is None:
-                    raise HTTPException(503, f"All parcel layer URLs failed: {primary_exc}")
-
-            if "error" in data:
-                raise HTTPException(502, f"ArcGIS error: {data['error'].get('message','unknown')}")
-
-            for feat in data.get("features", []):
-                attrs = feat.get("attributes") or {}
-                p     = _parcel_from_attrs(attrs)
-                p["lat"], p["lng"] = _centroid(feat.get("geometry"))
-                if p["lat"] is None:
+    else:
+        # ── Fallback: full ArcGIS query when local table is empty/missing ─────
+        params = urllib.parse.urlencode({
+            "where":             f"SITEZIP5='{zip}'",
+            "outFields":         ("KEYPIN,PIN,SITEADDRESS,SITECITY,SITESTATE,SITEZIP5,"
+                                  "NAME1,NAME2,CLASSCODE,CVTTAXDESCRIPTION,"
+                                  "ASSESSEDVALUE,TAXABLEVALUE,"
+                                  "LIVING_AREA_SQFT,Shape.area,"
+                                  "NUM_BEDS,NUM_BATHS,STRUCTURE_DESC"),
+            "returnGeometry":    "true",
+            "geometryPrecision": "4",
+            "resultRecordCount": MAX_PARCELS,
+            "f":                 "json",
+        })
+        url  = f"{OAKLAND_PARCELS_URL}/query?{params}"
+        data = None
+        try:
+            data = _get(url)
+        except Exception as primary_exc:
+            qs = url.split("/query?", 1)[1]
+            for fallback in OAKLAND_CANDIDATES[1:]:
+                try:
+                    data = _get(f"{fallback}/query?{qs}")
+                    break
+                except Exception:
                     continue
-                parcels.append(p)
+            if data is None:
+                raise HTTPException(503, f"All parcel layer URLs failed: {primary_exc}")
 
-        cached_parcels = {"parcels": parcels, "total": len(parcels), "zip": zip,
-                          "layer_url": OAKLAND_PARCELS_URL}
-        _save_cache(db, "parcels_v2_by_zip", cache_key, "Oakland_ArcGIS",
-                    cached_parcels, ZIP_TTL_DAYS)
+        if "error" in data:
+            raise HTTPException(502, f"ArcGIS error: {data['error'].get('message','unknown')}")
+
+        for feat in data.get("features", []):
+            attrs = feat.get("attributes") or {}
+            p     = _parcel_from_attrs(attrs)
+            p["lat"], p["lng"] = _centroid(feat.get("geometry"))
+            if p["lat"] is None:
+                continue
+            parcels.append(p)
 
     # Overlay per-user exists_in_db
-    parcels     = cached_parcels.get("parcels", [])
-    my_keypins  = {
+    my_keypins = {
         row[0] for row in
         db.query(Property.parcel_id)
         .filter(Property.owner_id == current_user.id,
@@ -453,9 +437,8 @@ def get_parcels(
     return {
         "parcels":   parcels,
         "total":     len(parcels),
-        "zip":       cached_parcels.get("zip", zip),
-        "layer_url": cached_parcels.get("layer_url", ""),
-        "cached":    True,
+        "zip":       zip,
+        "layer_url": OAKLAND_PARCELS_URL,
     }
 
 
