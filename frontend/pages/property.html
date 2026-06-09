@@ -72,7 +72,7 @@
       document.getElementById('page-title').textContent = REC.name || REC.address || 'Property';
       document.title = (REC.name || REC.address || 'Property') + ' — UpFront Broker';
       render(d);
-      loadAssessor(REC.parcel_id);
+      loadAssessor(REC.parcel_id, REC.id);
     } catch(e) { Toast.error('Failed to load: ' + e.message); }
   }
 
@@ -356,10 +356,10 @@
   }
 
   // ── Oakland County Assessor ───────────────────────────────────────────────
-  async function loadAssessor(parcelId) {
+  async function loadAssessor(parcelId, propertyId) {
     try {
-      const kp = parcelId ? encodeURIComponent(parcelId) : '-';
-      const data = await API.get(`/finder/parcel/${kp}?property_id=${ID}`);
+      const kp = encodeURIComponent(parcelId || '-');
+      const data = await API.get(`/finder/parcel/${kp}?property_id=${propertyId}`);
       function arow(label, val) {
         if (val == null || val === '') return '';
         return `<div class="fr"><span class="fl">${label}</span><span class="fv" data-raw="${String(val).replace(/"/g,'&quot;')}">${val}</span></div>`;
