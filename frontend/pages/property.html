@@ -8,10 +8,17 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <style>
     #page-content { padding:24px 28px; max-width:1200px; }
-    .detail-grid { display:grid; grid-template-columns:1fr 320px; gap:20px; }
+    .tab-nav { display:flex; border-bottom:2px solid var(--cream-dark); margin-bottom:20px; }
+    .tab-btn { background:none; border:none; border-bottom:2px solid transparent; margin-bottom:-2px;
+      padding:10px 20px; font-size:13.5px; font-weight:500; color:var(--stone); cursor:pointer; transition:color 0.15s; }
+    .tab-btn:hover { color:var(--navy); }
+    .tab-btn.active { color:var(--navy); border-bottom-color:var(--gold); font-weight:600; }
+    .tab-pane { display:none; }
+    .tab-pane.active { display:block; }
+    .detail-grid { display:grid; grid-template-columns:1fr 300px; gap:20px; }
     @media(max-width:900px){ .detail-grid{ grid-template-columns:1fr; } }
     .dc { background:#fff; border:1px solid var(--cream-dark); border-radius:var(--radius-lg); box-shadow:var(--shadow-card); margin-bottom:16px; overflow:hidden; }
-    .dc-title { font-family:var(--font-serif); font-size:13.5px; color:var(--navy); padding:11px 16px; border-bottom:1px solid var(--cream-dark); background:var(--cream); }
+    .dc-title { font-family:var(--font-serif); font-size:13.5px; color:var(--navy); padding:11px 16px; border-bottom:1px solid var(--cream-dark); background:var(--cream); display:flex; justify-content:space-between; align-items:center; }
     .dc-body { padding:12px 16px; }
     .fr { display:flex; align-items:baseline; gap:6px; padding:5px 0; border-bottom:1px solid var(--cream-dark); }
     .fr:last-child { border-bottom:none; }
@@ -24,16 +31,25 @@
     .chip:hover { background:var(--navy); color:#fff; }
     .act-item { display:flex; gap:10px; padding:8px 0; border-bottom:1px solid var(--cream-dark); font-size:12.5px; }
     .act-item:last-child { border-bottom:none; }
-    .act-icon { flex-shrink:0; }
-    #prop-map { height:300px; border-radius:var(--radius); }
-    .no-location { height:300px; border-radius:var(--radius); background:var(--cream); display:flex; align-items:center; justify-content:center; font-size:13px; color:var(--stone); }
-    .header-card { background:var(--navy); border-radius:var(--radius-lg); padding:22px 26px; color:#fff; margin-bottom:20px; display:flex; align-items:flex-start; gap:16px; }
-    .header-main { flex:1; }
+    .header-card { background:var(--navy); border-radius:var(--radius-lg); padding:22px 26px; color:#fff; margin-bottom:20px; }
     .header-addr { font-family:var(--font-serif); font-size:22px; letter-spacing:-0.2px; margin-bottom:4px; }
     .header-city { font-size:13px; color:rgba(255,255,255,0.6); margin-bottom:10px; }
     .header-badges { display:flex; gap:8px; flex-wrap:wrap; }
     .hbadge { padding:3px 10px; border-radius:20px; font-size:11.5px; font-weight:600; background:rgba(255,255,255,0.12); color:rgba(255,255,255,0.9); }
     .hbadge.gold { background:rgba(201,148,58,0.25); color:var(--gold-light); }
+    /* Tenant table */
+    .t-table { width:100%; border-collapse:collapse; font-size:13px; }
+    .t-table th { text-align:left; font-size:10.5px; font-weight:600; text-transform:uppercase; letter-spacing:.05em; color:var(--stone); padding:8px 10px; border-bottom:2px solid var(--cream-dark); }
+    .t-table td { padding:9px 10px; border-bottom:1px solid var(--cream-dark); vertical-align:middle; }
+    .t-table tr:last-child td { border-bottom:none; }
+    .t-table tr:hover td { background:var(--cream); }
+    .avail { background:#d1fae5; color:#065f46; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; }
+    .leased { background:var(--cream-dark); color:var(--stone); padding:2px 8px; border-radius:10px; font-size:11px; }
+    .occ-bar { height:8px; background:var(--cream-dark); border-radius:4px; overflow:hidden; margin:6px 0 2px; }
+    .occ-fill { height:100%; background:var(--green); border-radius:4px; }
+    /* Map tab */
+    #prop-map-tab { height:520px; }
+    .no-location { height:200px; border-radius:var(--radius); background:var(--cream); display:flex; align-items:center; justify-content:center; font-size:13px; color:var(--stone); margin:12px; }
   </style>
 </head>
 <body>
@@ -52,6 +68,50 @@
     <div id="root"><div style="text-align:center;padding:60px"><div class="spinner"></div></div></div>
   </div>
 </div>
+
+<!-- Tenant modal -->
+<div class="modal-overlay" id="tenant-modal" onclick="Modal.closeOnOverlay('tenant-modal')">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-header">
+      <h3 class="modal-title" id="tm-title">Add Space</h3>
+      <button class="btn btn-ghost" onclick="Modal.close('tenant-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="tm-id">
+      <div class="form-group">
+        <label class="form-label">Tenant / Space Name *</label>
+        <input type="text" id="tm-name" class="form-control" placeholder="Acme Corp or Suite 200 - Available">
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group">
+          <label class="form-label">SF</label>
+          <input type="number" id="tm-sf" class="form-control" placeholder="5000">
+        </div>
+        <div class="form-group">
+          <label class="form-label">% of Building</label>
+          <input type="number" step="0.1" id="tm-pct" class="form-control" placeholder="25">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Lease Expiry</label>
+        <input type="date" id="tm-expiry" class="form-control">
+      </div>
+      <div class="form-group" style="display:flex;align-items:center;gap:8px">
+        <input type="checkbox" id="tm-available" style="width:16px;height:16px;cursor:pointer">
+        <label for="tm-available" class="form-label" style="margin:0;cursor:pointer">Space is Available</label>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Notes</label>
+        <textarea id="tm-notes" class="form-control" rows="2" placeholder="Suite #, lease type, asking rent…"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="Modal.close('tenant-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveTenant()">Save</button>
+    </div>
+  </div>
+</div>
+
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="/js/app.js?v=2"></script>
 <script>
@@ -64,6 +124,8 @@
   const PROP_TYPES = ['Office','Industrial','Retail','Land','Multifamily','STNL','Self Storage','Hospitality','Medical'];
   const STATUSES   = ['Active','Off Market','Sold','Leased'];
   let REC = {};
+  let tabMap = null, nearbyActive = false, nearbyMarkers = [];
+  let TENANTS = [];
 
   async function load() {
     try {
@@ -73,184 +135,18 @@
       document.title = (REC.name || REC.address || 'Property') + ' — UpFront Broker';
       render(d);
       loadAssessor(REC.parcel_id, REC.id);
+      loadTenants();
     } catch(e) { Toast.error('Failed to load: ' + e.message); }
   }
 
-  // Boolean field row — displays Yes/No/— and renders a select on click
-  function brow(label, field, value) {
-    const display = value === true ? 'Yes' : value === false ? 'No' : '';
-    const attrs = display ? `data-raw="${display}"` : 'data-empty data-raw=""';
-    return `<div class="fr"><span class="fl">${label}</span>
-      <span class="fv" ${attrs} onclick="ef(this,'${field}',{choices:[['true','Yes'],['false','No']]})">${display}</span></div>`;
+  // ── Tabs ──────────────────────────────────────────────────────────────────
+  function switchTab(name) {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.id === 'tab-' + name));
+    if (name === 'map' && !tabMap && REC.lat && REC.lng) initTabMap();
   }
 
-  // Type-specific section HTML generators
-  function typeSection(p) {
-    const pt = p.property_type || '';
-    let html = '';
-    if (pt === 'Industrial') html = industrialSection(p);
-    else if (pt === 'Retail') html = retailSection(p);
-    else if (pt === 'Office') html = officeSection(p);
-    else if (pt === 'Multifamily') html = multifamilySection(p);
-    else if (pt === 'Hospitality') html = hospitalitySection(p);
-    else if (pt === 'Medical') html = medicalSection(p);
-    else if (pt === 'Land') html = landSection(p);
-    // Extended financial for all commercial types
-    if (['Industrial','Retail','Office','Multifamily','Hospitality','Medical','STNL','Self Storage'].includes(pt)) {
-      html += extFinancialSection(p);
-    }
-    html += generalSection(p);
-    return html;
-  }
-
-  function industrialSection(p) {
-    return `<div class="dc"><div class="dc-title">🏭 Industrial</div><div class="dc-body">
-      ${frow('Clear Ht Min', 'clear_height_min', p.clear_height_min ? p.clear_height_min + "'" : null)}
-      ${frow('Clear Ht Max', 'clear_height_max', p.clear_height_max ? p.clear_height_max + "'" : null)}
-      ${frow('Dock Doors',   'dock_doors',       p.dock_doors)}
-      ${frow('Drive-In Doors','drive_in_doors',  p.drive_in_doors)}
-      ${brow('Rail Service', 'rail_service',     p.rail_service)}
-      ${frow('Rail Type',    'rail_service_type', p.rail_service_type)}
-      ${frow('Power Amps',   'power_amps',       p.power_amps)}
-      ${frow('Power Volts',  'power_volts',      p.power_volts)}
-      ${frow('Power Phase',  'power_phase',      p.power_phase)}
-      ${frow('Column Spacing','column_spacing',  p.column_spacing)}
-      ${frow('Floor Thickness','floor_thickness',p.floor_thickness ? p.floor_thickness + '"' : null)}
-      ${frow('Floor Load',   'floor_load',       p.floor_load ? p.floor_load + ' lbs/SF' : null)}
-      ${brow('Sprinklers',   'sprinklers',       p.sprinklers)}
-      ${frow('Sprinkler Type','sprinkler_type',  p.sprinkler_type)}
-      ${frow('Crane Capacity','crane_capacity',  p.crane_capacity ? p.crane_capacity + ' tons' : null)}
-      ${frow('Crane Height', 'crane_height',     p.crane_height ? p.crane_height + "'" : null)}
-      ${frow('Office %',     'office_pct',       p.office_pct != null ? p.office_pct + '%' : null)}
-      ${frow('Office SF',    'office_sf',        p.office_sf ? Fmt.sf(p.office_sf) : null)}
-      ${frow('Yard Area',    'yard_area',        p.yard_area ? Fmt.sf(p.yard_area) : null)}
-      ${brow('Secured Yard', 'secured_yard',     p.secured_yard)}
-      ${brow('Cross Dock',   'cross_dock',       p.cross_dock)}
-    </div></div>`;
-  }
-
-  function retailSection(p) {
-    return `<div class="dc"><div class="dc-title">🏪 Retail</div><div class="dc-body">
-      ${frow('Anchor Tenant', 'anchor_tenant',      p.anchor_tenant)}
-      ${frow('Traffic Count', 'traffic_count',      p.traffic_count ? p.traffic_count.toLocaleString() + ' VPD' : null)}
-      ${frow('Frontage',      'frontage_ft',        p.frontage_ft ? p.frontage_ft + "'" : null)}
-      ${frow('# Buildings',   'number_of_buildings',p.number_of_buildings)}
-      ${brow('Drive-Through', 'drive_through',      p.drive_through)}
-      ${brow('Pylon Sign',    'pylon_sign',         p.pylon_sign)}
-      ${brow('Monument Sign', 'monument_sign',      p.monument_sign)}
-      ${brow('Inline Space',  'inline_space',       p.inline_space)}
-      ${brow('End Cap',       'end_cap',            p.end_cap)}
-    </div></div>`;
-  }
-
-  function officeSection(p) {
-    return `<div class="dc"><div class="dc-title">🏢 Office</div><div class="dc-body">
-      ${frow('Building Class', 'building_class',   p.building_class, {choices:['A','B','C','A+','B+']})}
-      ${frow('LEED',           'leed_certified',   p.leed_certified)}
-      ${brow('Energy Star',    'energy_star',      p.energy_star)}
-      ${brow('Fiber Optic',    'fiber_optic',      p.fiber_optic)}
-      ${brow('Generator',      'generator',        p.generator)}
-      ${brow('Raised Floor',   'raised_floor',     p.raised_floor)}
-      ${brow('Data Center Ready','data_center_ready',p.data_center_ready)}
-    </div></div>`;
-  }
-
-  function multifamilySection(p) {
-    return `<div class="dc"><div class="dc-title">🏘️ Multifamily</div><div class="dc-body">
-      ${frow('Unit Mix',       'unit_mix',          p.unit_mix)}
-      ${frow('Avg Unit SF',    'avg_unit_sf',       p.avg_unit_sf ? Fmt.sf(p.avg_unit_sf) : null)}
-      ${frow('Avg Rent/Unit',  'avg_rent_per_unit', p.avg_rent_per_unit ? Fmt.currency(p.avg_rent_per_unit) : null)}
-      ${frow('Avg Rent/SF',    'avg_rent_per_sf',   p.avg_rent_per_sf ? '$' + p.avg_rent_per_sf + '/SF' : null)}
-      ${frow('Laundry',        'laundry',           p.laundry)}
-      ${brow('Pet Friendly',   'pet_friendly',      p.pet_friendly)}
-      ${frow('Affordable Units','affordable_units', p.affordable_units)}
-      ${frow('Market Rate Units','market_rate_units',p.market_rate_units)}
-    </div></div>`;
-  }
-
-  function hospitalitySection(p) {
-    return `<div class="dc"><div class="dc-title">🏨 Hospitality</div><div class="dc-body">
-      ${frow('Rooms',          'number_of_rooms', p.number_of_rooms)}
-      ${frow('Flag / Brand',   'flag',            p.flag)}
-      ${frow('Franchise Expiry','franchise_expiry',p.franchise_expiry ? Fmt.date(p.franchise_expiry) : null, {inputType:'date'})}
-      ${frow('ADR',            'adr',             p.adr ? Fmt.currency(p.adr) : null)}
-      ${frow('RevPAR',         'revpar',          p.revpar ? Fmt.currency(p.revpar) : null)}
-      ${frow('Restaurant Seats','restaurant_seats',p.restaurant_seats)}
-      ${frow('Meeting Space',  'meeting_space_sf', p.meeting_space_sf ? Fmt.sf(p.meeting_space_sf) : null)}
-      ${brow('Pool',           'pool_hotel',      p.pool_hotel)}
-      ${brow('Fitness Center', 'fitness_center',  p.fitness_center)}
-    </div></div>`;
-  }
-
-  function medicalSection(p) {
-    return `<div class="dc"><div class="dc-title">🏥 Medical</div><div class="dc-body">
-      ${frow('Exam Rooms',      'exam_rooms',      p.exam_rooms)}
-      ${frow('Procedure Rooms', 'procedure_rooms', p.procedure_rooms)}
-      ${frow('Imaging Rooms',   'imaging_rooms',   p.imaging_rooms)}
-      ${frow('Surgical Suites', 'surgical_suites', p.surgical_suites)}
-      ${frow('ICU Beds',        'icu_beds',        p.icu_beds)}
-      ${frow('Licensed Beds',   'licensed_beds',   p.licensed_beds)}
-      ${brow('Medical Gas',     'medical_gas',     p.medical_gas)}
-      ${brow('Emergency Power', 'emergency_power', p.emergency_power)}
-    </div></div>`;
-  }
-
-  function landSection(p) {
-    return `<div class="dc"><div class="dc-title">🌿 Land</div><div class="dc-body">
-      ${frow('Zoning Jurisdiction','zoning_jurisdiction',p.zoning_jurisdiction)}
-      ${brow('Floodplain',   'floodplain',      p.floodplain)}
-      ${frow('Flood Zone',   'floodplain_zone', p.floodplain_zone)}
-      ${brow('Wetlands',     'wetlands',        p.wetlands)}
-      ${frow('Wetland Acres','wetlands_acres',  p.wetlands_acres ? p.wetlands_acres + ' ac' : null)}
-      ${brow('Utilities to Site','utilities_to_site',p.utilities_to_site)}
-      ${frow('Road Frontage','road_frontage_ft', p.road_frontage_ft ? p.road_frontage_ft + "'" : null)}
-      ${brow('Corner Lot',   'corner_lot',      p.corner_lot)}
-      ${brow('Subdivided',   'subdivided',      p.subdivided)}
-      ${frow('# Lots',       'number_of_lots',  p.number_of_lots)}
-      ${brow('Plat Recorded','plat_recorded',   p.plat_recorded)}
-      ${frow('Environmental','environmental',   p.environmental)}
-    </div></div>`;
-  }
-
-  function extFinancialSection(p) {
-    const hasData = p.gross_income || p.operating_expense || p.lease_type || p.tenant_pays;
-    if (!hasData) return '';
-    return `<div class="dc"><div class="dc-title">Operations & Lease</div><div class="dc-body">
-      ${frow('Gross Income',     'gross_income',      p.gross_income ? Fmt.currency(p.gross_income) : null)}
-      ${frow('Operating Expense','operating_expense', p.operating_expense ? Fmt.currency(p.operating_expense) : null)}
-      ${frow('Vacancy Allowance','vacancy_allowance', p.vacancy_allowance != null ? p.vacancy_allowance + '%' : null)}
-      ${frow('Expense Ratio',    'expense_ratio',     p.expense_ratio != null ? p.expense_ratio + '%' : null)}
-      ${frow('Debt Service',     'debt_service',      p.debt_service ? Fmt.currency(p.debt_service) : null)}
-      ${frow('Cash Flow',        'cash_flow',         p.cash_flow ? Fmt.currency(p.cash_flow) : null)}
-      ${frow('Price / Unit',     'price_per_unit',    p.price_per_unit ? Fmt.currency(p.price_per_unit) : null)}
-      ${frow('Price / Room',     'price_per_room',    p.price_per_room ? Fmt.currency(p.price_per_room) : null)}
-      ${frow('Lease Type',       'lease_type',        p.lease_type)}
-      ${frow('Tenant Pays',      'tenant_pays',       p.tenant_pays)}
-      ${frow('Owner Pays',       'owner_pays',        p.owner_pays)}
-      ${frow('Lease Expiration', 'lease_expiration',  p.lease_expiration ? Fmt.date(p.lease_expiration) : null, {inputType:'date'})}
-      ${frow('Lease Term',       'lease_term_months', p.lease_term_months ? p.lease_term_months + ' mo' : null)}
-      ${frow('Renewal Options',  'renewal_options',   p.renewal_options)}
-      ${frow('Rent Bumps',       'rent_bumps',        p.rent_bumps)}
-    </div></div>`;
-  }
-
-  function generalSection(p) {
-    const hasData = p.business_name || p.business_type || p.opportunity_zone ||
-                    p.tif_district || p.historic_district;
-    if (!hasData) return '';
-    return `<div class="dc"><div class="dc-title">General Commercial</div><div class="dc-body">
-      ${frow('Business Name', 'business_name',    p.business_name)}
-      ${frow('Business Type', 'business_type',    p.business_type)}
-      ${frow('Employee Count','employee_count',   p.employee_count)}
-      ${brow('Franchise',     'franchise',        p.franchise)}
-      ${frow('Franchise Name','franchise_name',   p.franchise_name)}
-      ${brow('Opportunity Zone','opportunity_zone',p.opportunity_zone)}
-      ${brow('Enterprise Zone','enterprise_zone', p.enterprise_zone)}
-      ${brow('Historic District','historic_district',p.historic_district)}
-      ${brow('TIF District',  'tif_district',     p.tif_district)}
-    </div></div>`;
-  }
-
+  // ── Field rows ────────────────────────────────────────────────────────────
   function frow(label, field, value, opts) {
     const display = value != null && value !== '' ? String(value) : '';
     const attrs = display ? `data-raw="${display.replace(/"/g,'&quot;')}"` : 'data-empty data-raw=""';
@@ -258,111 +154,400 @@
     return `<div class="fr"><span class="fl">${label}</span><span class="fv" ${attrs} ${click}>${display}</span></div>`;
   }
 
+  function brow(label, field, value) {
+    const display = value === true ? 'Yes' : value === false ? 'No' : '';
+    const attrs = display ? `data-raw="${display}"` : 'data-empty data-raw=""';
+    return `<div class="fr"><span class="fl">${label}</span>
+      <span class="fv" ${attrs} onclick="ef(this,'${field}',{choices:[['true','Yes'],['false','No']]})">${display}</span></div>`;
+  }
+
+  // ── Type-specific sections ────────────────────────────────────────────────
+  function typeSection(p) {
+    const pt = p.property_type || '';
+    let html = '';
+    if (pt === 'Industrial')  html = industrialSection(p);
+    else if (pt === 'Retail') html = retailSection(p);
+    else if (pt === 'Office') html = officeSection(p);
+    else if (pt === 'Multifamily') html = multifamilySection(p);
+    else if (pt === 'Hospitality') html = hospitalitySection(p);
+    else if (pt === 'Medical')     html = medicalSection(p);
+    else if (pt === 'Land')        html = landSection(p);
+    if (['Industrial','Retail','Office','Multifamily','Hospitality','Medical','STNL','Self Storage'].includes(pt))
+      html += extFinancialSection(p);
+    return html + generalSection(p);
+  }
+
+  function industrialSection(p) {
+    return `<div class="dc"><div class="dc-title">🏭 Industrial</div><div class="dc-body">
+      ${frow('Clear Ht Min','clear_height_min',p.clear_height_min?p.clear_height_min+"'":null)}
+      ${frow('Clear Ht Max','clear_height_max',p.clear_height_max?p.clear_height_max+"'":null)}
+      ${frow('Dock Doors','dock_doors',p.dock_doors)} ${frow('Drive-In Doors','drive_in_doors',p.drive_in_doors)}
+      ${brow('Rail Service','rail_service',p.rail_service)} ${frow('Rail Type','rail_service_type',p.rail_service_type)}
+      ${frow('Power Amps','power_amps',p.power_amps)} ${frow('Power Volts','power_volts',p.power_volts)}
+      ${frow('Power Phase','power_phase',p.power_phase)} ${frow('Column Spacing','column_spacing',p.column_spacing)}
+      ${frow('Floor Thickness','floor_thickness',p.floor_thickness?p.floor_thickness+'"':null)}
+      ${frow('Floor Load','floor_load',p.floor_load?p.floor_load+' lbs/SF':null)}
+      ${brow('Sprinklers','sprinklers',p.sprinklers)} ${frow('Sprinkler Type','sprinkler_type',p.sprinkler_type)}
+      ${frow('Crane Capacity','crane_capacity',p.crane_capacity?p.crane_capacity+' tons':null)}
+      ${frow('Crane Height','crane_height',p.crane_height?p.crane_height+"'":null)}
+      ${frow('Office %','office_pct',p.office_pct!=null?p.office_pct+'%':null)}
+      ${frow('Office SF','office_sf',p.office_sf?Fmt.sf(p.office_sf):null)}
+      ${frow('Yard Area','yard_area',p.yard_area?Fmt.sf(p.yard_area):null)}
+      ${brow('Secured Yard','secured_yard',p.secured_yard)} ${brow('Cross Dock','cross_dock',p.cross_dock)}
+    </div></div>`;
+  }
+
+  function retailSection(p) {
+    return `<div class="dc"><div class="dc-title">🏪 Retail</div><div class="dc-body">
+      ${frow('Anchor Tenant','anchor_tenant',p.anchor_tenant)}
+      ${frow('Traffic Count','traffic_count',p.traffic_count?p.traffic_count.toLocaleString()+' VPD':null)}
+      ${frow('Frontage','frontage_ft',p.frontage_ft?p.frontage_ft+"'":null)}
+      ${frow('# Buildings','number_of_buildings',p.number_of_buildings)}
+      ${brow('Drive-Through','drive_through',p.drive_through)} ${brow('Pylon Sign','pylon_sign',p.pylon_sign)}
+      ${brow('Monument Sign','monument_sign',p.monument_sign)} ${brow('Inline Space','inline_space',p.inline_space)}
+      ${brow('End Cap','end_cap',p.end_cap)}
+    </div></div>`;
+  }
+
+  function officeSection(p) {
+    return `<div class="dc"><div class="dc-title">🏢 Office</div><div class="dc-body">
+      ${frow('Building Class','building_class',p.building_class,{choices:['A','B','C','A+','B+']})}
+      ${frow('LEED','leed_certified',p.leed_certified)} ${brow('Energy Star','energy_star',p.energy_star)}
+      ${brow('Fiber Optic','fiber_optic',p.fiber_optic)} ${brow('Generator','generator',p.generator)}
+      ${brow('Raised Floor','raised_floor',p.raised_floor)} ${brow('Data Center Ready','data_center_ready',p.data_center_ready)}
+    </div></div>`;
+  }
+
+  function multifamilySection(p) {
+    return `<div class="dc"><div class="dc-title">🏘️ Multifamily</div><div class="dc-body">
+      ${frow('Unit Mix','unit_mix',p.unit_mix)} ${frow('Avg Unit SF','avg_unit_sf',p.avg_unit_sf?Fmt.sf(p.avg_unit_sf):null)}
+      ${frow('Avg Rent/Unit','avg_rent_per_unit',p.avg_rent_per_unit?Fmt.currency(p.avg_rent_per_unit):null)}
+      ${frow('Avg Rent/SF','avg_rent_per_sf',p.avg_rent_per_sf?'$'+p.avg_rent_per_sf+'/SF':null)}
+      ${frow('Laundry','laundry',p.laundry)} ${brow('Pet Friendly','pet_friendly',p.pet_friendly)}
+      ${frow('Affordable Units','affordable_units',p.affordable_units)} ${frow('Market Rate Units','market_rate_units',p.market_rate_units)}
+    </div></div>`;
+  }
+
+  function hospitalitySection(p) {
+    return `<div class="dc"><div class="dc-title">🏨 Hospitality</div><div class="dc-body">
+      ${frow('Rooms','number_of_rooms',p.number_of_rooms)} ${frow('Flag / Brand','flag',p.flag)}
+      ${frow('Franchise Expiry','franchise_expiry',p.franchise_expiry?Fmt.date(p.franchise_expiry):null,{inputType:'date'})}
+      ${frow('ADR','adr',p.adr?Fmt.currency(p.adr):null)} ${frow('RevPAR','revpar',p.revpar?Fmt.currency(p.revpar):null)}
+      ${frow('Restaurant Seats','restaurant_seats',p.restaurant_seats)}
+      ${frow('Meeting Space','meeting_space_sf',p.meeting_space_sf?Fmt.sf(p.meeting_space_sf):null)}
+      ${brow('Pool','pool_hotel',p.pool_hotel)} ${brow('Fitness Center','fitness_center',p.fitness_center)}
+    </div></div>`;
+  }
+
+  function medicalSection(p) {
+    return `<div class="dc"><div class="dc-title">🏥 Medical</div><div class="dc-body">
+      ${frow('Exam Rooms','exam_rooms',p.exam_rooms)} ${frow('Procedure Rooms','procedure_rooms',p.procedure_rooms)}
+      ${frow('Imaging Rooms','imaging_rooms',p.imaging_rooms)} ${frow('Surgical Suites','surgical_suites',p.surgical_suites)}
+      ${frow('ICU Beds','icu_beds',p.icu_beds)} ${frow('Licensed Beds','licensed_beds',p.licensed_beds)}
+      ${brow('Medical Gas','medical_gas',p.medical_gas)} ${brow('Emergency Power','emergency_power',p.emergency_power)}
+    </div></div>`;
+  }
+
+  function landSection(p) {
+    return `<div class="dc"><div class="dc-title">🌿 Land</div><div class="dc-body">
+      ${frow('Zoning Jurisdiction','zoning_jurisdiction',p.zoning_jurisdiction)}
+      ${brow('Floodplain','floodplain',p.floodplain)} ${frow('Flood Zone','floodplain_zone',p.floodplain_zone)}
+      ${brow('Wetlands','wetlands',p.wetlands)} ${frow('Wetland Acres','wetlands_acres',p.wetlands_acres?p.wetlands_acres+' ac':null)}
+      ${brow('Utilities to Site','utilities_to_site',p.utilities_to_site)}
+      ${frow('Road Frontage','road_frontage_ft',p.road_frontage_ft?p.road_frontage_ft+"'":null)}
+      ${brow('Corner Lot','corner_lot',p.corner_lot)} ${brow('Subdivided','subdivided',p.subdivided)}
+      ${frow('# Lots','number_of_lots',p.number_of_lots)} ${brow('Plat Recorded','plat_recorded',p.plat_recorded)}
+      ${frow('Environmental','environmental',p.environmental)}
+    </div></div>`;
+  }
+
+  function extFinancialSection(p) {
+    if (!p.gross_income && !p.operating_expense && !p.lease_type && !p.tenant_pays) return '';
+    return `<div class="dc"><div class="dc-title">Operations & Lease</div><div class="dc-body">
+      ${frow('Gross Income','gross_income',p.gross_income?Fmt.currency(p.gross_income):null)}
+      ${frow('Operating Expense','operating_expense',p.operating_expense?Fmt.currency(p.operating_expense):null)}
+      ${frow('Vacancy Allowance','vacancy_allowance',p.vacancy_allowance!=null?p.vacancy_allowance+'%':null)}
+      ${frow('Expense Ratio','expense_ratio',p.expense_ratio!=null?p.expense_ratio+'%':null)}
+      ${frow('Debt Service','debt_service',p.debt_service?Fmt.currency(p.debt_service):null)}
+      ${frow('Cash Flow','cash_flow',p.cash_flow?Fmt.currency(p.cash_flow):null)}
+      ${frow('Price / Unit','price_per_unit',p.price_per_unit?Fmt.currency(p.price_per_unit):null)}
+      ${frow('Price / Room','price_per_room',p.price_per_room?Fmt.currency(p.price_per_room):null)}
+      ${frow('Lease Type','lease_type',p.lease_type)} ${frow('Tenant Pays','tenant_pays',p.tenant_pays)}
+      ${frow('Owner Pays','owner_pays',p.owner_pays)}
+      ${frow('Lease Expiration','lease_expiration',p.lease_expiration?Fmt.date(p.lease_expiration):null,{inputType:'date'})}
+      ${frow('Lease Term','lease_term_months',p.lease_term_months?p.lease_term_months+' mo':null)}
+      ${frow('Renewal Options','renewal_options',p.renewal_options)} ${frow('Rent Bumps','rent_bumps',p.rent_bumps)}
+    </div></div>`;
+  }
+
+  function generalSection(p) {
+    if (!p.business_name && !p.business_type && !p.opportunity_zone && !p.tif_district && !p.historic_district) return '';
+    return `<div class="dc"><div class="dc-title">General Commercial</div><div class="dc-body">
+      ${frow('Business Name','business_name',p.business_name)} ${frow('Business Type','business_type',p.business_type)}
+      ${frow('Employee Count','employee_count',p.employee_count)} ${brow('Franchise','franchise',p.franchise)}
+      ${frow('Franchise Name','franchise_name',p.franchise_name)}
+      ${brow('Opportunity Zone','opportunity_zone',p.opportunity_zone)} ${brow('Enterprise Zone','enterprise_zone',p.enterprise_zone)}
+      ${brow('Historic District','historic_district',p.historic_district)} ${brow('TIF District','tif_district',p.tif_district)}
+    </div></div>`;
+  }
+
+  // ── Main render ───────────────────────────────────────────────────────────
   function render(d) {
     const p = d.property;
-    const mapHtml = `<div class="dc"><div class="dc-title">Location</div>
-      ${p.lat && p.lng ? `<div id="prop-map"></div>` : `<div class="no-location">No location data</div>`}
-    </div>`;
-
     document.getElementById('root').innerHTML = `
       <div class="header-card">
-        <div class="header-main">
-          <div class="header-addr">${p.name || p.address || '—'}</div>
-          <div class="header-city">${[p.address !== p.name ? p.address : null, p.city, p.state, p.zip].filter(Boolean).join(', ')}</div>
-          <div class="header-badges">
-            ${p.property_type ? `<span class="hbadge gold">${Fmt.propType(p.property_type)} ${p.property_type}</span>` : ''}
-            ${p.status ? `<span class="hbadge">${p.status}</span>` : ''}
-            ${p.subtype ? `<span class="hbadge">${p.subtype}</span>` : ''}
+        <div class="header-addr">${p.name || p.address || '—'}</div>
+        <div class="header-city">${[p.address !== p.name ? p.address : null, p.city, p.state, p.zip].filter(Boolean).join(', ')}</div>
+        <div class="header-badges">
+          ${p.property_type ? `<span class="hbadge gold">${Fmt.propType(p.property_type)} ${p.property_type}</span>` : ''}
+          ${p.status ? `<span class="hbadge">${p.status}</span>` : ''}
+          ${p.subtype ? `<span class="hbadge">${p.subtype}</span>` : ''}
+        </div>
+      </div>
+
+      <div class="tab-nav">
+        <button class="tab-btn active" data-tab="summary"  onclick="switchTab('summary')">Summary</button>
+        <button class="tab-btn"        data-tab="spaces"   onclick="switchTab('spaces')">Spaces &amp; Tenants</button>
+        <button class="tab-btn"        data-tab="contacts" onclick="switchTab('contacts')">Contacts</button>
+        <button class="tab-btn"        data-tab="public"   onclick="switchTab('public')">Public Record</button>
+        <button class="tab-btn"        data-tab="map"      onclick="switchTab('map')">Map</button>
+      </div>
+
+      <!-- TAB 1: SUMMARY -->
+      <div id="tab-summary" class="tab-pane active">
+        <div class="detail-grid">
+          <div>
+            <div class="dc"><div class="dc-title">Property Details</div><div class="dc-body">
+              ${frow('Address','address',p.address)} ${frow('City','city',p.city)}
+              ${frow('State','state',p.state)} ${frow('ZIP','zip',p.zip)}
+              ${frow('Property Type','property_type',p.property_type,{choices:PROP_TYPES})}
+              ${frow('Subtype','subtype',p.subtype)}
+              ${frow('Status','status',p.status,{choices:STATUSES})}
+              ${frow('SF Rentable','sf_rentable',p.sf_rentable?Fmt.sf(p.sf_rentable):null)}
+              ${frow('SF Land','sf_land',p.sf_land?Fmt.sf(p.sf_land):null)}
+              ${frow('Units','units',p.units)} ${frow('Stories','stories',p.stories)}
+              ${frow('Year Built','year_built',p.year_built)} ${frow('Zoning','zoning',p.zoning)}
+              ${frow('Parking','parking_ratio',p.parking_ratio?p.parking_ratio+'/1,000 SF':null)}
+              ${frow('Occupancy','occupancy_pct',p.occupancy_pct!=null?p.occupancy_pct+'%':null)}
+              ${frow('County','county',p.county)} ${frow('Parcel ID','parcel_id',p.parcel_id)}
+              ${frow('Legal Desc','legal_desc',p.legal_desc)} ${frow('Tenant','tenant',p.tenant)}
+            </div></div>
+            ${typeSection(p)}
+            <div class="dc"><div class="dc-title">Financial</div><div class="dc-body">
+              ${frow('Asking Price','asking_price',p.asking_price?Fmt.currency(p.asking_price):null)}
+              ${frow('Price / SF','asking_price_per_sf',p.asking_price_per_sf?Fmt.currency(p.asking_price_per_sf):null)}
+              ${frow('Assessed Value','assessed_value',p.assessed_value?Fmt.currency(p.assessed_value):null)}
+              ${frow('Annual Tax','tax_amount',p.tax_amount?Fmt.currency(p.tax_amount):null)}
+              ${frow('Tax Year','tax_year',p.tax_year)}
+              ${frow('Cap Rate','cap_rate',p.cap_rate!=null?p.cap_rate+'%':null)}
+              ${frow('NOI','noi',p.noi?Fmt.currency(p.noi):null)}
+              ${frow('Last Sale Price','last_sale_price',p.last_sale_price?Fmt.currency(p.last_sale_price):null)}
+              ${frow('Last Sale Date','last_sale_date',p.last_sale_date?Fmt.date(p.last_sale_date):null,{inputType:'date'})}
+            </div></div>
+            ${p.notes!=null ? `<div class="dc"><div class="dc-title">Notes</div><div class="dc-body">
+              <span class="fv" style="min-height:60px;display:block;white-space:pre-wrap"
+                data-raw="${(p.notes||'').replace(/"/g,'&quot;')}"
+                onclick="ef(this,'notes',{multiline:true})">${p.notes||'—'}</span></div></div>` : ''}
+          </div>
+          <div>
+            <div class="dc"><div class="dc-title">Owner</div><div class="dc-body" style="padding:12px">
+              ${d.account ? `<a class="chip" href="/pages/account.html?id=${d.account.id}">◻ ${d.account.name}${d.account.entity_type?' · '+d.account.entity_type:''}</a>` : '<span style="font-size:12.5px;color:var(--stone)">No linked account</span>'}
+              <div style="margin-top:8px">${(d.contacts||[]).map(c =>
+                `<a class="chip" href="/pages/contact.html?id=${c.id}">◎ ${c.first_name||''} ${c.last_name||''}${c.role?' · '+c.role:''}</a>`
+              ).join('')}</div>
+            </div></div>
+            <div class="dc"><div class="dc-title">Deals${d.deals.length?' ('+d.deals.length+')':''}</div><div class="dc-body" style="padding:8px">
+              ${d.deals.length ? d.deals.map(de =>
+                `<a class="chip" style="display:flex;justify-content:space-between;border-radius:var(--radius);width:100%;padding:8px 10px;margin:3px 0" href="/pages/deal.html?id=${de.id}">
+                  <span>${de.name}</span>
+                  <span class="stage-pill ${Fmt.stageClass(de.stage)}" style="font-size:10px">${de.stage}</span>
+                </a>`).join('') : '<span style="font-size:12.5px;color:var(--stone);padding:4px">No deals yet</span>'}
+            </div></div>
+            <div class="dc"><div class="dc-title">Activity${d.activities.length?' ('+d.activities.length+')':''}</div><div class="dc-body">
+              ${d.activities.length ? d.activities.map(a => `
+                <div class="act-item"><span>${ACT_ICONS[a.activity_type]||'●'}</span>
+                  <div><div style="font-weight:500">${a.activity_type}${a.subject?' — '+a.subject:''}</div>
+                  ${a.notes?`<div style="font-size:11.5px;color:var(--stone)">${a.notes.substring(0,80)}</div>`:''}
+                  <div style="font-size:11px;color:var(--stone-light)">${Fmt.date(a.activity_date||a.created_at)}</div>
+                </div></div>`).join('') : '<span style="font-size:12.5px;color:var(--stone)">No activity yet</span>'}
+            </div></div>
           </div>
         </div>
       </div>
 
-      <div class="detail-grid">
-        <div>
-          <div class="dc"><div class="dc-title">Property Details</div><div class="dc-body">
-            ${frow('SF Rentable',  'sf_rentable',  p.sf_rentable ? Fmt.sf(p.sf_rentable) : null)}
-            ${frow('SF Land',      'sf_land',       p.sf_land ? Fmt.sf(p.sf_land) : null)}
-            ${frow('Units',        'units',         p.units)}
-            ${frow('Stories',      'stories',       p.stories)}
-            ${frow('Year Built',   'year_built',    p.year_built)}
-            ${frow('Zoning',       'zoning',        p.zoning)}
-            ${frow('Parking',      'parking_ratio', p.parking_ratio ? p.parking_ratio + '/1,000 SF' : null)}
-            ${frow('Occupancy',    'occupancy_pct', p.occupancy_pct != null ? p.occupancy_pct + '%' : null)}
-            ${frow('County',       'county',        p.county)}
-            ${frow('Parcel ID',    'parcel_id',     p.parcel_id)}
-            ${frow('Subtype',      'subtype',       p.subtype)}
-            ${frow('Legal Desc',   'legal_desc',    p.legal_desc)}
-            ${frow('Tenant',       'tenant',        p.tenant)}
-          </div></div>
-
-          ${typeSection(p)}
-
-          <div class="dc"><div class="dc-title">Financial</div><div class="dc-body">
-            ${frow('Asking Price',    'asking_price',        p.asking_price ? Fmt.currency(p.asking_price) : null)}
-            ${frow('Price / SF',      'asking_price_per_sf', p.asking_price_per_sf ? Fmt.currency(p.asking_price_per_sf) : null)}
-            ${frow('Assessed Value',  'assessed_value',      p.assessed_value ? Fmt.currency(p.assessed_value) : null)}
-            ${frow('Annual Tax',      'tax_amount',          p.tax_amount ? Fmt.currency(p.tax_amount) : null)}
-            ${frow('Tax Year',        'tax_year',            p.tax_year)}
-            ${frow('Cap Rate',        'cap_rate',            p.cap_rate != null ? p.cap_rate + '%' : null)}
-            ${frow('NOI',             'noi',                 p.noi ? Fmt.currency(p.noi) : null)}
-            ${frow('Last Sale Price', 'last_sale_price',     p.last_sale_price ? Fmt.currency(p.last_sale_price) : null)}
-            ${frow('Last Sale Date',  'last_sale_date',      p.last_sale_date ? Fmt.date(p.last_sale_date) : null, {inputType:'date'})}
-          </div></div>
-
-          ${p.notes != null ? `<div class="dc"><div class="dc-title">Notes</div>
-            <div class="dc-body"><span class="fv" style="min-height:60px;display:block;white-space:pre-wrap"
-              data-raw="${(p.notes||'').replace(/"/g,'&quot;')}" onclick="ef(this,'notes',{multiline:true})">${p.notes||'—'}</span></div></div>` : ''}
-          <div id="assessor-section"></div>
+      <!-- TAB 2: SPACES & TENANTS -->
+      <div id="tab-spaces" class="tab-pane">
+        <div class="dc">
+          <div class="dc-title">Spaces &amp; Tenants
+            <button class="btn btn-primary btn-sm" onclick="showTenantForm(null)">+ Add Space</button>
+          </div>
+          <div class="dc-body" id="tenants-body"><div class="spinner" style="margin:20px auto;display:block"></div></div>
         </div>
+      </div>
 
-        <div>
-          <div class="dc"><div class="dc-title">Owner</div><div class="dc-body" style="padding:12px">
-            ${d.account ? `<a class="chip" href="/pages/account.html?id=${d.account.id}">◻ ${d.account.name}${d.account.entity_type ? ' · ' + d.account.entity_type : ''}</a>` : '<span style="font-size:12.5px;color:var(--stone)">No linked account</span>'}
-            <div style="margin-top:8px">${(d.contacts||[]).map(c =>
-              `<a class="chip" href="/pages/contact.html?id=${c.id}">◎ ${c.first_name||''} ${c.last_name||''}${c.role?' · '+c.role:''}</a>`
-            ).join('') || ''}</div>
-          </div></div>
+      <!-- TAB 3: CONTACTS -->
+      <div id="tab-contacts" class="tab-pane">
+        <div class="dc"><div class="dc-title">Contacts</div><div class="dc-body">
+          ${d.contacts && d.contacts.length ? d.contacts.map(c =>
+            `<a class="chip" style="display:block;padding:10px 14px;border-radius:var(--radius);margin-bottom:6px" href="/pages/contact.html?id=${c.id}">
+              <div style="font-weight:600;color:var(--navy)">${c.first_name||''} ${c.last_name||''}</div>
+              ${c.role?`<div style="font-size:11.5px;color:var(--stone)">${c.role}</div>`:''}
+            </a>`).join('') : '<span style="font-size:12.5px;color:var(--stone)">No contacts linked to this property yet.</span>'}
+        </div></div>
+      </div>
 
-          <div class="dc"><div class="dc-title">Deals${d.deals.length ? ' (' + d.deals.length + ')' : ''}</div><div class="dc-body" style="padding:8px">
-            ${d.deals.length ? d.deals.map(de => `
-              <a class="chip" style="display:flex;justify-content:space-between;border-radius:var(--radius);width:100%;padding:8px 10px;margin:3px 0"
-                 href="/pages/deal.html?id=${de.id}">
-                <span>${de.name}</span>
-                <span class="stage-pill ${Fmt.stageClass(de.stage)}" style="font-size:10px">${de.stage}</span>
-              </a>`).join('') : '<span style="font-size:12.5px;color:var(--stone);padding:4px">No deals yet</span>'}
-          </div></div>
+      <!-- TAB 4: PUBLIC RECORD -->
+      <div id="tab-public" class="tab-pane">
+        <div id="assessor-section">
+          <div style="text-align:center;padding:40px;color:var(--stone);font-size:13px">Loading public record…</div>
+        </div>
+      </div>
 
-          <div class="dc"><div class="dc-title">Activity${d.activities.length ? ' (' + d.activities.length + ')' : ''}</div><div class="dc-body">
-            ${d.activities.length ? d.activities.map(a => `
-              <div class="act-item">
-                <span class="act-icon">${ACT_ICONS[a.activity_type]||'●'}</span>
-                <div>
-                  <div style="font-weight:500">${a.activity_type}${a.subject?' — '+a.subject:''}</div>
-                  ${a.notes ? `<div style="font-size:11.5px;color:var(--stone)">${a.notes.substring(0,80)}</div>` : ''}
-                  <div style="font-size:11px;color:var(--stone-light)">${Fmt.date(a.activity_date||a.created_at)}</div>
-                </div>
-              </div>`).join('') : '<span style="font-size:12.5px;color:var(--stone)">No activity yet</span>'}
-          </div></div>
-
-          ${mapHtml}
+      <!-- TAB 5: MAP -->
+      <div id="tab-map" class="tab-pane">
+        <div class="dc">
+          <div class="dc-title">Map
+            ${p.lat && p.lng ? `<button class="btn btn-outline btn-sm" id="nearby-btn" onclick="toggleNearby()">Show Nearby Parcels</button>` : ''}
+          </div>
+          ${p.lat && p.lng ? `<div id="prop-map-tab"></div>` : `<div class="no-location">No location data — add lat/lng to enable map</div>`}
         </div>
       </div>`;
+  }
 
-    if (p.lat && p.lng) {
-      const m = L.map('prop-map', {zoomControl:false, attributionControl:false}).setView([p.lat, p.lng], 16);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(m);
-      L.circleMarker([p.lat, p.lng], {radius:8, fillColor:'#c9943a', color:'#fff', weight:2, fillOpacity:1}).addTo(m);
+  // ── Map tab ───────────────────────────────────────────────────────────────
+  function initTabMap() {
+    tabMap = L.map('prop-map-tab', {zoomControl:true, attributionControl:false}).setView([REC.lat, REC.lng], 16);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(tabMap);
+    L.circleMarker([REC.lat, REC.lng], {radius:10, fillColor:'#c9943a', color:'#fff', weight:2, fillOpacity:1})
+      .addTo(tabMap).bindTooltip(REC.address || 'Property');
+  }
+
+  async function toggleNearby() {
+    if (!tabMap) return;
+    const btn = document.getElementById('nearby-btn');
+    if (nearbyActive) {
+      nearbyMarkers.forEach(m => m.remove());
+      nearbyMarkers = []; nearbyActive = false;
+      btn.textContent = 'Show Nearby Parcels';
+      return;
     }
+    if (!REC.zip) { Toast.info('No ZIP on this property'); return; }
+    btn.textContent = 'Loading…'; btn.disabled = true;
+    try {
+      const data = await API.get(`/finder/parcels?zip=${REC.zip}`);
+      for (const p of data.parcels || []) {
+        if (!p.lat || !p.lng) continue;
+        const m = L.circleMarker([p.lat, p.lng], {radius:5, fillColor:'#8a8278', color:'#fff', weight:1, fillOpacity:0.7});
+        m.bindTooltip(`${p.address||''} · ${p.property_type||''}`, {direction:'top'});
+        m.addTo(tabMap);
+        nearbyMarkers.push(m);
+      }
+      nearbyActive = true;
+      btn.textContent = 'Hide Nearby Parcels';
+    } catch(e) { Toast.error('Could not load parcels'); }
+    finally { btn.disabled = false; }
+  }
+
+  // ── Tenants ───────────────────────────────────────────────────────────────
+  async function loadTenants() {
+    try { TENANTS = await API.get(`/tenants/?property_id=${ID}`); } catch(_) { TENANTS = []; }
+    renderTenants();
+  }
+
+  function renderTenants() {
+    const el = document.getElementById('tenants-body');
+    if (!el) return;
+    const totalSF = REC.sf_rentable || 0;
+    const occupiedSF = TENANTS.filter(t => !t.is_available).reduce((s,t) => s + (t.sf||0), 0);
+    const pct = totalSF ? Math.min(100, Math.round((occupiedSF/totalSF)*100)) : null;
+
+    const occHtml = pct != null ? `
+      <div style="margin-bottom:14px">
+        <div style="font-size:12px;color:var(--stone);display:flex;justify-content:space-between">
+          <span>${pct}% Occupied</span><span>${100-pct}% Available</span>
+        </div>
+        <div class="occ-bar"><div class="occ-fill" style="width:${pct}%"></div></div>
+      </div>` : '';
+
+    const rows = TENANTS.length ? `<table class="t-table">
+      <thead><tr><th>Tenant / Space</th><th>SF</th><th>% Bldg</th><th>Lease Expiry</th><th>Status</th><th></th></tr></thead>
+      <tbody>${TENANTS.map(t => `<tr>
+        <td><a href="/pages/tenant.html?name=${encodeURIComponent(t.tenant_name)}"
+               style="color:var(--navy);font-weight:500;text-decoration:none">${t.tenant_name}</a>
+          ${t.notes?`<div style="font-size:11px;color:var(--stone);margin-top:2px">${t.notes}</div>`:''}
+        </td>
+        <td>${t.sf?Number(t.sf).toLocaleString()+' SF':'—'}</td>
+        <td>${t.pct_of_building!=null?t.pct_of_building+'%':'—'}</td>
+        <td>${t.lease_expiry?Fmt.date(t.lease_expiry):'—'}</td>
+        <td>${t.is_available?'<span class="avail">Available</span>':'<span class="leased">Leased</span>'}</td>
+        <td style="text-align:right;white-space:nowrap">
+          <button class="btn btn-ghost btn-sm" onclick="showTenantForm(${t.id})">Edit</button>
+          <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="deleteTenant(${t.id})">✕</button>
+        </td>
+      </tr>`).join('')}</tbody>
+    </table>` : '<span style="font-size:12.5px;color:var(--stone)">No spaces added yet.</span>';
+
+    el.innerHTML = occHtml + rows;
+  }
+
+  function showTenantForm(idOrNull) {
+    const t = idOrNull ? TENANTS.find(x => x.id === idOrNull) : null;
+    document.getElementById('tm-title').textContent = t ? 'Edit Tenant' : 'Add Space / Tenant';
+    document.getElementById('tm-id').value       = t ? t.id : '';
+    document.getElementById('tm-name').value     = t ? t.tenant_name : '';
+    document.getElementById('tm-sf').value       = t && t.sf ? t.sf : '';
+    document.getElementById('tm-pct').value      = t && t.pct_of_building != null ? t.pct_of_building : '';
+    document.getElementById('tm-expiry').value   = t && t.lease_expiry ? t.lease_expiry : '';
+    document.getElementById('tm-available').checked = t ? !!t.is_available : false;
+    document.getElementById('tm-notes').value    = t ? (t.notes||'') : '';
+    Modal.open('tenant-modal');
+  }
+
+  async function saveTenant() {
+    const id   = document.getElementById('tm-id').value;
+    const body = {
+      property_id:     ID,
+      tenant_name:     document.getElementById('tm-name').value.trim(),
+      sf:              +document.getElementById('tm-sf').value  || null,
+      pct_of_building: +document.getElementById('tm-pct').value || null,
+      lease_expiry:    document.getElementById('tm-expiry').value || null,
+      is_available:    document.getElementById('tm-available').checked,
+      notes:           document.getElementById('tm-notes').value.trim() || null,
+    };
+    if (!body.tenant_name) { Toast.error('Tenant name is required'); return; }
+    try {
+      if (id) {
+        const u = await API.put(`/tenants/${id}`, body);
+        TENANTS = TENANTS.map(t => t.id === +id ? u : t);
+      } else {
+        const c = await API.post('/tenants/', body);
+        TENANTS.push(c);
+      }
+      renderTenants();
+      Modal.close('tenant-modal');
+      Toast.success('Saved');
+    } catch(e) { Toast.error(e.message); }
+  }
+
+  async function deleteTenant(id) {
+    if (!confirm('Remove this space / tenant?')) return;
+    try {
+      await API.delete(`/tenants/${id}`);
+      TENANTS = TENANTS.filter(t => t.id !== id);
+      renderTenants();
+      Toast.success('Removed');
+    } catch(e) { Toast.error(e.message); }
   }
 
   // ── Oakland County Assessor ───────────────────────────────────────────────
   async function loadAssessor(parcelId, propertyId) {
     try {
-      const kp = encodeURIComponent(parcelId || '-');
+      const kp   = encodeURIComponent(parcelId || '-');
       const data = await API.get(`/finder/parcel/${kp}?property_id=${propertyId}`);
+      if (!data || !Object.keys(data).length) throw new Error('empty');
       function arow(label, val) {
         if (val == null || val === '') return '';
-        return `<div class="fr"><span class="fl">${label}</span><span class="fv" data-raw="${String(val).replace(/"/g,'&quot;')}">${val}</span></div>`;
+        return `<div class="fr"><span class="fl">${label}</span><span class="fv" style="cursor:default" data-raw="${String(val).replace(/"/g,'&quot;')}">${val}</span></div>`;
       }
       const fmtVal = v => v ? Fmt.currency(v) : null;
       const fmtSF  = v => v ? Number(v).toLocaleString() + ' SF' : null;
@@ -377,7 +562,10 @@
           ${arow('Living Area SF', fmtSF(data.living_area_sqft))}
           ${arow('Parcel Area SF', fmtSF(data.shapearea))}
         </div></div>`;
-    } catch(_) { /* parcel not in local table — leave section empty */ }
+    } catch(_) {
+      document.getElementById('assessor-section').innerHTML =
+        '<div style="padding:20px;font-size:13px;color:var(--stone)">No public record found for this property.</div>';
+    }
   }
 
   // ── Inline edit ──────────────────────────────────────────────────────────

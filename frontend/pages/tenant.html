@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UpFront Broker — Tenant</title>
+  <link rel="stylesheet" href="/static/main.css">
+  <style>
+    #page-content { padding:24px 28px; max-width:900px; }
+    .dc { background:#fff; border:1px solid var(--cream-dark); border-radius:var(--radius-lg); box-shadow:var(--shadow-card); margin-bottom:16px; overflow:hidden; }
+    .dc-title { font-family:var(--font-serif); font-size:13.5px; color:var(--navy); padding:11px 16px; border-bottom:1px solid var(--cream-dark); background:var(--cream); }
+    .dc-body { padding:12px 16px; }
+    .t-row { display:flex; align-items:center; gap:12px; padding:10px 0; border-bottom:1px solid var(--cream-dark); font-size:13px; }
+    .t-row:last-child { border-bottom:none; }
+    .avail { background:#d1fae5; color:#065f46; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; flex-shrink:0; }
+    .leased { background:var(--cream-dark); color:var(--stone); padding:2px 8px; border-radius:10px; font-size:11px; flex-shrink:0; }
+  </style>
+</head>
+<body>
+<div id="sidebar"></div>
+<div id="main">
+  <div id="topbar">
+    <div style="display:flex;align-items:center;gap:12px">
+      <button class="btn btn-ghost btn-sm" onclick="history.back()">← Back</button>
+      <div class="topbar-title" id="page-title">Tenant</div>
+    </div>
+  </div>
+  <div id="page-content" class="fade-in">
+    <div id="root"><div style="text-align:center;padding:60px"><div class="spinner"></div></div></div>
+  </div>
+</div>
+<script src="/js/app.js?v=2"></script>
+<script>
+  if (!Auth.requireAuth()) throw new Error('Not authenticated');
+  renderSidebar('properties');
+
+  const NAME = new URLSearchParams(window.location.search).get('name') || '';
+  document.getElementById('page-title').textContent = NAME || 'Tenant';
+  document.title = (NAME || 'Tenant') + ' — UpFront Broker';
+
+  async function load() {
+    try {
+      const tenants = await API.get(`/tenants/?tenant_name=${encodeURIComponent(NAME)}`);
+      if (!tenants.length) {
+        document.getElementById('root').innerHTML =
+          `<div style="padding:40px;text-align:center;color:var(--stone);font-size:13px">No records found for "${NAME}".</div>`;
+        return;
+      }
+
+      // Fetch property names for each unique property_id
+      const propIds = [...new Set(tenants.map(t => t.property_id))];
+      const propMap = {};
+      await Promise.all(propIds.map(async id => {
+        try {
+          const d = await API.get(`/properties/${id}/full`);
+          propMap[id] = d.property;
+        } catch(_) {}
+      }));
+
+      const rows = tenants.map(t => {
+        const prop = propMap[t.property_id];
+        const propLabel = prop ? (prop.name || prop.address || `Property #${t.property_id}`) : `Property #${t.property_id}`;
+        return `<div class="t-row">
+          <div style="flex:1">
+            <a href="/pages/property.html?id=${t.property_id}" style="font-weight:600;color:var(--navy);text-decoration:none">${propLabel}</a>
+            ${prop ? `<div style="font-size:11.5px;color:var(--stone)">${[prop.address,prop.city,prop.state].filter(Boolean).join(', ')}</div>` : ''}
+            ${t.notes ? `<div style="font-size:11.5px;color:var(--stone);margin-top:2px">${t.notes}</div>` : ''}
+          </div>
+          <div style="text-align:right;font-size:12px;color:var(--stone)">
+            ${t.sf ? Number(t.sf).toLocaleString() + ' SF' : ''}
+            ${t.lease_expiry ? `<div>Expires ${Fmt.date(t.lease_expiry)}</div>` : ''}
+          </div>
+          ${t.is_available ? '<span class="avail">Available</span>' : '<span class="leased">Leased</span>'}
+        </div>`;
+      }).join('');
+
+      document.getElementById('root').innerHTML = `
+        <div style="margin-bottom:20px">
+          <h1 style="font-family:var(--font-serif);font-size:26px;color:var(--navy);margin-bottom:4px">${NAME}</h1>
+          <div style="font-size:13px;color:var(--stone)">${tenants.length} space${tenants.length!==1?'s':''} across ${propIds.length} propert${propIds.length!==1?'ies':'y'}</div>
+        </div>
+        <div class="dc"><div class="dc-title">Properties</div><div class="dc-body">${rows}</div></div>`;
+    } catch(e) {
+      document.getElementById('root').innerHTML =
+        `<div style="padding:40px;text-align:center;color:var(--red);font-size:13px">Failed to load: ${e.message}</div>`;
+    }
+  }
+
+  load();
+</script>
+</body>
+</html>
