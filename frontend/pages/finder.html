@@ -261,25 +261,30 @@
     const ownerHtml = ownerName ? `<div class="owner-block">
         <div class="owner-name">${ownerName}</div>
         ${parcel.name2 ? `<div>${parcel.name2}</div>` : ''}
-        ${parcel.postaladdress ? `<div style="margin-top:4px;font-size:11.5px">${parcel.postaladdress}</div>` : ''}
       </div>` : '';
 
     document.getElementById('p-body').innerHTML =
       ownerHtml +
       `<div>
+        ${row('Owner',          parcel.name1 || parcel.owner)}
+        ${row('Owner 2',        parcel.name2)}
+        ${row('Mailing Address',parcel.postaladdress)}
         ${row('Address',        parcel.address)}
         ${row('City',           parcel.city)}
         ${row('ZIP',            parcel.zip)}
+        ${row('County',         parcel.county)}
         ${row('Type',           parcel.property_type)}
         ${row('Class Code',     parcel.classcode)}
         ${row('Municipality',   parcel.cvttaxdescription)}
         ${row('Structure',      parcel.subtype)}
+        ${row('Building SF',    fmtSF(parcel.sf_rentable))}
         ${row('Living Area SF', fmtSF(parcel.living_area_sqft))}
-        ${row('Parcel Area',    fmtSF(parcel.shapearea))}
+        ${row('Parcel Area SF', fmtSF(parcel.shapearea))}
         ${row('Beds',           parcel.bedrooms != null ? String(parcel.bedrooms) : null)}
         ${row('Baths',          parcel.bathrooms != null ? String(parcel.bathrooms) : null)}
         ${row('Assessed Value', fmtVal(parcel.assessed_value))}
         ${row('Taxable Value',  fmtVal(parcel.taxablevalue))}
+        ${row('Parcel ID',      parcel.keypin)}
       </div>`;
 
     const actions = document.getElementById('p-actions');
