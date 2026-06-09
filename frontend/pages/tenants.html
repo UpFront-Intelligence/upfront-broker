@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UpFront Broker — Tenants</title>
+  <link rel="stylesheet" href="/static/main.css">
+  <style>
+    #page-content { padding:24px 28px; max-width:1100px; }
+    .filter-bar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:20px; }
+    .filter-bar input { flex:1; min-width:220px; }
+    .ind-tabs { display:flex; gap:4px; flex-wrap:wrap; }
+    .ind-tab { padding:5px 11px; border-radius:20px; font-size:11.5px; font-weight:500;
+      background:var(--cream-dark); color:var(--stone); border:none; cursor:pointer; transition:all 0.1s; }
+    .ind-tab:hover { background:var(--navy-light); color:#fff; }
+    .ind-tab.active { background:var(--navy); color:#fff; }
+    .t-table { width:100%; border-collapse:collapse; }
+    .t-table th { text-align:left; font-size:10.5px; font-weight:600; text-transform:uppercase;
+      letter-spacing:.05em; color:var(--stone); padding:9px 12px; border-bottom:2px solid var(--cream-dark);
+      background:var(--cream); }
+    .t-table td { padding:11px 12px; border-bottom:1px solid var(--cream-dark); font-size:13px; vertical-align:middle; }
+    .t-table tr:last-child td { border-bottom:none; }
+    .t-table tr:hover td { background:var(--cream); cursor:pointer; }
+    .ind-badge { display:inline-block; padding:2px 9px; border-radius:20px; font-size:10.5px;
+      font-weight:600; background:var(--cream-dark); color:var(--stone); }
+    .card { background:#fff; border:1px solid var(--cream-dark); border-radius:var(--radius-lg);
+      box-shadow:var(--shadow-card); overflow:hidden; }
+    .empty-state { text-align:center; padding:60px 20px; color:var(--stone); }
+    .empty-state h3 { font-family:var(--font-serif); font-size:20px; color:var(--navy); margin-bottom:8px; }
+  </style>
+</head>
+<body>
+<div id="sidebar"></div>
+<div id="main">
+  <div id="topbar">
+    <div class="topbar-title">Tenants</div>
+    <div class="topbar-actions">
+      <button class="btn btn-primary btn-sm" onclick="Modal.open('new-tenant-modal')">+ New Tenant</button>
+    </div>
+  </div>
+  <div id="page-content" class="fade-in">
+    <div class="filter-bar">
+      <input type="text" class="form-control" id="search-input" placeholder="Search tenants…" oninput="debounceLoad()">
+      <div class="ind-tabs">
+        <button class="ind-tab active" data-ind="" onclick="setIndustry(this, '')">All</button>
+        <button class="ind-tab" data-ind="Food &amp; Beverage" onclick="setIndustry(this, 'Food & Beverage')">F&amp;B</button>
+        <button class="ind-tab" data-ind="Financial" onclick="setIndustry(this, 'Financial')">Financial</button>
+        <button class="ind-tab" data-ind="Retail" onclick="setIndustry(this, 'Retail')">Retail</button>
+        <button class="ind-tab" data-ind="Medical" onclick="setIndustry(this, 'Medical')">Medical</button>
+        <button class="ind-tab" data-ind="Office" onclick="setIndustry(this, 'Office')">Office</button>
+        <button class="ind-tab" data-ind="Industrial" onclick="setIndustry(this, 'Industrial')">Industrial</button>
+        <button class="ind-tab" data-ind="Service" onclick="setIndustry(this, 'Service')">Service</button>
+        <button class="ind-tab" data-ind="Other" onclick="setIndustry(this, 'Other')">Other</button>
+      </div>
+    </div>
+    <div id="list-wrap"><div style="text-align:center;padding:60px"><div class="spinner"></div></div></div>
+  </div>
+</div>
+
+<!-- New tenant modal -->
+<div class="modal-overlay" id="new-tenant-modal" onclick="Modal.closeOnOverlay('new-tenant-modal')">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-header">
+      <h3 class="modal-title">New Tenant</h3>
+      <button class="btn btn-ghost" onclick="Modal.close('new-tenant-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Tenant Name *</label>
+        <input type="text" id="nt-name" class="form-control" placeholder="Starbucks, Acme Corp…">
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group">
+          <label class="form-label">Industry</label>
+          <select id="nt-industry" class="form-control">
+            <option value="">— Select —</option>
+            <option>Food &amp; Beverage</option><option>Financial</option>
+            <option>Retail</option><option>Medical</option><option>Office</option>
+            <option>Industrial</option><option>Service</option><option>Other</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Website</label>
+          <input type="text" id="nt-website" class="form-control" placeholder="https://…">
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 80px;gap:10px">
+        <div class="form-group">
+          <label class="form-label">HQ City</label>
+          <input type="text" id="nt-city" class="form-control" placeholder="Detroit">
+        </div>
+        <div class="form-group">
+          <label class="form-label">HQ State</label>
+          <input type="text" id="nt-state" class="form-control" placeholder="MI">
+        </div>
+        <div class="form-group">
+          <label class="form-label">ZIP</label>
+          <input type="text" id="nt-zip" class="form-control" placeholder="48226">
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="Modal.close('new-tenant-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="createTenant()">Create</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/app.js?v=2"></script>
+<script>
+  if (!Auth.requireAuth()) throw new Error('Not authenticated');
+  renderSidebar('tenants');
+
+  let _industry = '', _timer = null;
+
+  const IND_COLORS = {
+    'Food & Beverage': '#7a3d2a',
+    'Financial':       '#2a4a7a',
+    'Retail':          '#7a4a2a',
+    'Medical':         '#2a7a4a',
+    'Office':          '#2a2a7a',
+    'Industrial':      '#4a4a4a',
+    'Service':         '#4a2a7a',
+    'Other':           '#5a5a5a',
+  };
+
+  function indBadge(ind) {
+    if (!ind) return '';
+    const color = IND_COLORS[ind] || '#5a5a5a';
+    return `<span class="ind-badge" style="background:${color}20;color:${color}">${ind}</span>`;
+  }
+
+  function setIndustry(btn, val) {
+    document.querySelectorAll('.ind-tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    _industry = val;
+    load();
+  }
+
+  function debounceLoad() {
+    clearTimeout(_timer);
+    _timer = setTimeout(load, 280);
+  }
+
+  async function load() {
+    const q   = document.getElementById('search-input').value.trim();
+    const qs  = new URLSearchParams();
+    if (q)         qs.set('q', q);
+    if (_industry) qs.set('industry', _industry);
+    try {
+      const data = await API.get(`/tenants/?${qs}`);
+      renderList(data);
+    } catch(e) { Toast.error(e.message); }
+  }
+
+  function renderList(tenants) {
+    const wrap = document.getElementById('list-wrap');
+    if (!tenants.length) {
+      wrap.innerHTML = `<div class="empty-state">
+        <h3>No tenants yet</h3>
+        <p>Tenants are created when you add spaces to properties, or click "+ New Tenant" above.</p>
+      </div>`;
+      return;
+    }
+    wrap.innerHTML = `<div class="card"><table class="t-table">
+      <thead><tr>
+        <th>Tenant</th><th>Industry</th><th>HQ</th>
+        <th style="text-align:right">Properties</th>
+        <th style="text-align:right">Total SF</th>
+      </tr></thead>
+      <tbody>${tenants.map(t => `<tr onclick="window.location='/pages/tenant.html?id=${t.id}'">
+        <td><span style="font-weight:600;color:var(--navy)">${t.name}</span>
+          ${t.website?`<a href="${t.website}" target="_blank" onclick="event.stopPropagation()"
+            style="font-size:11px;color:var(--stone);margin-left:6px">↗</a>`:''}
+        </td>
+        <td>${indBadge(t.industry)}</td>
+        <td style="color:var(--stone);font-size:12px">${[t.hq_city,t.hq_state].filter(Boolean).join(', ')||'—'}</td>
+        <td style="text-align:right;font-family:var(--font-mono)">${t.property_count||0}</td>
+        <td style="text-align:right;font-family:var(--font-mono)">${t.total_sf?Number(t.total_sf).toLocaleString()+' SF':'—'}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>`;
+  }
+
+  async function createTenant() {
+    const name = document.getElementById('nt-name').value.trim();
+    if (!name) { Toast.error('Name required'); return; }
+    try {
+      const t = await API.post('/tenants/', {
+        name,
+        industry:   document.getElementById('nt-industry').value || null,
+        website:    document.getElementById('nt-website').value.trim() || null,
+        hq_city:    document.getElementById('nt-city').value.trim()    || null,
+        hq_state:   document.getElementById('nt-state').value.trim()   || null,
+        hq_zip:     document.getElementById('nt-zip').value.trim()     || null,
+      });
+      Modal.close('new-tenant-modal');
+      Toast.success('Tenant created');
+      window.location = `/pages/tenant.html?id=${t.id}`;
+    } catch(e) { Toast.error(e.message); }
+  }
+
+  load();
+</script>
+</body>
+</html>

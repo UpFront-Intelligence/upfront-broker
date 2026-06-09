@@ -69,18 +69,37 @@
   </div>
 </div>
 
-<!-- Tenant modal -->
+<!-- Tenant / Space modal -->
 <div class="modal-overlay" id="tenant-modal" onclick="Modal.closeOnOverlay('tenant-modal')">
-  <div class="modal" style="max-width:420px">
+  <div class="modal" style="max-width:460px">
     <div class="modal-header">
       <h3 class="modal-title" id="tm-title">Add Space</h3>
       <button class="btn btn-ghost" onclick="Modal.close('tenant-modal')">✕</button>
     </div>
     <div class="modal-body">
       <input type="hidden" id="tm-id">
-      <div class="form-group">
-        <label class="form-label">Tenant / Space Name *</label>
-        <input type="text" id="tm-name" class="form-control" placeholder="Acme Corp or Suite 200 - Available">
+      <input type="hidden" id="tm-tenant-id">
+      <!-- Fuzzy tenant search (shown only for new spaces) -->
+      <div id="tm-search-wrap" class="form-group" style="position:relative">
+        <label class="form-label">Tenant *</label>
+        <input type="text" id="tm-name" class="form-control"
+               placeholder="Start typing a tenant name…" autocomplete="off" oninput="onTenantInput()">
+        <div id="tm-suggestions" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:200;
+             background:#fff;border:1px solid var(--cream-dark);border-top:none;border-radius:0 0 var(--radius) var(--radius);
+             box-shadow:var(--shadow-hover);max-height:180px;overflow-y:auto"></div>
+        <div id="tm-tenant-link" style="display:none;margin-top:4px;font-size:12px;color:var(--stone)">
+          Linked to <span id="tm-tenant-link-name" style="font-weight:600;color:var(--navy)"></span>
+          <span style="cursor:pointer;color:var(--stone);margin-left:4px" onclick="clearTenantLink()">✕</span>
+        </div>
+        <div id="tm-industry-wrap" style="display:none;margin-top:8px">
+          <label class="form-label">Industry (new tenant)</label>
+          <select id="tm-industry" class="form-control">
+            <option value="">— None —</option>
+            <option>Food &amp; Beverage</option><option>Financial</option>
+            <option>Retail</option><option>Medical</option><option>Office</option>
+            <option>Industrial</option><option>Service</option><option>Other</option>
+          </select>
+        </div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <div class="form-group">
@@ -88,13 +107,33 @@
           <input type="number" id="tm-sf" class="form-control" placeholder="5000">
         </div>
         <div class="form-group">
+          <label class="form-label">Rent / SF</label>
+          <input type="number" step="0.01" id="tm-rent" class="form-control" placeholder="18.50">
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group">
+          <label class="form-label">Lease Type</label>
+          <select id="tm-lease-type" class="form-control">
+            <option value="">— None —</option>
+            <option>NNN</option><option>Gross</option>
+            <option>Modified Gross</option><option>Full Service</option>
+          </select>
+        </div>
+        <div class="form-group">
           <label class="form-label">% of Building</label>
           <input type="number" step="0.1" id="tm-pct" class="form-control" placeholder="25">
         </div>
       </div>
-      <div class="form-group">
-        <label class="form-label">Lease Expiry</label>
-        <input type="date" id="tm-expiry" class="form-control">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group">
+          <label class="form-label">Lease Start</label>
+          <input type="date" id="tm-start" class="form-control">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Lease Expiry</label>
+          <input type="date" id="tm-expiry" class="form-control">
+        </div>
       </div>
       <div class="form-group" style="display:flex;align-items:center;gap:8px">
         <input type="checkbox" id="tm-available" style="width:16px;height:16px;cursor:pointer">
@@ -102,7 +141,7 @@
       </div>
       <div class="form-group">
         <label class="form-label">Notes</label>
-        <textarea id="tm-notes" class="form-control" rows="2" placeholder="Suite #, lease type, asking rent…"></textarea>
+        <textarea id="tm-notes" class="form-control" rows="2" placeholder="Suite #, asking rent, conditions…"></textarea>
       </div>
     </div>
     <div class="modal-footer">
@@ -448,41 +487,52 @@
     finally { btn.disabled = false; }
   }
 
-  // ── Tenants ───────────────────────────────────────────────────────────────
+  // ── Tenants / Spaces ─────────────────────────────────────────────────────
   async function loadTenants() {
-    try { TENANTS = await API.get(`/tenants/?property_id=${ID}`); } catch(_) { TENANTS = []; }
+    try { TENANTS = await API.get(`/tenants/spaces?property_id=${ID}`); } catch(_) { TENANTS = []; }
     renderTenants();
   }
 
   function renderTenants() {
     const el = document.getElementById('tenants-body');
     if (!el) return;
-    const totalSF = REC.sf_rentable || 0;
-    const occupiedSF = TENANTS.filter(t => !t.is_available).reduce((s,t) => s + (t.sf||0), 0);
-    const pct = totalSF ? Math.min(100, Math.round((occupiedSF/totalSF)*100)) : null;
+    const buildingSF  = REC.sf_rentable || 0;
+    const occupiedSF  = TENANTS.filter(t => !t.is_available).reduce((s,t) => s + (t.sf||0), 0);
+    const availableSF = TENANTS.filter(t =>  t.is_available).reduce((s,t) => s + (t.sf||0), 0);
+    const occupiedPct = buildingSF ? Math.min(100, Math.round((occupiedSF  / buildingSF) * 100)) : null;
+    const availPct    = buildingSF ? Math.min(100, Math.round((availableSF / buildingSF) * 100)) : null;
 
-    const occHtml = pct != null ? `
-      <div style="margin-bottom:14px">
-        <div style="font-size:12px;color:var(--stone);display:flex;justify-content:space-between">
-          <span>${pct}% Occupied</span><span>${100-pct}% Available</span>
+    const occHtml = (occupiedPct != null || TENANTS.length) ? `
+      <div style="margin-bottom:16px">
+        <div style="font-size:12px;color:var(--stone);display:flex;justify-content:space-between;margin-bottom:3px">
+          <span>${occupiedSF ? Number(occupiedSF).toLocaleString() + ' SF Occupied' : 'No leased spaces'}</span>
+          <span>${availableSF ? Number(availableSF).toLocaleString() + ' SF Available' : ''}</span>
         </div>
-        <div class="occ-bar"><div class="occ-fill" style="width:${pct}%"></div></div>
+        ${buildingSF ? `<div class="occ-bar" style="position:relative">
+          <div class="occ-fill" style="width:${occupiedPct}%;float:left"></div>
+          <div style="width:${availPct}%;float:left;height:100%;background:var(--gold);opacity:0.5"></div>
+        </div>
+        <div style="font-size:10.5px;color:var(--stone);margin-top:2px;display:flex;gap:12px">
+          <span>● Occupied</span><span style="color:var(--gold-light)">● Available</span>
+          <span style="margin-left:auto">${occupiedPct}% / ${availPct}% of ${Number(buildingSF).toLocaleString()} SF building</span>
+        </div>` : ''}
       </div>` : '';
 
     const rows = TENANTS.length ? `<table class="t-table">
-      <thead><tr><th>Tenant / Space</th><th>SF</th><th>% Bldg</th><th>Lease Expiry</th><th>Status</th><th></th></tr></thead>
+      <thead><tr><th>Tenant</th><th>SF</th><th>Rent/SF</th><th>Lease Type</th><th>Expiry</th><th>Status</th><th></th></tr></thead>
       <tbody>${TENANTS.map(t => `<tr>
-        <td><a href="/pages/tenant.html?name=${encodeURIComponent(t.tenant_name)}"
-               style="color:var(--navy);font-weight:500;text-decoration:none">${t.tenant_name}</a>
+        <td><a href="/pages/tenant.html?id=${t.tenant_id}"
+               style="color:var(--navy);font-weight:500;text-decoration:none">${t.tenant_name||'—'}</a>
           ${t.notes?`<div style="font-size:11px;color:var(--stone);margin-top:2px">${t.notes}</div>`:''}
         </td>
-        <td>${t.sf?Number(t.sf).toLocaleString()+' SF':'—'}</td>
-        <td>${t.pct_of_building!=null?t.pct_of_building+'%':'—'}</td>
+        <td style="font-family:var(--font-mono)">${t.sf?Number(t.sf).toLocaleString()+' SF':'—'}</td>
+        <td style="font-family:var(--font-mono)">${t.rent_per_sf?'$'+t.rent_per_sf+'/SF':'—'}</td>
+        <td>${t.lease_type||'—'}</td>
         <td>${t.lease_expiry?Fmt.date(t.lease_expiry):'—'}</td>
         <td>${t.is_available?'<span class="avail">Available</span>':'<span class="leased">Leased</span>'}</td>
         <td style="text-align:right;white-space:nowrap">
           <button class="btn btn-ghost btn-sm" onclick="showTenantForm(${t.id})">Edit</button>
-          <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="deleteTenant(${t.id})">✕</button>
+          <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="deleteSpace(${t.id})">✕</button>
         </td>
       </tr>`).join('')}</tbody>
     </table>` : '<span style="font-size:12.5px;color:var(--stone)">No spaces added yet.</span>';
@@ -490,37 +540,119 @@
     el.innerHTML = occHtml + rows;
   }
 
+  // ── Fuzzy tenant search ──────────────────────────────────────────────────
+  let _fuzzyTimer = null;
+
+  function onTenantInput() {
+    clearTimeout(_fuzzyTimer);
+    clearTenantLink(true);
+    _fuzzyTimer = setTimeout(doFuzzy, 280);
+  }
+
+  async function doFuzzy() {
+    const name = document.getElementById('tm-name').value.trim();
+    const box  = document.getElementById('tm-suggestions');
+    const iw   = document.getElementById('tm-industry-wrap');
+    if (name.length < 2) { box.style.display = 'none'; iw.style.display = 'none'; return; }
+    try {
+      const hits = await API.get(`/tenants/fuzzy?name=${encodeURIComponent(name)}`);
+      if (!hits.length) {
+        box.style.display = 'none';
+        iw.style.display  = 'block';   // offer industry for new tenant
+        return;
+      }
+      iw.style.display  = 'none';
+      box.innerHTML = hits.map(h =>
+        `<div style="padding:9px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--cream-dark)"
+              onmousedown="selectTenant(${h.id},'${h.name.replace(/'/g,"\\'")}','${(h.industry||'').replace(/'/g,"\\'")}')">
+           <span style="font-weight:500">${h.name}</span>
+           ${h.industry?`<span style="font-size:11px;color:var(--stone);margin-left:6px">${h.industry}</span>`:''}
+         </div>`
+      ).join('') +
+        `<div style="padding:9px 12px;cursor:pointer;font-size:12px;color:var(--stone);background:var(--cream)"
+              onmousedown="useNewTenant()">+ Create "${name}" as new tenant</div>`;
+      box.style.display = 'block';
+    } catch(_) { box.style.display = 'none'; }
+  }
+
+  function selectTenant(id, name, industry) {
+    document.getElementById('tm-tenant-id').value        = id;
+    document.getElementById('tm-name').value             = name;
+    document.getElementById('tm-tenant-link-name').textContent = name;
+    document.getElementById('tm-tenant-link').style.display   = 'block';
+    document.getElementById('tm-suggestions').style.display   = 'none';
+    document.getElementById('tm-industry-wrap').style.display = 'none';
+  }
+
+  function useNewTenant() {
+    document.getElementById('tm-suggestions').style.display   = 'none';
+    document.getElementById('tm-industry-wrap').style.display = 'block';
+  }
+
+  function clearTenantLink(silent) {
+    document.getElementById('tm-tenant-id').value             = '';
+    document.getElementById('tm-tenant-link').style.display   = 'none';
+    if (!silent) document.getElementById('tm-name').value     = '';
+    document.getElementById('tm-industry-wrap').style.display = 'none';
+  }
+
   function showTenantForm(idOrNull) {
-    const t = idOrNull ? TENANTS.find(x => x.id === idOrNull) : null;
-    document.getElementById('tm-title').textContent = t ? 'Edit Tenant' : 'Add Space / Tenant';
-    document.getElementById('tm-id').value       = t ? t.id : '';
-    document.getElementById('tm-name').value     = t ? t.tenant_name : '';
-    document.getElementById('tm-sf').value       = t && t.sf ? t.sf : '';
-    document.getElementById('tm-pct').value      = t && t.pct_of_building != null ? t.pct_of_building : '';
-    document.getElementById('tm-expiry').value   = t && t.lease_expiry ? t.lease_expiry : '';
-    document.getElementById('tm-available').checked = t ? !!t.is_available : false;
-    document.getElementById('tm-notes').value    = t ? (t.notes||'') : '';
+    const t    = idOrNull ? TENANTS.find(x => x.id === idOrNull) : null;
+    const isNew = !t;
+    document.getElementById('tm-title').textContent            = isNew ? 'Add Space / Tenant' : 'Edit Space';
+    document.getElementById('tm-id').value                     = t ? t.id : '';
+    document.getElementById('tm-tenant-id').value              = '';
+    document.getElementById('tm-name').value                   = t ? (t.tenant_name||'') : '';
+    document.getElementById('tm-sf').value                     = t && t.sf      ? t.sf      : '';
+    document.getElementById('tm-pct').value                    = t && t.pct_of_building != null ? t.pct_of_building : '';
+    document.getElementById('tm-rent').value                   = t && t.rent_per_sf ? t.rent_per_sf : '';
+    document.getElementById('tm-lease-type').value             = t ? (t.lease_type||'') : '';
+    document.getElementById('tm-start').value                  = t && t.lease_start  ? t.lease_start  : '';
+    document.getElementById('tm-expiry').value                 = t && t.lease_expiry ? t.lease_expiry : '';
+    document.getElementById('tm-available').checked            = t ? !!t.is_available : false;
+    document.getElementById('tm-notes').value                  = t ? (t.notes||'') : '';
+    document.getElementById('tm-suggestions').style.display    = 'none';
+    document.getElementById('tm-tenant-link').style.display    = 'none';
+    document.getElementById('tm-industry-wrap').style.display  = 'none';
+    document.getElementById('tm-search-wrap').style.display    = isNew ? 'block' : 'none';
     Modal.open('tenant-modal');
   }
 
   async function saveTenant() {
-    const id   = document.getElementById('tm-id').value;
-    const body = {
-      property_id:     ID,
-      tenant_name:     document.getElementById('tm-name').value.trim(),
-      sf:              +document.getElementById('tm-sf').value  || null,
-      pct_of_building: +document.getElementById('tm-pct').value || null,
-      lease_expiry:    document.getElementById('tm-expiry').value || null,
-      is_available:    document.getElementById('tm-available').checked,
-      notes:           document.getElementById('tm-notes').value.trim() || null,
-    };
-    if (!body.tenant_name) { Toast.error('Tenant name is required'); return; }
+    const spaceId  = document.getElementById('tm-id').value;
+    const tenantId = document.getElementById('tm-tenant-id').value;
+    const name     = document.getElementById('tm-name').value.trim();
+    if (!spaceId && !name) { Toast.error('Tenant name is required'); return; }
     try {
-      if (id) {
-        const u = await API.put(`/tenants/${id}`, body);
-        TENANTS = TENANTS.map(t => t.id === +id ? u : t);
+      if (spaceId) {
+        // Editing an existing space — only update space fields
+        const u = await API.put(`/tenants/spaces/${spaceId}`, {
+          sf:              +document.getElementById('tm-sf').value       || null,
+          pct_of_building: +document.getElementById('tm-pct').value      || null,
+          rent_per_sf:     +document.getElementById('tm-rent').value     || null,
+          lease_type:      document.getElementById('tm-lease-type').value || null,
+          lease_start:     document.getElementById('tm-start').value      || null,
+          lease_expiry:    document.getElementById('tm-expiry').value     || null,
+          is_available:    document.getElementById('tm-available').checked,
+          notes:           document.getElementById('tm-notes').value.trim() || null,
+        });
+        TENANTS = TENANTS.map(t => t.id === +spaceId ? u : t);
       } else {
-        const c = await API.post('/tenants/', body);
+        // Creating a new space
+        const c = await API.post('/tenants/spaces', {
+          property_id:     ID,
+          tenant_id:       tenantId ? +tenantId : undefined,
+          tenant_name:     tenantId ? undefined : name,
+          tenant_industry: tenantId ? undefined : (document.getElementById('tm-industry').value || null),
+          sf:              +document.getElementById('tm-sf').value       || null,
+          pct_of_building: +document.getElementById('tm-pct').value      || null,
+          rent_per_sf:     +document.getElementById('tm-rent').value     || null,
+          lease_type:      document.getElementById('tm-lease-type').value || null,
+          lease_start:     document.getElementById('tm-start').value      || null,
+          lease_expiry:    document.getElementById('tm-expiry').value     || null,
+          is_available:    document.getElementById('tm-available').checked,
+          notes:           document.getElementById('tm-notes').value.trim() || null,
+        });
         TENANTS.push(c);
       }
       renderTenants();
@@ -529,10 +661,10 @@
     } catch(e) { Toast.error(e.message); }
   }
 
-  async function deleteTenant(id) {
-    if (!confirm('Remove this space / tenant?')) return;
+  async function deleteSpace(id) {
+    if (!confirm('Remove this space?')) return;
     try {
-      await API.delete(`/tenants/${id}`);
+      await API.delete(`/tenants/spaces/${id}`);
       TENANTS = TENANTS.filter(t => t.id !== id);
       renderTenants();
       Toast.success('Removed');

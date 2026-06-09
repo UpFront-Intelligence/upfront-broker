@@ -97,6 +97,9 @@ async def page_account_detail():  return _page("account.html")
 @app.get("/pages/deal.html")
 async def page_deal_detail():     return _page("deal.html")
 
+@app.get("/pages/tenants.html")
+async def page_tenants():         return _page("tenants.html")
+
 @app.get("/pages/tenant.html")
 async def page_tenant():          return _page("tenant.html")
 

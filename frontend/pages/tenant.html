@@ -6,14 +6,35 @@
   <title>UpFront Broker — Tenant</title>
   <link rel="stylesheet" href="/static/main.css">
   <style>
-    #page-content { padding:24px 28px; max-width:900px; }
-    .dc { background:#fff; border:1px solid var(--cream-dark); border-radius:var(--radius-lg); box-shadow:var(--shadow-card); margin-bottom:16px; overflow:hidden; }
-    .dc-title { font-family:var(--font-serif); font-size:13.5px; color:var(--navy); padding:11px 16px; border-bottom:1px solid var(--cream-dark); background:var(--cream); }
-    .dc-body { padding:12px 16px; }
-    .t-row { display:flex; align-items:center; gap:12px; padding:10px 0; border-bottom:1px solid var(--cream-dark); font-size:13px; }
-    .t-row:last-child { border-bottom:none; }
-    .avail { background:#d1fae5; color:#065f46; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; flex-shrink:0; }
-    .leased { background:var(--cream-dark); color:var(--stone); padding:2px 8px; border-radius:10px; font-size:11px; flex-shrink:0; }
+    #page-content { padding:24px 28px; max-width:1100px; }
+    .header-card { background:var(--navy); border-radius:var(--radius-lg); padding:24px 28px; color:#fff; margin-bottom:20px; display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+    .header-main { flex:1; }
+    .h-name { font-family:var(--font-serif); font-size:26px; margin-bottom:6px; }
+    .h-meta { display:flex; gap:12px; flex-wrap:wrap; align-items:center; font-size:12.5px; color:rgba(255,255,255,0.65); }
+    .h-badge { padding:3px 10px; border-radius:20px; font-size:11.5px; font-weight:600; background:rgba(255,255,255,0.15); color:rgba(255,255,255,0.9); }
+    .tab-nav { display:flex; border-bottom:2px solid var(--cream-dark); margin-bottom:20px; }
+    .tab-btn { background:none; border:none; border-bottom:2px solid transparent; margin-bottom:-2px; padding:10px 20px; font-size:13.5px; font-weight:500; color:var(--stone); cursor:pointer; }
+    .tab-btn:hover { color:var(--navy); }
+    .tab-btn.active { color:var(--navy); border-bottom-color:var(--gold); font-weight:600; }
+    .tab-pane { display:none; }
+    .tab-pane.active { display:block; }
+    .card { background:#fff; border:1px solid var(--cream-dark); border-radius:var(--radius-lg); box-shadow:var(--shadow-card); margin-bottom:16px; overflow:hidden; }
+    .card-title { font-family:var(--font-serif); font-size:13.5px; color:var(--navy); padding:11px 16px; border-bottom:1px solid var(--cream-dark); background:var(--cream); display:flex; justify-content:space-between; align-items:center; }
+    .card-body { padding:12px 16px; }
+    .t-table { width:100%; border-collapse:collapse; font-size:13px; }
+    .t-table th { text-align:left; font-size:10.5px; font-weight:600; text-transform:uppercase; letter-spacing:.05em; color:var(--stone); padding:8px 10px; border-bottom:2px solid var(--cream-dark); }
+    .t-table td { padding:10px 10px; border-bottom:1px solid var(--cream-dark); vertical-align:middle; }
+    .t-table tr:last-child td { border-bottom:none; }
+    .avail { background:#d1fae5; color:#065f46; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; }
+    .leased { background:var(--cream-dark); color:var(--stone); padding:2px 8px; border-radius:10px; font-size:11px; }
+    .news-item { padding:12px 0; border-bottom:1px solid var(--cream-dark); }
+    .news-item:last-child { border-bottom:none; }
+    .news-headline { font-size:13.5px; font-weight:500; color:var(--navy); text-decoration:none; line-height:1.4; }
+    .news-headline:hover { text-decoration:underline; }
+    .news-meta { font-size:11.5px; color:var(--stone); margin-top:4px; }
+    /* edit fields */
+    .ef { cursor:pointer; padding:1px 4px; border-radius:3px; }
+    .ef:hover { background:rgba(255,255,255,0.15); }
   </style>
 </head>
 <body>
@@ -21,69 +42,232 @@
 <div id="main">
   <div id="topbar">
     <div style="display:flex;align-items:center;gap:12px">
-      <button class="btn btn-ghost btn-sm" onclick="history.back()">← Back</button>
+      <button class="btn btn-ghost btn-sm" onclick="navigate('tenants')">← Tenants</button>
       <div class="topbar-title" id="page-title">Tenant</div>
+    </div>
+    <div class="topbar-actions">
+      <button class="btn btn-outline btn-sm" onclick="Modal.open('edit-modal')">Edit</button>
+      <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="deleteTenant()">Delete</button>
     </div>
   </div>
   <div id="page-content" class="fade-in">
     <div id="root"><div style="text-align:center;padding:60px"><div class="spinner"></div></div></div>
   </div>
 </div>
+
+<!-- Edit modal -->
+<div class="modal-overlay" id="edit-modal" onclick="Modal.closeOnOverlay('edit-modal')">
+  <div class="modal" style="max-width:500px">
+    <div class="modal-header">
+      <h3 class="modal-title">Edit Tenant</h3>
+      <button class="btn btn-ghost" onclick="Modal.close('edit-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Name *</label>
+        <input type="text" id="em-name" class="form-control">
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group">
+          <label class="form-label">Industry</label>
+          <select id="em-industry" class="form-control">
+            <option value="">— None —</option>
+            <option>Food &amp; Beverage</option><option>Financial</option>
+            <option>Retail</option><option>Medical</option><option>Office</option>
+            <option>Industrial</option><option>Service</option><option>Other</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Website</label>
+          <input type="text" id="em-website" class="form-control" placeholder="https://…">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">HQ Address</label>
+        <input type="text" id="em-address" class="form-control">
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 80px 80px;gap:10px">
+        <div class="form-group">
+          <label class="form-label">City</label>
+          <input type="text" id="em-city" class="form-control">
+        </div>
+        <div class="form-group">
+          <label class="form-label">State</label>
+          <input type="text" id="em-state" class="form-control">
+        </div>
+        <div class="form-group">
+          <label class="form-label">ZIP</label>
+          <input type="text" id="em-zip" class="form-control">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Notes</label>
+        <textarea id="em-notes" class="form-control" rows="3"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="Modal.close('edit-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveEdit()">Save</button>
+    </div>
+  </div>
+</div>
+
 <script src="/js/app.js?v=2"></script>
 <script>
   if (!Auth.requireAuth()) throw new Error('Not authenticated');
-  renderSidebar('properties');
+  renderSidebar('tenants');
 
-  const NAME = new URLSearchParams(window.location.search).get('name') || '';
-  document.getElementById('page-title').textContent = NAME || 'Tenant';
-  document.title = (NAME || 'Tenant') + ' — UpFront Broker';
+  const ID = +new URLSearchParams(window.location.search).get('id');
+  let REC = {};
+
+  const IND_COLORS = {
+    'Food & Beverage':'#7a3d2a','Financial':'#2a4a7a','Retail':'#7a4a2a',
+    'Medical':'#2a7a4a','Office':'#2a2a7a','Industrial':'#4a4a4a',
+    'Service':'#4a2a7a','Other':'#5a5a5a',
+  };
+
+  function indBadge(ind) {
+    if (!ind) return '';
+    const c = IND_COLORS[ind] || '#5a5a5a';
+    return `<span style="padding:3px 10px;border-radius:20px;font-size:11.5px;font-weight:600;background:rgba(255,255,255,0.15);color:rgba(255,255,255,0.9)">${ind}</span>`;
+  }
 
   async function load() {
     try {
-      const tenants = await API.get(`/tenants/?tenant_name=${encodeURIComponent(NAME)}`);
-      if (!tenants.length) {
-        document.getElementById('root').innerHTML =
-          `<div style="padding:40px;text-align:center;color:var(--stone);font-size:13px">No records found for "${NAME}".</div>`;
+      REC = await API.get(`/tenants/${ID}`);
+      document.getElementById('page-title').textContent = REC.name;
+      document.title = REC.name + ' — UpFront Broker';
+      render();
+      loadNews();
+    } catch(e) { Toast.error('Failed to load: ' + e.message); }
+  }
+
+  function switchTab(name) {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.id === 'tab-' + name));
+  }
+
+  function render() {
+    const t = REC;
+    const hq = [t.hq_address, t.hq_city, t.hq_state, t.hq_zip].filter(Boolean).join(', ');
+
+    document.getElementById('root').innerHTML = `
+      <div class="header-card">
+        <div class="header-main">
+          <div class="h-name">${t.name}</div>
+          <div class="h-meta">
+            ${indBadge(t.industry)}
+            ${t.website ? `<a href="${t.website}" target="_blank" style="color:rgba(255,255,255,0.75);text-decoration:none">↗ ${t.website.replace(/^https?:\/\//, '')}</a>` : ''}
+            ${hq ? `<span>📍 ${hq}</span>` : ''}
+            <span>${t.property_count||0} propert${(t.property_count||0)!==1?'ies':'y'}</span>
+            ${t.total_sf ? `<span>${Number(t.total_sf).toLocaleString()} SF total</span>` : ''}
+          </div>
+        </div>
+      </div>
+
+      <div class="tab-nav">
+        <button class="tab-btn active" data-tab="properties" onclick="switchTab('properties')">Properties</button>
+        <button class="tab-btn" data-tab="contacts"   onclick="switchTab('contacts')">Contacts</button>
+        <button class="tab-btn" data-tab="news"       onclick="switchTab('news')">News</button>
+      </div>
+
+      <!-- PROPERTIES TAB -->
+      <div id="tab-properties" class="tab-pane active">
+        ${t.spaces && t.spaces.length ? `
+          <div class="card"><table class="t-table">
+            <thead><tr>
+              <th>Property</th><th>SF</th><th>Rent/SF</th>
+              <th>Lease Type</th><th>Expiry</th><th>Status</th>
+            </tr></thead>
+            <tbody>${t.spaces.map(s => `<tr>
+              <td>
+                <a href="/pages/property.html?id=${s.property_id}" style="font-weight:600;color:var(--navy);text-decoration:none">${s.property_name||'—'}</a>
+                <div style="font-size:11.5px;color:var(--stone)">${[s.property_address,s.property_city,s.property_state].filter(Boolean).join(', ')}</div>
+              </td>
+              <td style="font-family:var(--font-mono)">${s.sf?Number(s.sf).toLocaleString()+' SF':'—'}</td>
+              <td style="font-family:var(--font-mono)">${s.rent_per_sf?'$'+s.rent_per_sf+'/SF':'—'}</td>
+              <td>${s.lease_type||'—'}</td>
+              <td>${s.lease_expiry?Fmt.date(s.lease_expiry):'—'}</td>
+              <td>${s.is_available?'<span class="avail">Available</span>':'<span class="leased">Leased</span>'}</td>
+            </tr>`).join('')}</tbody>
+          </table></div>` :
+          '<div style="padding:40px;text-align:center;color:var(--stone);font-size:13px">No spaces found. Add this tenant to a property.</div>'}
+      </div>
+
+      <!-- CONTACTS TAB -->
+      <div id="tab-contacts" class="tab-pane">
+        <div style="padding:40px;text-align:center;color:var(--stone);font-size:13px">
+          Contact linking coming soon. Link contacts via the property's deal records.
+        </div>
+      </div>
+
+      <!-- NEWS TAB -->
+      <div id="tab-news" class="tab-pane">
+        <div id="news-body"><div style="text-align:center;padding:40px"><div class="spinner"></div></div></div>
+      </div>`;
+
+    // Pre-fill edit modal
+    document.getElementById('em-name').value    = t.name || '';
+    document.getElementById('em-industry').value = t.industry || '';
+    document.getElementById('em-website').value  = t.website  || '';
+    document.getElementById('em-address').value  = t.hq_address || '';
+    document.getElementById('em-city').value     = t.hq_city    || '';
+    document.getElementById('em-state').value    = t.hq_state   || '';
+    document.getElementById('em-zip').value      = t.hq_zip     || '';
+    document.getElementById('em-notes').value    = t.notes      || '';
+  }
+
+  async function loadNews() {
+    try {
+      const items = await API.get(`/tenants/${ID}/news`);
+      const el = document.getElementById('news-body');
+      if (!items.length) {
+        el.innerHTML = '<div style="padding:40px;text-align:center;color:var(--stone);font-size:13px">No recent news found.</div>';
         return;
       }
-
-      // Fetch property names for each unique property_id
-      const propIds = [...new Set(tenants.map(t => t.property_id))];
-      const propMap = {};
-      await Promise.all(propIds.map(async id => {
-        try {
-          const d = await API.get(`/properties/${id}/full`);
-          propMap[id] = d.property;
-        } catch(_) {}
-      }));
-
-      const rows = tenants.map(t => {
-        const prop = propMap[t.property_id];
-        const propLabel = prop ? (prop.name || prop.address || `Property #${t.property_id}`) : `Property #${t.property_id}`;
-        return `<div class="t-row">
-          <div style="flex:1">
-            <a href="/pages/property.html?id=${t.property_id}" style="font-weight:600;color:var(--navy);text-decoration:none">${propLabel}</a>
-            ${prop ? `<div style="font-size:11.5px;color:var(--stone)">${[prop.address,prop.city,prop.state].filter(Boolean).join(', ')}</div>` : ''}
-            ${t.notes ? `<div style="font-size:11.5px;color:var(--stone);margin-top:2px">${t.notes}</div>` : ''}
-          </div>
-          <div style="text-align:right;font-size:12px;color:var(--stone)">
-            ${t.sf ? Number(t.sf).toLocaleString() + ' SF' : ''}
-            ${t.lease_expiry ? `<div>Expires ${Fmt.date(t.lease_expiry)}</div>` : ''}
-          </div>
-          ${t.is_available ? '<span class="avail">Available</span>' : '<span class="leased">Leased</span>'}
-        </div>`;
-      }).join('');
-
-      document.getElementById('root').innerHTML = `
-        <div style="margin-bottom:20px">
-          <h1 style="font-family:var(--font-serif);font-size:26px;color:var(--navy);margin-bottom:4px">${NAME}</h1>
-          <div style="font-size:13px;color:var(--stone)">${tenants.length} space${tenants.length!==1?'s':''} across ${propIds.length} propert${propIds.length!==1?'ies':'y'}</div>
-        </div>
-        <div class="dc"><div class="dc-title">Properties</div><div class="dc-body">${rows}</div></div>`;
-    } catch(e) {
-      document.getElementById('root').innerHTML =
-        `<div style="padding:40px;text-align:center;color:var(--red);font-size:13px">Failed to load: ${e.message}</div>`;
+      el.innerHTML = `<div class="card"><div class="card-body">
+        ${items.map(item => `<div class="news-item">
+          <a href="${item.url}" target="_blank" class="news-headline">${item.headline}</a>
+          <div class="news-meta">${[item.source, item.date ? new Date(item.date).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : null].filter(Boolean).join(' · ')}</div>
+        </div>`).join('')}
+      </div></div>`;
+    } catch(_) {
+      document.getElementById('news-body').innerHTML =
+        '<div style="padding:40px;text-align:center;color:var(--stone);font-size:13px">Could not load news.</div>';
     }
+  }
+
+  async function saveEdit() {
+    const name = document.getElementById('em-name').value.trim();
+    if (!name) { Toast.error('Name required'); return; }
+    try {
+      const updated = await API.put(`/tenants/${ID}`, {
+        name,
+        industry:   document.getElementById('em-industry').value || null,
+        website:    document.getElementById('em-website').value.trim()  || null,
+        hq_address: document.getElementById('em-address').value.trim()  || null,
+        hq_city:    document.getElementById('em-city').value.trim()     || null,
+        hq_state:   document.getElementById('em-state').value.trim()    || null,
+        hq_zip:     document.getElementById('em-zip').value.trim()      || null,
+        notes:      document.getElementById('em-notes').value.trim()    || null,
+      });
+      Object.assign(REC, updated);
+      Modal.close('edit-modal');
+      document.getElementById('page-title').textContent = REC.name;
+      document.title = REC.name + ' — UpFront Broker';
+      render();
+      loadNews();
+      Toast.success('Saved');
+    } catch(e) { Toast.error(e.message); }
+  }
+
+  async function deleteTenant() {
+    if (!confirm(`Delete "${REC.name}" and all its space records? This cannot be undone.`)) return;
+    try {
+      await API.delete(`/tenants/${ID}`);
+      Toast.success('Deleted');
+      navigate('tenants');
+    } catch(e) { Toast.error(e.message); }
   }
 
   load();

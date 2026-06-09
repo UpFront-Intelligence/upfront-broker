@@ -209,6 +209,9 @@ function renderSidebar(activePage) {
         <div class="nav-item ${activePage==='accounts'?'active':''}" data-page="accounts" onclick="navigate('accounts')">
           <span class="nav-icon">◻</span> Accounts
         </div>
+        <div class="nav-item ${activePage==='tenants'?'active':''}" data-page="tenants" onclick="navigate('tenants')">
+          <span class="nav-icon">⬡</span> Tenants
+        </div>
         <div class="nav-item ${activePage==='deals'?'active':''}" data-page="deals" onclick="navigate('deals')">
           <span class="nav-icon">◆</span> Deals
         </div>
