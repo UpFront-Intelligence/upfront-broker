@@ -359,7 +359,7 @@
   async function loadAssessor(parcelId) {
     if (!parcelId) return;
     try {
-      const data = await API.get(`/finder/parcel/${encodeURIComponent(parcelId)}`);
+      const data = await API.get(`/finder/parcel/${encodeURIComponent(parcelId)}?property_id=${ID}`);
       function arow(label, val) {
         if (val == null || val === '') return '';
         return `<div class="fr"><span class="fl">${label}</span><span class="fv" data-raw="${String(val).replace(/"/g,'&quot;')}">${val}</span></div>`;

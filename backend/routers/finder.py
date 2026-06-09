@@ -462,27 +462,68 @@ def get_parcels(
 
 
 @router.get("/parcel/{keypin}")
-def get_parcel_by_keypin(keypin: str, db: Session = Depends(get_db),
-                         current_user: User = Depends(get_current_user)):
+def get_parcel_by_keypin(
+    keypin:       str,
+    property_id:  Optional[int] = Query(None),
+    db:           Session       = Depends(get_db),
+    current_user: User          = Depends(get_current_user),
+):
+    """3-step parcel lookup: exact keypin → stripped keypin → address fallback."""
+    def _serialize(row) -> dict:
+        return {
+            "name1":             row.name1,
+            "name2":             row.name2,
+            "cvttaxdescription": row.cvttaxdescription,
+            "classcode":         row.classcode,
+            "assessedvalue":     row.assessedvalue,
+            "taxablevalue":      row.taxablevalue,
+            "living_area_sqft":  row.living_area_sqft,
+            "shapearea":         row.shapearea,
+        }
+
+    COLS = ("SELECT name1, name2, cvttaxdescription, classcode,"
+            " assessedvalue, taxablevalue, living_area_sqft, shapearea"
+            " FROM parcels")
     try:
-        row = db.execute(
-            text("SELECT name1, name2, cvttaxdescription, classcode, assessedvalue, taxablevalue, living_area_sqft, shapearea FROM parcels WHERE keypin = :k"),
-            {"k": keypin}
-        ).fetchone()
+        # Step 1 — exact keypin match
+        row = db.execute(text(f"{COLS} WHERE keypin = :k"), {"k": keypin}).fetchone()
+        if row:
+            return _serialize(row)
+
+        # Step 2 — strip dashes and spaces from both sides
+        stripped = keypin.replace("-", "").replace(" ", "")
+        if stripped != keypin:
+            row = db.execute(
+                text(f"{COLS} WHERE REPLACE(REPLACE(keypin,'-',''),' ','') = :k"),
+                {"k": stripped},
+            ).fetchone()
+            if row:
+                return _serialize(row)
+
+        # Step 3 — address fallback via property record
+        if property_id:
+            prop = db.query(Property).filter(
+                Property.id       == property_id,
+                Property.owner_id == current_user.id,
+            ).first()
+            if prop and prop.address:
+                if prop.zip:
+                    row = db.execute(
+                        text(f"{COLS} WHERE siteaddress ILIKE :addr AND sitezip5 = :zip LIMIT 1"),
+                        {"addr": prop.address + "%", "zip": prop.zip},
+                    ).fetchone()
+                else:
+                    row = db.execute(
+                        text(f"{COLS} WHERE siteaddress ILIKE :addr LIMIT 1"),
+                        {"addr": prop.address + "%"},
+                    ).fetchone()
+                if row:
+                    return _serialize(row)
+
     except Exception:
-        return {}
-    if not row:
-        raise HTTPException(status_code=404, detail="Parcel not found")
-    return {
-        "name1": row.name1,
-        "name2": row.name2,
-        "cvttaxdescription": row.cvttaxdescription,
-        "classcode": row.classcode,
-        "assessedvalue": row.assessedvalue,
-        "taxablevalue": row.taxablevalue,
-        "living_area_sqft": row.living_area_sqft,
-        "shapearea": row.shapearea
-    }
+        return {}   # parcels table not available yet
+
+    raise HTTPException(status_code=404, detail="Parcel not found")
 
 
 @router.post("/add")
