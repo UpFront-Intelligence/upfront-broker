@@ -24,6 +24,9 @@ class Contact(Base):
     source       = Column(String)  # Referral, CRE Platform, Cold Call, etc.
     tags         = Column(ARRAY(String), default=[])
 
+    # Tenant link (optional — tags contact to a tenant entity)
+    tenant_id   = Column(Integer, ForeignKey("tenants.id", ondelete="SET NULL"), nullable=True)
+
     # Notes
     notes       = Column(Text)
 

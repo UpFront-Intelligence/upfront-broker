@@ -363,6 +363,7 @@
           <div>
             <div class="c-name">${c.first_name} ${c.last_name}</div>
             ${c.title?`<div class="c-sub">${c.title}</div>`:''}
+            ${c.tenant_name?`<div class="c-sub" style="color:var(--gold)">⬡ ${c.tenant_name}</div>`:''}
           </div>
         </div></td>
         <td>${c.contact_type?`<span class="badge ${TYPE_CLASS[c.contact_type]||'badge-stone'}">${c.contact_type}</span>`:'—'}</td>
@@ -454,6 +455,7 @@
           ${pf('Type',   c.contact_type)}
           ${pf('Source', c.source)}
           ${tagsHtml ? `<div class="pf full"><div class="pf-label">Tags</div><div class="pf-value" style="padding-top:2px">${tagsHtml}</div></div>` : ''}
+          ${c.tenant_id ? `<div class="pf full"><div class="pf-label">Tenant</div><div class="pf-value"><a href="/pages/tenant.html?id=${c.tenant_id}" style="color:var(--navy);font-weight:500;text-decoration:none">⬡ ${c.tenant_name||'Tenant'}</a></div></div>` : ''}
         </div>
       </div>
       ${c.notes ? `

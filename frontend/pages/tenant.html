@@ -112,13 +112,73 @@
   </div>
 </div>
 
+<!-- Link Contact modal -->
+<div class="modal-overlay" id="link-contact-modal" onclick="Modal.closeOnOverlay('link-contact-modal')">
+  <div class="modal" style="max-width:500px">
+    <div class="modal-header">
+      <h3 class="modal-title">Link Contact</h3>
+      <button class="btn btn-ghost" onclick="Modal.close('link-contact-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Search contacts</label>
+        <input type="text" id="lc-search" class="form-control" placeholder="Name or email…" oninput="debounceSearch()">
+      </div>
+      <div id="lc-results" style="max-height:300px;overflow-y:auto;margin-top:8px"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="Modal.close('link-contact-modal')">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- New Contact modal -->
+<div class="modal-overlay" id="new-contact-modal" onclick="Modal.closeOnOverlay('new-contact-modal')">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-header">
+      <h3 class="modal-title">New Contact</h3>
+      <button class="btn btn-ghost" onclick="Modal.close('new-contact-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div class="form-group">
+          <label class="form-label">First Name *</label>
+          <input type="text" id="nc-first" class="form-control">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Last Name *</label>
+          <input type="text" id="nc-last" class="form-control">
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div class="form-group">
+          <label class="form-label">Title</label>
+          <input type="text" id="nc-title" class="form-control">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Email</label>
+          <input type="email" id="nc-email" class="form-control">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Phone</label>
+        <input type="tel" id="nc-phone" class="form-control">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="Modal.close('new-contact-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="createLinkedContact()">Create &amp; Link</button>
+    </div>
+  </div>
+</div>
+
 <script src="/js/app.js?v=2"></script>
 <script>
   if (!Auth.requireAuth()) throw new Error('Not authenticated');
   renderSidebar('tenants');
 
   const ID = +new URLSearchParams(window.location.search).get('id');
-  let REC = {};
+  let REC = {}, _contactsLoaded = false, _lcTimer = null;
 
   const IND_COLORS = {
     'Food & Beverage':'#7a3d2a','Financial':'#2a4a7a','Retail':'#7a4a2a',
@@ -145,6 +205,7 @@
   function switchTab(name) {
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
     document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.id === 'tab-' + name));
+    if (name === 'contacts' && !_contactsLoaded) { _contactsLoaded = true; loadContacts(); }
   }
 
   function render() {
@@ -196,9 +257,11 @@
 
       <!-- CONTACTS TAB -->
       <div id="tab-contacts" class="tab-pane">
-        <div style="padding:40px;text-align:center;color:var(--stone);font-size:13px">
-          Contact linking coming soon. Link contacts via the property's deal records.
+        <div style="display:flex;gap:10px;margin-bottom:16px">
+          <button class="btn btn-outline btn-sm" onclick="Modal.open('link-contact-modal')">Link Contact</button>
+          <button class="btn btn-primary btn-sm" onclick="Modal.open('new-contact-modal')">+ New Contact</button>
         </div>
+        <div id="contacts-body"></div>
       </div>
 
       <!-- NEWS TAB -->
@@ -267,6 +330,112 @@
       await API.delete(`/tenants/${ID}`);
       Toast.success('Deleted');
       navigate('tenants');
+    } catch(e) { Toast.error(e.message); }
+  }
+
+  // ── Contacts tab ──────────────────────────────────────────────────────────
+  async function loadContacts() {
+    const el = document.getElementById('contacts-body');
+    if (!el) return;
+    el.innerHTML = '<div style="text-align:center;padding:40px"><div class="spinner"></div></div>';
+    try {
+      const contacts = await API.get(`/tenants/${ID}/contacts`);
+      renderContactsTab(contacts);
+    } catch(e) {
+      el.innerHTML = `<div style="padding:40px;text-align:center;color:var(--red);font-size:13px">${e.message}</div>`;
+    }
+  }
+
+  function renderContactsTab(contacts) {
+    const el = document.getElementById('contacts-body');
+    if (!el) return;
+    if (!contacts.length) {
+      el.innerHTML = '<div style="padding:40px;text-align:center;color:var(--stone);font-size:13px">No contacts linked. Use "Link Contact" to tag existing contacts, or "+ New Contact" to create one.</div>';
+      return;
+    }
+    el.innerHTML = `<div class="card"><table class="t-table">
+      <thead><tr>
+        <th>Name</th><th>Title</th><th>Phone / Email</th><th>Account</th><th></th>
+      </tr></thead>
+      <tbody>${contacts.map(c => `<tr>
+        <td><a href="/pages/contact.html?id=${c.id}" style="font-weight:600;color:var(--navy);text-decoration:none">${c.first_name} ${c.last_name}</a></td>
+        <td style="color:var(--stone);font-size:12.5px">${c.title||'—'}</td>
+        <td style="font-size:12.5px">${c.email?`<a href="mailto:${c.email}" style="color:var(--navy)">${c.email}</a>`:c.phone||'—'}</td>
+        <td style="font-size:12.5px">${c.account_name?`<a href="/pages/account.html?id=${c.account_id}" style="color:var(--navy)">${c.account_name}</a>`:'—'}</td>
+        <td><button class="btn btn-ghost btn-sm" style="color:var(--stone);font-size:11px" onclick="unlinkContact(${c.id})">Unlink</button></td>
+      </tr>`).join('')}</tbody>
+    </table></div>`;
+  }
+
+  async function unlinkContact(cid) {
+    try {
+      await API.put(`/contacts/${cid}`, { tenant_id: null });
+      await loadContacts();
+      Toast.success('Contact unlinked');
+    } catch(e) { Toast.error(e.message); }
+  }
+
+  function debounceSearch() {
+    clearTimeout(_lcTimer);
+    _lcTimer = setTimeout(doSearchContacts, 280);
+  }
+
+  async function doSearchContacts() {
+    const q = document.getElementById('lc-search').value.trim();
+    const el = document.getElementById('lc-results');
+    if (!q) { el.innerHTML = ''; return; }
+    try {
+      const data = await API.get(`/contacts/?search=${encodeURIComponent(q)}&per_page=10`);
+      const items = Array.isArray(data) ? data : (data.items || []);
+      if (!items.length) {
+        el.innerHTML = '<div style="padding:12px;font-size:12.5px;color:var(--stone)">No contacts found</div>';
+        return;
+      }
+      el.innerHTML = items.map(c => `
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--cream-dark)">
+          <div>
+            <div style="font-size:13px;font-weight:500">${c.first_name} ${c.last_name}</div>
+            <div style="font-size:11.5px;color:var(--stone)">${[c.title, c.email].filter(Boolean).join(' · ')||'—'}</div>
+          </div>
+          <button class="btn btn-outline btn-sm" onclick="linkContact(${c.id})">Link</button>
+        </div>`).join('');
+    } catch(_) {}
+  }
+
+  async function linkContact(cid) {
+    try {
+      await API.put(`/contacts/${cid}`, { tenant_id: ID });
+      Modal.close('link-contact-modal');
+      document.getElementById('lc-search').value = '';
+      document.getElementById('lc-results').innerHTML = '';
+      _contactsLoaded = false;
+      await loadContacts();
+      _contactsLoaded = true;
+      Toast.success('Contact linked');
+    } catch(e) { Toast.error(e.message); }
+  }
+
+  async function createLinkedContact() {
+    const first = document.getElementById('nc-first').value.trim();
+    const last  = document.getElementById('nc-last').value.trim();
+    if (!first || !last) { Toast.error('First and last name required'); return; }
+    try {
+      await API.post('/contacts/', {
+        first_name:  first,
+        last_name:   last,
+        title:  document.getElementById('nc-title').value.trim()  || null,
+        email:  document.getElementById('nc-email').value.trim()  || null,
+        phone:  document.getElementById('nc-phone').value.trim()  || null,
+        tenant_id: ID,
+      });
+      Modal.close('new-contact-modal');
+      ['nc-first','nc-last','nc-title','nc-email','nc-phone'].forEach(id => {
+        document.getElementById(id).value = '';
+      });
+      _contactsLoaded = false;
+      await loadContacts();
+      _contactsLoaded = true;
+      Toast.success('Contact created and linked');
     } catch(e) { Toast.error(e.message); }
   }
 

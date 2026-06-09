@@ -18,6 +18,9 @@ from sqlalchemy.orm import Session
 
 from auth_utils import get_current_user
 from database import get_db
+from models.account import Account
+from models.contact import Contact
+from models.contact_account import ContactAccount
 from models.property import Property
 from models.property_tenant import PropertyTenant
 from models.tenant import Tenant
@@ -393,6 +396,96 @@ def delete_tenant(
     db.delete(t)
     db.commit()
     return {"ok": True}
+
+
+def _contacts_with_accounts(contacts: list, db: Session, owner_id: int) -> list:
+    """Serialize contact list with primary account name — one batch query."""
+    if not contacts:
+        return []
+    cids = [c.id for c in contacts]
+    rows = (
+        db.query(
+            ContactAccount.contact_id,
+            Account.id.label('acct_id'),
+            Account.name.label('acct_name'),
+            ContactAccount.is_primary,
+        )
+        .join(Account, ContactAccount.account_id == Account.id)
+        .filter(ContactAccount.contact_id.in_(cids), Account.owner_id == owner_id)
+        .order_by(ContactAccount.is_primary.desc())
+        .all()
+    )
+    acct_map: dict = {}
+    for r in rows:
+        if r.contact_id not in acct_map:
+            acct_map[r.contact_id] = (r.acct_id, r.acct_name)
+    result = []
+    for c in contacts:
+        acct = acct_map.get(c.id)
+        result.append({
+            "id":           c.id,
+            "first_name":   c.first_name,
+            "last_name":    c.last_name,
+            "title":        c.title,
+            "email":        c.email,
+            "phone":        c.phone or c.mobile,
+            "tenant_id":    c.tenant_id,
+            "account_id":   acct[0] if acct else None,
+            "account_name": acct[1] if acct else None,
+        })
+    return result
+
+
+@router.get("/{tenant_id}/contacts")
+def get_tenant_contacts(
+    tenant_id:    int,
+    db:           Session = Depends(get_db),
+    current_user: User    = Depends(get_current_user),
+):
+    """Combined contacts: direct tenant_id FK + fuzzy account-name match."""
+    t = db.query(Tenant).filter(
+        Tenant.id == tenant_id, Tenant.owner_id == current_user.id
+    ).first()
+    if not t:
+        raise HTTPException(404, "Tenant not found")
+
+    seen: set = set()
+    contacts: list = []
+
+    # 1. Direct FK: contacts where contact.tenant_id = this tenant
+    direct = (
+        db.query(Contact)
+        .filter(Contact.tenant_id == tenant_id, Contact.owner_id == current_user.id)
+        .all()
+    )
+    for c in direct:
+        if c.id not in seen:
+            seen.add(c.id)
+            contacts.append(c)
+
+    # 2. Contacts linked via accounts whose name fuzzy-matches this tenant
+    norm = t.normalized_name or _normalize(t.name)
+    all_accts = db.query(Account).filter(Account.owner_id == current_user.id).all()
+    matched_ids = [
+        a.id for a in all_accts
+        if fuzz.partial_ratio(_normalize(a.name), norm) >= 55
+    ]
+    if matched_ids:
+        fuzzy_contacts = (
+            db.query(Contact)
+            .join(ContactAccount, ContactAccount.contact_id == Contact.id)
+            .filter(
+                ContactAccount.account_id.in_(matched_ids),
+                Contact.owner_id == current_user.id,
+            )
+            .all()
+        )
+        for c in fuzzy_contacts:
+            if c.id not in seen:
+                seen.add(c.id)
+                contacts.append(c)
+
+    return _contacts_with_accounts(contacts, db, current_user.id)
 
 
 @router.get("/{tenant_id}/news")

@@ -24,6 +24,7 @@ class ContactCreate(BaseModel):
     source: Optional[str] = None
     tags: Optional[List[str]] = []
     notes: Optional[str] = None
+    tenant_id: Optional[int] = None
 
 class ContactUpdate(ContactCreate):
     first_name: Optional[str] = None
@@ -52,9 +53,35 @@ class ContactResponse(BaseModel):
     source: Optional[str]
     tags: Optional[List[str]]
     notes: Optional[str]
+    tenant_id: Optional[int] = None
+    tenant_name: Optional[str] = None
 
     class Config:
         from_attributes = True
+
+
+def _load_tenant_names(contacts, db) -> dict:
+    """Batch-load tenant names for a list of Contact ORM objects."""
+    ids = {c.tenant_id for c in contacts if c.tenant_id}
+    if not ids:
+        return {}
+    from models.tenant import Tenant
+    rows = db.query(Tenant.id, Tenant.name).filter(Tenant.id.in_(ids)).all()
+    return {r.id: r.name for r in rows}
+
+
+def _serialize_contact(c: Contact, tenant_names: dict = None) -> dict:
+    return {
+        "id": c.id, "first_name": c.first_name, "last_name": c.last_name,
+        "email": c.email, "phone": c.phone, "mobile": c.mobile,
+        "title": c.title, "photo_url": c.photo_url, "linkedin": c.linkedin,
+        "contact_type": c.contact_type, "source": c.source,
+        "tags": c.tags or [], "notes": c.notes,
+        "tenant_id": c.tenant_id,
+        "tenant_name": (tenant_names or {}).get(c.tenant_id) if c.tenant_id else None,
+        "created_at": c.created_at.isoformat() if c.created_at else None,
+        "updated_at": c.updated_at.isoformat() if c.updated_at else None,
+    }
 
 @router.get("/")
 def list_contacts(
@@ -102,10 +129,14 @@ def list_contacts(
     q = q.order_by(col.desc() if sort_dir == "desc" else col.asc())
 
     if page is None:
-        return q.all()
+        all_c = q.all()
+        tnames = _load_tenant_names(all_c, db)
+        return [_serialize_contact(c, tnames) for c in all_c]
     total = q.count()
     items = q.offset((page - 1) * per_page).limit(per_page).all()
-    return {"items": items, "total": total, "page": page,
+    tnames = _load_tenant_names(items, db)
+    return {"items": [_serialize_contact(c, tnames) for c in items],
+            "total": total, "page": page,
             "per_page": per_page, "total_pages": max(1, (total + per_page - 1) // per_page)}
 
 @router.post("/", response_model=ContactResponse)
@@ -235,6 +266,11 @@ def get_contact_full(
                                      Document.owner_id == current_user.id).all()
 
     c_dict = ContactResponse.model_validate(c).model_dump()
+    if c.tenant_id:
+        from models.tenant import Tenant
+        t_row = db.query(Tenant.id, Tenant.name).filter(Tenant.id == c.tenant_id).first()
+        if t_row:
+            c_dict['tenant_name'] = t_row.name
     return {
         "contact":    c_dict,
         "accounts":   accounts,

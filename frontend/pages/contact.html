@@ -87,7 +87,10 @@
           <div class="header-name">${name || '—'}</div>
           <div class="header-sub">${[c.title, c.contact_type].filter(Boolean).join(' · ') || ''}</div>
         </div>
-        ${c.contact_type ? `<span class="badge ${TYPE_CLASS[c.contact_type]||'badge-stone'}" style="margin-left:auto">${c.contact_type}</span>` : ''}
+        <div style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
+          ${c.contact_type ? `<span class="badge ${TYPE_CLASS[c.contact_type]||'badge-stone'}">${c.contact_type}</span>` : ''}
+          ${c.tenant_id ? `<a href="/pages/tenant.html?id=${c.tenant_id}" style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:11.5px;font-weight:600;background:rgba(201,148,58,0.15);color:var(--gold);text-decoration:none;border:1px solid rgba(201,148,58,0.3)">⬡ ${c.tenant_name||'Tenant'}</a>` : ''}
+        </div>
       </div>
 
       <div class="detail-grid">
@@ -108,6 +111,9 @@
             <div class="fr"><span class="fl">Tags</span>
               <span style="font-size:13px">${(c.tags||[]).map(t=>`<span class="badge badge-stone">${t}</span>`).join(' ') || '<span style="color:var(--stone-light)">—</span>'}</span>
             </div>
+            ${c.tenant_id ? `<div class="fr"><span class="fl">Tenant</span>
+              <a href="/pages/tenant.html?id=${c.tenant_id}" class="chip" style="text-decoration:none;font-size:12px">⬡ ${c.tenant_name||'Tenant'}</a>
+            </div>` : ''}
           </div></div>
 
           <div class="dc"><div class="dc-title">Notes</div><div class="dc-body">
