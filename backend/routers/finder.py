@@ -462,34 +462,25 @@ def get_parcels(
 
 
 @router.get("/parcel/{keypin}")
-def get_parcel_data(
-    keypin:       str,
-    db:           Session = Depends(get_db),
-    current_user: User    = Depends(get_current_user),
-):
-    """Return raw assessor fields for a single parcel by keypin."""
+def get_parcel_by_keypin(keypin: str, db: Session = Depends(get_db)):
     try:
         row = db.execute(
-            text("SELECT keypin, name1, name2, cvttaxdescription, classcode,"
-                 " assessedvalue, taxablevalue, living_area_sqft, shapearea"
-                 " FROM parcels WHERE keypin = :k"),
-            {"k": keypin},
+            text("SELECT name1, name2, cvttaxdescription, classcode, assessedvalue, taxablevalue, living_area_sqft, shapearea FROM parcels WHERE keypin = :k"),
+            {"k": keypin}
         ).fetchone()
     except Exception:
-        return {}   # parcels table doesn't exist yet
+        return {}
     if not row:
-        raise HTTPException(404, "Parcel not found")
-    d = dict(row._mapping)
+        raise HTTPException(status_code=404, detail="Parcel not found")
     return {
-        "keypin":            d.get("keypin"),
-        "name1":             (d.get("name1") or "").strip() or None,
-        "name2":             (d.get("name2") or "").strip() or None,
-        "cvttaxdescription": d.get("cvttaxdescription") or None,
-        "classcode":         d.get("classcode") or None,
-        "assessedvalue":     d.get("assessedvalue"),
-        "taxablevalue":      d.get("taxablevalue"),
-        "living_area_sqft":  d.get("living_area_sqft"),
-        "shapearea":         d.get("shapearea"),
+        "name1": row.name1,
+        "name2": row.name2,
+        "cvttaxdescription": row.cvttaxdescription,
+        "classcode": row.classcode,
+        "assessedvalue": row.assessedvalue,
+        "taxablevalue": row.taxablevalue,
+        "living_area_sqft": row.living_area_sqft,
+        "shapearea": row.shapearea
     }
 
 
