@@ -476,7 +476,7 @@ def get_parcel_data(
             {"k": keypin},
         ).fetchone()
     except Exception:
-        raise HTTPException(404, "Parcels table not available")
+        return {}   # parcels table doesn't exist yet
     if not row:
         raise HTTPException(404, "Parcel not found")
     d = dict(row._mapping)
