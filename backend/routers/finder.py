@@ -462,7 +462,8 @@ def get_parcels(
 
 
 @router.get("/parcel/{keypin}")
-def get_parcel_by_keypin(keypin: str, db: Session = Depends(get_db)):
+def get_parcel_by_keypin(keypin: str, db: Session = Depends(get_db),
+                         current_user: User = Depends(get_current_user)):
     try:
         row = db.execute(
             text("SELECT name1, name2, cvttaxdescription, classcode, assessedvalue, taxablevalue, living_area_sqft, shapearea FROM parcels WHERE keypin = :k"),
