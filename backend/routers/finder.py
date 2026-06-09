@@ -490,15 +490,15 @@ def get_parcel_by_keypin(
         if row:
             return _serialize(row)
 
-        # Step 2 — strip dashes and spaces from both sides
+        # Step 2 — normalise both sides (remove dashes/spaces) and retry
+        # Always runs: handles DB-has-dashes/input-doesn't and vice-versa
         stripped = keypin.replace("-", "").replace(" ", "")
-        if stripped != keypin:
-            row = db.execute(
-                text(f"{COLS} WHERE REPLACE(REPLACE(keypin,'-',''),' ','') = :k"),
-                {"k": stripped},
-            ).fetchone()
-            if row:
-                return _serialize(row)
+        row = db.execute(
+            text(f"{COLS} WHERE REPLACE(REPLACE(keypin,'-',''),' ','') = :k"),
+            {"k": stripped},
+        ).fetchone()
+        if row:
+            return _serialize(row)
 
         # Step 3 — address fallback via property record
         if property_id:
