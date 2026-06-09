@@ -66,23 +66,19 @@ def _get(url: str) -> dict:
 
 
 def _classcode_to_type(code) -> Optional[str]:
-    """
-    Oakland County CLASSCODE field — first digit indicates class.
-    Codes starting with 1xx = residential → skip.
-    """
+    """Oakland County CLASSCODE — first digit indicates class."""
     if not code:
         return None
-    s = str(code).strip()
     try:
-        c = int(s)
+        c = int(str(code).strip())
     except (TypeError, ValueError):
         return None
-    if 100 <= c <= 199: return None          # residential — skip
-    if 200 <= c <= 299: return "Retail"      # commercial
+    if 100 <= c <= 199: return "Residential"
+    if 200 <= c <= 299: return "Commercial"
     if 300 <= c <= 399: return "Industrial"
-    if 400 <= c <= 699: return "Land"
-    if 700 <= c <= 799: return "Land"
-    if 800 <= c <= 899: return "Land"
+    if 400 <= c <= 499: return "Agricultural"
+    if 500 <= c <= 599: return "Developmental"
+    if 600 <= c <= 699: return "Exempt"
     return None
 
 
@@ -230,6 +226,16 @@ def _parcel_from_local_row(row) -> dict:
         "bedrooms":       d.get("num_beds"),
         "bathrooms":      d.get("num_baths"),
         "notes":          "\n".join(notes_parts) or None,
+        # Raw fields passed through for the detail panel
+        "name1":             (d.get("name1") or "").strip() or None,
+        "name2":             (d.get("name2") or "").strip() or None,
+        "postaladdress":     d.get("postaladdress") or None,
+        "classcode":         d.get("classcode") or None,
+        "cvttaxdescription": d.get("cvttaxdescription") or None,
+        "taxablevalue":      float(d["taxablevalue"]) if d.get("taxablevalue") else None,
+        "living_area_sqft":  float(d["living_area_sqft"]) if d.get("living_area_sqft") else None,
+        "shapearea":         round(float(d["shapearea"]), 0) if d.get("shapearea") else None,
+        "county":            "Oakland County",
     }
 
 
@@ -348,7 +354,7 @@ def get_parcels(
             text("SELECT keypin, pin, siteaddress, sitecity, sitestate, sitezip5,"
                  " name1, name2, classcode, cvttaxdescription,"
                  " assessedvalue, taxablevalue, living_area_sqft, shapearea,"
-                 " num_beds, num_baths, structure_desc"
+                 " num_beds, num_baths, structure_desc, postaladdress"
                  " FROM parcels WHERE sitezip5 = :z"),
             {"z": zip},
         ).fetchall()
