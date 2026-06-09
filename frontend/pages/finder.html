@@ -219,11 +219,10 @@
 
     validParcels.forEach(p => {
       const color  = p.exists_in_db ? OWNED_COLOR : (TYPE_COLORS[p.property_type] || '#8a8278');
-      const radius = p.sf_rentable ? Math.max(20, Math.min(60, p.sf_rentable / 1000)) : 25;
 
       // [lat, lng] — lat first, lng second (Leaflet convention)
       const marker = L.circleMarker([p.lat, p.lng], {
-        radius,
+        radius: 6,
         fillColor:   color,
         color:       '#fff',
         weight:      1.5,
