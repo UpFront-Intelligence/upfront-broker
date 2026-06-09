@@ -66,20 +66,33 @@ def _get(url: str) -> dict:
 
 
 def _classcode_to_type(code) -> Optional[str]:
-    """Oakland County CLASSCODE — first digit indicates class."""
+    """Michigan state classification codes (Oakland County CLASSCODE field)."""
     if not code:
         return None
+    s = str(code).strip()
     try:
-        c = int(str(code).strip())
+        c = int(s)
     except (TypeError, ValueError):
-        return None
-    if 100 <= c <= 199: return "Residential"
-    if 200 <= c <= 299: return "Commercial"
-    if 300 <= c <= 399: return "Industrial"
-    if 400 <= c <= 499: return "Agricultural"
-    if 500 <= c <= 599: return "Developmental"
-    if 600 <= c <= 699: return "Exempt"
-    return None
+        return s or None
+    return {
+        401: "Residential",
+        402: "Residential Condo",
+        403: "Residential Apartment",
+        407: "Residential Vacant Land",
+        201: "Commercial",
+        202: "Commercial Condo",
+        203: "Commercial Other",
+        207: "Commercial Vacant Land",
+        301: "Industrial",
+        302: "Industrial Condo",
+        303: "Industrial Other",
+        307: "Industrial Other",
+        101: "Agricultural",
+        102: "Agricultural",
+          1: "Exempt",
+          2: "Exempt",
+          6: "Exempt",
+    }.get(c, s)   # unrecognized → raw classcode
 
 
 # Keep old name as alias in case any callers still use it
