@@ -25,7 +25,8 @@
     .act-item { display:flex; gap:10px; padding:8px 0; border-bottom:1px solid var(--cream-dark); font-size:12.5px; }
     .act-item:last-child { border-bottom:none; }
     .act-icon { flex-shrink:0; }
-    #prop-map { height:180px; border-radius:var(--radius); }
+    #prop-map { height:300px; border-radius:var(--radius); }
+    .no-location { height:300px; border-radius:var(--radius); background:var(--cream); display:flex; align-items:center; justify-content:center; font-size:13px; color:var(--stone); }
     .header-card { background:var(--navy); border-radius:var(--radius-lg); padding:22px 26px; color:#fff; margin-bottom:20px; display:flex; align-items:flex-start; gap:16px; }
     .header-main { flex:1; }
     .header-addr { font-family:var(--font-serif); font-size:22px; letter-spacing:-0.2px; margin-bottom:4px; }
@@ -71,6 +72,7 @@
       document.getElementById('page-title').textContent = REC.name || REC.address || 'Property';
       document.title = (REC.name || REC.address || 'Property') + ' — UpFront Broker';
       render(d);
+      loadAssessor(REC.parcel_id);
     } catch(e) { Toast.error('Failed to load: ' + e.message); }
   }
 
@@ -258,8 +260,9 @@
 
   function render(d) {
     const p = d.property;
-    const mapHtml = (p.lat && p.lng)
-      ? `<div class="dc"><div class="dc-title">Map</div><div id="prop-map"></div></div>` : '';
+    const mapHtml = `<div class="dc"><div class="dc-title">Location</div>
+      ${p.lat && p.lng ? `<div id="prop-map"></div>` : `<div class="no-location">No location data</div>`}
+    </div>`;
 
     document.getElementById('root').innerHTML = `
       <div class="header-card">
@@ -287,6 +290,8 @@
             ${frow('Occupancy',    'occupancy_pct', p.occupancy_pct != null ? p.occupancy_pct + '%' : null)}
             ${frow('County',       'county',        p.county)}
             ${frow('Parcel ID',    'parcel_id',     p.parcel_id)}
+            ${frow('Subtype',      'subtype',       p.subtype)}
+            ${frow('Legal Desc',   'legal_desc',    p.legal_desc)}
             ${frow('Tenant',       'tenant',        p.tenant)}
           </div></div>
 
@@ -307,6 +312,7 @@
           ${p.notes != null ? `<div class="dc"><div class="dc-title">Notes</div>
             <div class="dc-body"><span class="fv" style="min-height:60px;display:block;white-space:pre-wrap"
               data-raw="${(p.notes||'').replace(/"/g,'&quot;')}" onclick="ef(this,'notes',{multiline:true})">${p.notes||'—'}</span></div></div>` : ''}
+          <div id="assessor-section"></div>
         </div>
 
         <div>
@@ -343,10 +349,35 @@
       </div>`;
 
     if (p.lat && p.lng) {
-      const m = L.map('prop-map', {zoomControl:false,attributionControl:false}).setView([p.lat, p.lng], 16);
+      const m = L.map('prop-map', {zoomControl:false, attributionControl:false}).setView([p.lat, p.lng], 16);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(m);
       L.circleMarker([p.lat, p.lng], {radius:8, fillColor:'#c9943a', color:'#fff', weight:2, fillOpacity:1}).addTo(m);
     }
+  }
+
+  // ── Oakland County Assessor ───────────────────────────────────────────────
+  async function loadAssessor(parcelId) {
+    if (!parcelId) return;
+    try {
+      const data = await API.get(`/finder/parcel/${encodeURIComponent(parcelId)}`);
+      function arow(label, val) {
+        if (val == null || val === '') return '';
+        return `<div class="fr"><span class="fl">${label}</span><span class="fv" data-raw="${String(val).replace(/"/g,'&quot;')}">${val}</span></div>`;
+      }
+      const fmtVal = v => v ? Fmt.currency(v) : null;
+      const fmtSF  = v => v ? Number(v).toLocaleString() + ' SF' : null;
+      document.getElementById('assessor-section').innerHTML =
+        `<div class="dc"><div class="dc-title">🏛 Oakland County Assessor</div><div class="dc-body">
+          ${arow('Owner',          data.name1)}
+          ${arow('Owner 2',        data.name2)}
+          ${arow('Municipality',   data.cvttaxdescription)}
+          ${arow('Class Code',     data.classcode)}
+          ${arow('Assessed Value', fmtVal(data.assessedvalue))}
+          ${arow('Taxable Value',  fmtVal(data.taxablevalue))}
+          ${arow('Living Area SF', fmtSF(data.living_area_sqft))}
+          ${arow('Parcel Area SF', fmtSF(data.shapearea))}
+        </div></div>`;
+    } catch(_) { /* parcel not in local table — leave section empty */ }
   }
 
   // ── Inline edit ──────────────────────────────────────────────────────────

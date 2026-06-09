@@ -461,6 +461,38 @@ def get_parcels(
     }
 
 
+@router.get("/parcel/{keypin}")
+def get_parcel_data(
+    keypin:       str,
+    db:           Session = Depends(get_db),
+    current_user: User    = Depends(get_current_user),
+):
+    """Return raw assessor fields for a single parcel by keypin."""
+    try:
+        row = db.execute(
+            text("SELECT keypin, name1, name2, cvttaxdescription, classcode,"
+                 " assessedvalue, taxablevalue, living_area_sqft, shapearea"
+                 " FROM parcels WHERE keypin = :k"),
+            {"k": keypin},
+        ).fetchone()
+    except Exception:
+        raise HTTPException(404, "Parcels table not available")
+    if not row:
+        raise HTTPException(404, "Parcel not found")
+    d = dict(row._mapping)
+    return {
+        "keypin":            d.get("keypin"),
+        "name1":             (d.get("name1") or "").strip() or None,
+        "name2":             (d.get("name2") or "").strip() or None,
+        "cvttaxdescription": d.get("cvttaxdescription") or None,
+        "classcode":         d.get("classcode") or None,
+        "assessedvalue":     d.get("assessedvalue"),
+        "taxablevalue":      d.get("taxablevalue"),
+        "living_area_sqft":  d.get("living_area_sqft"),
+        "shapearea":         d.get("shapearea"),
+    }
+
+
 @router.post("/add")
 def add_parcel_to_pipeline(
     body:         dict,
