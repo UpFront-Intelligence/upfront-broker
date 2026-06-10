@@ -45,6 +45,9 @@
     .suggest-item:hover { background: var(--cream); }
 
     #engagement-modal .modal { width: 520px; }
+    .np-form { margin-top:8px; padding:10px; background:var(--cream); border-radius:var(--radius); border:1px solid var(--cream-dark); }
+    .np-form .form-group { margin-bottom:8px; }
+    .np-form .form-group:last-of-type { margin-bottom:0; }
   </style>
 </head>
 <body>
@@ -80,7 +83,7 @@
     <div class="modal-body">
       <div class="form-row cols-2">
         <div class="form-group"><label class="form-label">Type <span style="color:var(--red)">*</span></label>
-          <select id="f-type" class="form-control">
+          <select id="f-type" class="form-control" onchange="renderOwnerCheckbox()">
             <option value="listing_sale">Listing — Sale</option>
             <option value="listing_lease">Listing — Lease</option>
             <option value="tenant_rep">Tenant Rep</option>
@@ -117,6 +120,39 @@
           <div id="property-suggestions" class="suggest-box" style="display:none"></div>
         </div>
         <div id="property-selected" style="margin-top:6px"></div>
+
+        <div id="new-property-form" class="np-form" style="display:none">
+          <div class="form-row cols-2">
+            <div class="form-group"><label class="form-label">Name</label>
+              <input id="np-name" class="form-control" placeholder="Optional"></div>
+            <div class="form-group"><label class="form-label">Property Type</label>
+              <select id="np-type" class="form-control">
+                <option value="">—</option>
+                <option>Office</option><option>Industrial</option><option>Retail</option>
+                <option>Land</option><option>Multifamily</option><option>STNL</option>
+                <option>Self Storage</option><option>Hospitality</option><option>Medical</option>
+              </select></div>
+          </div>
+          <div class="form-group"><label class="form-label">Address <span style="color:var(--red)">*</span></label>
+            <input id="np-address" class="form-control"></div>
+          <div class="form-row cols-2">
+            <div class="form-group"><label class="form-label">City <span style="color:var(--red)">*</span></label>
+              <input id="np-city" class="form-control"></div>
+            <div class="form-group"><label class="form-label">State <span style="color:var(--red)">*</span></label>
+              <input id="np-state" class="form-control" maxlength="2" style="text-transform:uppercase"></div>
+          </div>
+          <div class="form-group"><label class="form-label">Zip</label>
+            <input id="np-zip" class="form-control"></div>
+          <div style="display:flex;gap:8px;justify-content:flex-end">
+            <button class="btn btn-outline btn-sm" onclick="cancelNewProperty()">Cancel</button>
+            <button class="btn btn-primary btn-sm" onclick="createNewProperty()">Create Property</button>
+          </div>
+        </div>
+
+        <div id="owner-link-wrap" style="display:none;align-items:center;gap:8px;margin-top:8px">
+          <input type="checkbox" id="f-set-owner" checked style="width:auto">
+          <label for="f-set-owner" id="owner-link-label" class="form-label" style="margin:0;text-transform:none;font-size:13px"></label>
+        </div>
       </div>
 
       <div class="form-row cols-2">
@@ -247,6 +283,7 @@
       ? `<a class="chip" href="/pages/account.html?id=${selectedClient.id}" target="_blank">${selectedClient.name}</a>
          <button class="btn btn-ghost btn-sm" onclick="clearClient()">✕</button>`
       : '';
+    renderOwnerCheckbox();
   }
 
   // ── Subject property typeahead ────────────────────────────────────────────
@@ -261,9 +298,10 @@
     try {
       const hits = await API.get(`/properties/?search=${encodeURIComponent(q)}`);
       const top = hits.slice(0, 8);
-      box.innerHTML = top.length
+      box.innerHTML = (top.length
         ? top.map(p => `<div class="suggest-item" onmousedown="selectProperty(${p.id},'${(p.name||p.address).replace(/'/g,"\\'")}')">${p.name||p.address}${p.city?', '+p.city:''}</div>`).join('')
-        : `<div class="suggest-item" style="color:var(--stone)">No matches</div>`;
+        : `<div class="suggest-item" style="color:var(--stone)">No matches</div>`)
+        + `<div class="suggest-item" style="color:var(--stone);background:var(--cream)" onmousedown="openNewPropertyForm('${q.replace(/'/g,"\\'")}')">+ Create new property</div>`;
       box.style.display = 'block';
     } catch(_) { box.style.display = 'none'; }
   }
@@ -279,6 +317,58 @@
       ? `<a class="chip" href="/pages/property.html?id=${selectedProperty.id}" target="_blank">${selectedProperty.label}</a>
          <button class="btn btn-ghost btn-sm" onclick="clearProperty()">✕</button>`
       : '';
+    renderOwnerCheckbox();
+  }
+
+  // ── Create property on the fly ────────────────────────────────────────────
+  function openNewPropertyForm(q) {
+    document.getElementById('property-suggestions').style.display = 'none';
+    document.getElementById('f-property-search').value = '';
+    document.getElementById('np-name').value = q || '';
+    document.getElementById('np-address').value = '';
+    document.getElementById('np-city').value = '';
+    document.getElementById('np-state').value = '';
+    document.getElementById('np-zip').value = '';
+    document.getElementById('np-type').value = '';
+    document.getElementById('new-property-form').style.display = 'block';
+  }
+  function cancelNewProperty() {
+    document.getElementById('new-property-form').style.display = 'none';
+  }
+  async function createNewProperty() {
+    const g = id => document.getElementById(id).value.trim();
+    const address = g('np-address'), city = g('np-city'), state = g('np-state');
+    if (!address || !city || !state) { Toast.error('Address, city, and state are required'); return; }
+    try {
+      const prop = await API.post('/properties/', {
+        name: g('np-name') || null,
+        address, city, state: state.toUpperCase(),
+        zip: g('np-zip') || null,
+        property_type: g('np-type') || null,
+      });
+      allProperties.push(prop);
+      cancelNewProperty();
+      selectProperty(prop.id, prop.name || prop.address);
+      Toast.success('Property created');
+    } catch(e) { Toast.error(e.message); }
+  }
+
+  // ── Owner-link checkbox (listing engagements only) ────────────────────────
+  function renderOwnerCheckbox() {
+    const wrap = document.getElementById('owner-link-wrap');
+    const type = document.getElementById('f-type').value;
+    const isListing = (type === 'listing_sale' || type === 'listing_lease');
+    const prop = selectedProperty ? allProperties.find(p => p.id === selectedProperty.id) : null;
+    const show = isListing && selectedClient && prop &&
+      (prop.recorded_owner_account_id == null || prop.recorded_owner_account_id !== selectedClient.id);
+    if (show) {
+      if (wrap.style.display !== 'flex') document.getElementById('f-set-owner').checked = true;
+      document.getElementById('owner-link-label').textContent =
+        `Set ${selectedClient.name} as the recorded owner of this property`;
+      wrap.style.display = 'flex';
+    } else {
+      wrap.style.display = 'none';
+    }
   }
 
   // ── Modal ─────────────────────────────────────────────────────────────────
@@ -289,6 +379,7 @@
     document.getElementById('f-property-search').value = '';
     document.getElementById('client-suggestions').style.display = 'none';
     document.getElementById('property-suggestions').style.display = 'none';
+    document.getElementById('new-property-form').style.display = 'none';
 
     if (eng) {
       document.getElementById('f-type').value = eng.type;
@@ -339,6 +430,15 @@
         const saved = await API.post('/engagements/', payload);
         allEngagements.push(saved);
         Toast.success('Engagement created');
+      }
+      if (document.getElementById('owner-link-wrap').style.display !== 'none'
+          && document.getElementById('f-set-owner').checked
+          && selectedProperty && selectedClient) {
+        try {
+          await API.put(`/properties/${selectedProperty.id}`, { recorded_owner_account_id: selectedClient.id });
+          const idx = allProperties.findIndex(p => p.id === selectedProperty.id);
+          if (idx >= 0) allProperties[idx].recorded_owner_account_id = selectedClient.id;
+        } catch(e) { Toast.error('Engagement saved, but failed to set property owner: ' + e.message); }
       }
       Modal.close('engagement-modal');
       renderKanban();
