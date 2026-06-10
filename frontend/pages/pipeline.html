@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UpFront Broker — Pipeline</title>
+  <link rel="stylesheet" href="/static/main.css?v=2">
+  <style>
+    /* ── Kanban ── */
+    #kanban-view { overflow-x: auto; padding-bottom: 20px; }
+    .kanban-board { display: flex; gap: 12px; align-items: flex-start; min-width: max-content; }
+    .kanban-col {
+      width: 240px; min-width: 240px; background: var(--cream);
+      border-radius: var(--radius-lg); border: 1px solid var(--cream-dark);
+    }
+    .kanban-col.drag-over { outline: 2px dashed var(--gold); outline-offset: -2px; }
+    .kanban-col-header {
+      padding: 10px 12px 8px; border-bottom: 1px solid var(--cream-dark);
+      display: flex; align-items: center; gap: 6px;
+    }
+    .k-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .k-stage { font-size: 12px; font-weight: 600; color: var(--navy); flex: 1; }
+    .k-count { font-size: 11px; font-family: var(--font-mono); color: var(--stone); background: var(--cream-dark); padding: 1px 6px; border-radius: 10px; }
+    .kanban-cards { padding: 8px; min-height: 60px; }
+    .eng-card {
+      background: #fff; border: 1px solid var(--cream-dark); border-radius: var(--radius);
+      padding: 10px 12px; margin-bottom: 8px; cursor: pointer;
+      transition: box-shadow 0.15s; user-select: none;
+    }
+    .eng-card:hover { box-shadow: var(--shadow-hover); }
+    .eng-card.dragging { opacity: 0.35; }
+    .eng-card:last-child { margin-bottom: 0; }
+    .ec-name { font-size: 12.5px; font-weight: 600; color: var(--ink); margin-bottom: 3px; }
+    .ec-type { font-size: 10.5px; color: var(--stone); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; }
+    .ec-links { display: flex; flex-wrap: wrap; gap: 4px; }
+    .ec-signed { font-size: 10.5px; color: var(--green); margin-top: 6px; }
+
+    /* ── Chips & typeahead (mirrors property.html Recorded Owner pattern) ── */
+    .chip { display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:20px; font-size:11px; font-weight:500; background:var(--cream-dark); color:var(--navy); text-decoration:none; transition:all 0.1s; }
+    .chip:hover { background: var(--navy); color:#fff; }
+    .suggest-wrap { position: relative; }
+    .suggest-box { position:absolute; top:100%; left:0; right:0; z-index:200; background:#fff; border:1px solid var(--cream-dark); border-top:none; border-radius:0 0 var(--radius) var(--radius); box-shadow:var(--shadow-hover); max-height:180px; overflow-y:auto; }
+    .suggest-item { padding:8px 12px; cursor:pointer; font-size:13px; border-bottom:1px solid var(--cream-dark); }
+    .suggest-item:last-child { border-bottom:none; }
+    .suggest-item:hover { background: var(--cream); }
+
+    #engagement-modal .modal { width: 520px; }
+  </style>
+</head>
+<body>
+<div id="sidebar"></div>
+
+<div id="main">
+  <div id="topbar">
+    <div class="topbar-title">Pipeline</div>
+    <div class="topbar-actions">
+      <button class="btn btn-primary btn-sm" onclick="openModal()">+ New Engagement</button>
+    </div>
+  </div>
+
+  <div id="page-content" class="fade-in">
+    <div class="page-header" style="margin-bottom:12px">
+      <div>
+        <div class="page-title">Pipeline</div>
+        <div class="page-sub" id="count-label">Loading…</div>
+      </div>
+    </div>
+
+    <div id="kanban-view"><div class="kanban-board" id="kanban-board"></div></div>
+  </div>
+</div>
+
+<!-- New / Edit Engagement Modal -->
+<div id="engagement-modal" class="modal-overlay">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="modal-title">New Engagement</div>
+      <button class="modal-close" onclick="Modal.close('engagement-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row cols-2">
+        <div class="form-group"><label class="form-label">Type <span style="color:var(--red)">*</span></label>
+          <select id="f-type" class="form-control">
+            <option value="listing_sale">Listing — Sale</option>
+            <option value="listing_lease">Listing — Lease</option>
+            <option value="tenant_rep">Tenant Rep</option>
+            <option value="buyer_rep">Buyer Rep</option>
+            <option value="bov">BOV</option>
+            <option value="consulting">Consulting</option>
+            <option value="referral">Referral</option>
+          </select></div>
+        <div class="form-group"><label class="form-label">Stage</label>
+          <select id="f-stage" class="form-control">
+            <option value="pursuing">Pursuing</option>
+            <option value="proposed">Proposed</option>
+            <option value="active">Active</option>
+            <option value="closed">Closed</option>
+            <option value="lost">Lost</option>
+            <option value="expired">Expired</option>
+          </select></div>
+      </div>
+
+      <div class="form-group"><label class="form-label">Name <span style="color:var(--red)">*</span></label>
+        <input id="f-name" class="form-control" placeholder="e.g. Acme Holdings — Sale Listing"></div>
+
+      <div class="form-group"><label class="form-label">Client (Account)</label>
+        <div class="suggest-wrap">
+          <input type="text" id="f-client-search" class="form-control" placeholder="Search accounts…" autocomplete="off" oninput="onClientInput()">
+          <div id="client-suggestions" class="suggest-box" style="display:none"></div>
+        </div>
+        <div id="client-selected" style="margin-top:6px"></div>
+      </div>
+
+      <div class="form-group"><label class="form-label">Subject Property</label>
+        <div class="suggest-wrap">
+          <input type="text" id="f-property-search" class="form-control" placeholder="Search properties…" autocomplete="off" oninput="onPropertyInput()">
+          <div id="property-suggestions" class="suggest-box" style="display:none"></div>
+        </div>
+        <div id="property-selected" style="margin-top:6px"></div>
+      </div>
+
+      <div class="form-row cols-2">
+        <div class="form-group"><label class="form-label">Agreement Date</label>
+          <input type="date" id="f-agreement-date" class="form-control"></div>
+        <div class="form-group" style="display:flex;align-items:center;gap:8px;padding-top:22px">
+          <input type="checkbox" id="f-signed" style="width:auto">
+          <label for="f-signed" class="form-label" style="margin:0;text-transform:none;font-size:13px">Signed agreement</label>
+        </div>
+      </div>
+
+      <div class="form-group"><label class="form-label">Notes</label>
+        <textarea id="f-notes" class="form-control" rows="3" placeholder="Context, next steps…"></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="Modal.close('engagement-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveEngagement()">Save Engagement</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/app.js?v=2"></script>
+<script>
+  if (!Auth.requireAuth()) throw new Error('Not authenticated');
+  renderSidebar('pipeline');
+  Modal.closeOnOverlay('engagement-modal');
+
+  const STAGES = ['pursuing','proposed','active','closed','lost','expired'];
+  const STAGE_LABELS = {
+    pursuing:'Pursuing', proposed:'Proposed', active:'Active',
+    closed:'Closed', lost:'Lost', expired:'Expired',
+  };
+  const STAGE_COLORS = {
+    pursuing:'#94a3b8', proposed:'#3b82f6', active:'#f59e0b',
+    closed:'#0f1923', lost:'#ef4444', expired:'#8a8278',
+  };
+  const TYPE_LABELS = {
+    listing_sale:'Listing — Sale', listing_lease:'Listing — Lease',
+    tenant_rep:'Tenant Rep', buyer_rep:'Buyer Rep',
+    bov:'BOV', consulting:'Consulting', referral:'Referral',
+  };
+
+  let allEngagements = [], allAccounts = [], allProperties = [];
+  let editingId = null;
+  let selectedClient = null, selectedProperty = null;
+  let _clientTimer = null, _propTimer = null;
+  let dragId = null;
+
+  // ── Kanban ─────────────────────────────────────────────────────────────────
+  function renderKanban() {
+    document.getElementById('count-label').textContent =
+      `${allEngagements.length} engagement${allEngagements.length !== 1 ? 's' : ''}`;
+    document.getElementById('kanban-board').innerHTML = STAGES.map(stage => {
+      const cards = allEngagements.filter(e => e.stage === stage);
+      return `<div class="kanban-col" data-stage="${stage}"
+          ondragover="event.preventDefault();this.classList.add('drag-over')"
+          ondragleave="this.classList.remove('drag-over')"
+          ondrop="dropEngagement(event,'${stage}')">
+        <div class="kanban-col-header">
+          <div class="k-dot" style="background:${STAGE_COLORS[stage]}"></div>
+          <span class="k-stage">${STAGE_LABELS[stage]}</span>
+          <span class="k-count">${cards.length}</span>
+        </div>
+        <div class="kanban-cards">${cards.map(engagementCard).join('')}</div>
+      </div>`;
+    }).join('');
+  }
+
+  function engagementCard(e) {
+    const acct = allAccounts.find(a => a.id === e.client_account_id);
+    const prop = allProperties.find(p => p.id === e.subject_property_id);
+    return `<div class="eng-card" draggable="true"
+        ondragstart="dragStart(event,${e.id})" ondragend="this.classList.remove('dragging')"
+        onclick="openModal(allEngagements.find(x=>x.id===${e.id}))">
+      <div class="ec-name">${e.name}</div>
+      <div class="ec-type">${TYPE_LABELS[e.type]||e.type}</div>
+      <div class="ec-links">
+        ${acct ? `<a class="chip" href="/pages/account.html?id=${acct.id}" onclick="event.stopPropagation()">${acct.name}</a>` : ''}
+        ${prop ? `<a class="chip" href="/pages/property.html?id=${prop.id}" onclick="event.stopPropagation()">${prop.name||prop.address}</a>` : ''}
+      </div>
+      ${e.signed_agreement ? `<div class="ec-signed">✓ Signed agreement</div>` : ''}
+    </div>`;
+  }
+
+  function dragStart(e, id) { dragId = id; e.target.classList.add('dragging'); }
+
+  async function dropEngagement(e, stage) {
+    e.preventDefault(); e.currentTarget.classList.remove('drag-over');
+    if (!dragId) return;
+    const eng = allEngagements.find(x => x.id === dragId);
+    if (!eng || eng.stage === stage) { dragId = null; return; }
+    try {
+      const saved = await API.put(`/engagements/${dragId}`, {stage});
+      const idx = allEngagements.findIndex(x => x.id === dragId);
+      if (idx >= 0) allEngagements[idx] = {...allEngagements[idx], ...saved};
+      renderKanban();
+      Toast.success(`Moved to ${STAGE_LABELS[stage]}`);
+    } catch(err) { Toast.error(err.message); }
+    dragId = null;
+  }
+
+  // ── Client typeahead ──────────────────────────────────────────────────────
+  function onClientInput() {
+    clearTimeout(_clientTimer);
+    _clientTimer = setTimeout(doClientSearch, 280);
+  }
+  async function doClientSearch() {
+    const q = document.getElementById('f-client-search').value.trim();
+    const box = document.getElementById('client-suggestions');
+    if (q.length < 2) { box.style.display = 'none'; return; }
+    try {
+      const hits = await API.get(`/accounts/search?q=${encodeURIComponent(q)}`);
+      box.innerHTML = hits.length
+        ? hits.map(h => `<div class="suggest-item" onmousedown="selectClient(${h.id},'${h.name.replace(/'/g,"\\'")}')">${h.name}</div>`).join('')
+        : `<div class="suggest-item" style="color:var(--stone)">No matches</div>`;
+      box.style.display = 'block';
+    } catch(_) { box.style.display = 'none'; }
+  }
+  function selectClient(id, name) {
+    selectedClient = {id, name};
+    document.getElementById('client-suggestions').style.display = 'none';
+    document.getElementById('f-client-search').value = '';
+    renderClientSelected();
+  }
+  function clearClient() { selectedClient = null; renderClientSelected(); }
+  function renderClientSelected() {
+    document.getElementById('client-selected').innerHTML = selectedClient
+      ? `<a class="chip" href="/pages/account.html?id=${selectedClient.id}" target="_blank">${selectedClient.name}</a>
+         <button class="btn btn-ghost btn-sm" onclick="clearClient()">✕</button>`
+      : '';
+  }
+
+  // ── Subject property typeahead ────────────────────────────────────────────
+  function onPropertyInput() {
+    clearTimeout(_propTimer);
+    _propTimer = setTimeout(doPropertySearch, 280);
+  }
+  async function doPropertySearch() {
+    const q = document.getElementById('f-property-search').value.trim();
+    const box = document.getElementById('property-suggestions');
+    if (q.length < 2) { box.style.display = 'none'; return; }
+    try {
+      const hits = await API.get(`/properties/?search=${encodeURIComponent(q)}`);
+      const top = hits.slice(0, 8);
+      box.innerHTML = top.length
+        ? top.map(p => `<div class="suggest-item" onmousedown="selectProperty(${p.id},'${(p.name||p.address).replace(/'/g,"\\'")}')">${p.name||p.address}${p.city?', '+p.city:''}</div>`).join('')
+        : `<div class="suggest-item" style="color:var(--stone)">No matches</div>`;
+      box.style.display = 'block';
+    } catch(_) { box.style.display = 'none'; }
+  }
+  function selectProperty(id, label) {
+    selectedProperty = {id, label};
+    document.getElementById('property-suggestions').style.display = 'none';
+    document.getElementById('f-property-search').value = '';
+    renderPropertySelected();
+  }
+  function clearProperty() { selectedProperty = null; renderPropertySelected(); }
+  function renderPropertySelected() {
+    document.getElementById('property-selected').innerHTML = selectedProperty
+      ? `<a class="chip" href="/pages/property.html?id=${selectedProperty.id}" target="_blank">${selectedProperty.label}</a>
+         <button class="btn btn-ghost btn-sm" onclick="clearProperty()">✕</button>`
+      : '';
+  }
+
+  // ── Modal ─────────────────────────────────────────────────────────────────
+  function openModal(eng) {
+    editingId = eng?.id ?? null;
+    document.getElementById('modal-title').textContent = eng ? 'Edit Engagement' : 'New Engagement';
+    document.getElementById('f-client-search').value = '';
+    document.getElementById('f-property-search').value = '';
+    document.getElementById('client-suggestions').style.display = 'none';
+    document.getElementById('property-suggestions').style.display = 'none';
+
+    if (eng) {
+      document.getElementById('f-type').value = eng.type;
+      document.getElementById('f-name').value = eng.name;
+      document.getElementById('f-stage').value = eng.stage;
+      document.getElementById('f-signed').checked = !!eng.signed_agreement;
+      document.getElementById('f-agreement-date').value = eng.agreement_date || '';
+      document.getElementById('f-notes').value = eng.notes || '';
+      const acct = allAccounts.find(a => a.id === eng.client_account_id);
+      const prop = allProperties.find(p => p.id === eng.subject_property_id);
+      selectedClient   = eng.client_account_id   ? {id: eng.client_account_id,   name: acct ? acct.name : `Account #${eng.client_account_id}`} : null;
+      selectedProperty = eng.subject_property_id ? {id: eng.subject_property_id, label: prop ? (prop.name||prop.address) : `Property #${eng.subject_property_id}`} : null;
+    } else {
+      document.getElementById('f-type').value = 'listing_sale';
+      document.getElementById('f-name').value = '';
+      document.getElementById('f-stage').value = 'pursuing';
+      document.getElementById('f-signed').checked = false;
+      document.getElementById('f-agreement-date').value = '';
+      document.getElementById('f-notes').value = '';
+      selectedClient = null;
+      selectedProperty = null;
+    }
+    renderClientSelected();
+    renderPropertySelected();
+    Modal.open('engagement-modal');
+  }
+
+  async function saveEngagement() {
+    const g = id => document.getElementById(id)?.value.trim() || '';
+    if (!g('f-name')) { Toast.error('Name is required'); return; }
+    const payload = {
+      type: g('f-type'),
+      name: g('f-name'),
+      stage: g('f-stage') || 'pursuing',
+      signed_agreement: document.getElementById('f-signed').checked,
+      agreement_date: g('f-agreement-date') || null,
+      client_account_id: selectedClient ? selectedClient.id : null,
+      subject_property_id: selectedProperty ? selectedProperty.id : null,
+      notes: g('f-notes') || null,
+    };
+    try {
+      if (editingId) {
+        const saved = await API.put(`/engagements/${editingId}`, payload);
+        const idx = allEngagements.findIndex(e => e.id === editingId);
+        if (idx >= 0) allEngagements[idx] = saved;
+        Toast.success('Engagement updated');
+      } else {
+        const saved = await API.post('/engagements/', payload);
+        allEngagements.push(saved);
+        Toast.success('Engagement created');
+      }
+      Modal.close('engagement-modal');
+      renderKanban();
+    } catch(e) { Toast.error(e.message); }
+  }
+
+  // ── Init ──────────────────────────────────────────────────────────────────
+  async function init() {
+    [allAccounts, allProperties, allEngagements] = await Promise.all([
+      API.get('/accounts/').then(d => Array.isArray(d)?d:(d.items||[])).catch(()=>[]),
+      API.get('/properties/').then(d => Array.isArray(d)?d:(d.items||[])).catch(()=>[]),
+      API.get('/engagements/').catch(()=>[]),
+    ]);
+    renderKanban();
+  }
+
+  init();
+</script>
+</body>
+</html>

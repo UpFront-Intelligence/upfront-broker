@@ -193,6 +193,9 @@ function renderSidebar(activePage) {
         <div class="nav-item ${activePage==='dashboard'?'active':''}" data-page="dashboard" onclick="navigate('dashboard')">
           <span class="nav-icon">⬡</span> Dashboard
         </div>
+        <div class="nav-item ${activePage==='pipeline'?'active':''}" data-page="pipeline" onclick="navigate('pipeline')">
+          <span class="nav-icon">◈</span> Pipeline
+        </div>
       </div>
 
       <div class="nav-section">

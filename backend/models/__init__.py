@@ -8,3 +8,4 @@ from models.deal import Deal, DealContact
 from models.shared import Activity, Document, Portal, PortalView, Comp, EnrichmentCache
 from models.tenant import Tenant
 from models.property_tenant import PropertyTenant
+from models.engagement import Engagement
