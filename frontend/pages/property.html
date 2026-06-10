@@ -51,6 +51,8 @@
     #prop-map-tab { height:520px; }
     .no-location { height:200px; border-radius:var(--radius); background:var(--cream); display:flex; align-items:center; justify-content:center; font-size:13px; color:var(--stone); margin:12px; }
     /* Public record search */
+    .dc.dc-overflow-visible { overflow:visible; }
+    .dc.dc-overflow-visible > .dc-title { border-radius:var(--radius-lg) var(--radius-lg) 0 0; }
     .parcel-row { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:9px 12px; cursor:pointer; font-size:13px; border-bottom:1px solid var(--cream-dark); transition:background 0.1s; }
     .parcel-row:last-child { border-bottom:none; }
     .parcel-row:hover { background:var(--cream); }
@@ -444,12 +446,12 @@
       <!-- TAB 4: PUBLIC RECORD -->
       <div id="tab-public" class="tab-pane">
         <div class="dc"><div class="dc-title">Recorded Owner</div><div class="dc-body" id="ro-body"></div></div>
-        <div class="dc"><div class="dc-title">Attach Public Record</div><div class="dc-body">
+        <div class="dc dc-overflow-visible"><div class="dc-title">Attach Public Record</div><div class="dc-body">
           <div style="position:relative;max-width:420px">
             <input type="text" id="parcel-search" class="form-control" placeholder="Search by address or parcel ID…" autocomplete="off" oninput="onParcelSearchInput()">
             <div id="parcel-suggestions" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:200;
                  background:#fff;border:1px solid var(--cream-dark);border-top:none;border-radius:0 0 var(--radius) var(--radius);
-                 box-shadow:var(--shadow-hover);max-height:220px;overflow-y:auto"></div>
+                 box-shadow:var(--shadow-hover);max-height:400px;overflow-y:auto"></div>
           </div>
           <div id="attach-status"></div>
         </div></div>
@@ -762,13 +764,13 @@
     try {
       const hits = await API.get(`/finder/parcels/search?q=${encodeURIComponent(q)}`);
       box.innerHTML = hits.length
-        ? hits.map(p => `<div class="parcel-row" onmousedown="attachParcel('${(p.keypin||'').replace(/'/g,"\\'")}')">
+        ? hits.map(p => { const kp = (p.keypin||'').replace(/'/g,"\\'"); return `<div class="parcel-row" onclick="attachParcel('${kp}')">
               <div>
                 <div style="font-weight:500">${p.siteaddress||'—'}${p.sitecity?', '+p.sitecity:''}</div>
                 <div style="font-size:11px;color:var(--stone)">Parcel ${p.keypin}${p.assessedvalue?' · '+Fmt.currency(p.assessedvalue):''}</div>
               </div>
-              <button type="button" class="btn btn-gold btn-sm">Attach</button>
-            </div>`).join('')
+              <button type="button" class="btn btn-gold btn-sm" onclick="event.stopPropagation();attachParcel('${kp}')">Attach</button>
+            </div>`; }).join('')
         : `<div style="padding:9px 12px;font-size:13px;color:var(--stone)">No matches</div>`;
       box.style.display = 'block';
     } catch(_) { box.style.display = 'none'; }
