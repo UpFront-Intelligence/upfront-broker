@@ -239,6 +239,8 @@ def get_account_full(
     from models.property import Property
     from models.deal import Deal, DealContact
     from models.shared import Activity
+    from models.account_role import AccountRole
+    from models.engagement import Engagement
     a = db.query(Account).filter(
         Account.id == account_id, Account.owner_id == current_user.id
     ).first()
@@ -266,10 +268,33 @@ def get_account_full(
              for d in db.query(Deal).filter(Deal.id.in_(deal_ids),
                                             Deal.owner_id == current_user.id).all()]
 
+    role_rows = {r.slug: r for r in db.query(AccountRole)
+                  .filter(AccountRole.slug.in_(a.roles or [])).all()}
+    roles_resolved = [
+        {"slug": slug, "display_name": role_rows[slug].display_name, "category": role_rows[slug].category}
+        for slug in (a.roles or []) if slug in role_rows
+    ]
+
+    owned_properties = [{"id": p.id, "name": p.name, "address": p.address}
+        for p in db.query(Property).filter(Property.recorded_owner_account_id == account_id,
+                                           Property.owner_id == current_user.id).all()]
+
+    managed_properties = [{"id": p.id, "name": p.name, "address": p.address}
+        for p in db.query(Property).filter(Property.manager_account_id == account_id,
+                                           Property.owner_id == current_user.id).all()]
+
+    engagements = [{"id": e.id, "name": e.name, "type": e.type, "stage": e.stage}
+        for e in db.query(Engagement).filter(Engagement.client_account_id == account_id,
+                                             Engagement.owner_id == current_user.id).all()]
+
     a_dict = AccountResponse.model_validate(a).model_dump()
     return {
         "account":    a_dict,
         "contacts":   contacts,
         "properties": props,
         "deals":      deals,
+        "roles_resolved":      roles_resolved,
+        "owned_properties":    owned_properties,
+        "managed_properties":  managed_properties,
+        "engagements":         engagements,
     }

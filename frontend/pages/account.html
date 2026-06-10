@@ -26,6 +26,9 @@
     .entity-icon { width:48px; height:48px; border-radius:var(--radius); background:rgba(255,255,255,0.12); display:flex; align-items:center; justify-content:center; font-size:16px; font-weight:700; font-family:var(--font-mono); color:#fff; flex-shrink:0; }
     .header-name { font-family:var(--font-serif); font-size:20px; }
     .header-sub  { font-size:12px; color:rgba(255,255,255,0.6); margin-top:3px; }
+    .role-badges { display:flex; flex-wrap:wrap; gap:5px; margin-top:8px; }
+    .role-badge  { display:inline-flex; align-items:center; padding:2px 10px; border-radius:20px; font-size:10.5px; font-weight:600; background:rgba(201,148,58,0.18); color:var(--gold-light); border:1px solid rgba(201,148,58,0.35); }
+    .pf-badge    { font-size:10px; flex-shrink:0; margin-left:8px; }
   </style>
 </head>
 <body>
@@ -52,6 +55,15 @@
   const ID = +new URLSearchParams(window.location.search).get('id');
   const SILO = 'accounts';
   const TC = {'LLC':'badge-navy','Corp':'badge-blue','Trust':'badge-amber','Individual':'badge-green','REIT':'badge-gold','Partnership':'badge-stone'};
+  const ENG_TYPE_LABELS = {
+    listing_sale:'Listing — Sale', listing_lease:'Listing — Lease',
+    tenant_rep:'Tenant Rep', buyer_rep:'Buyer Rep',
+    bov:'BOV', consulting:'Consulting', referral:'Referral',
+  };
+  const ENG_STAGE_LABELS = {
+    pursuing:'Pursuing', proposed:'Proposed', active:'Active',
+    closed:'Closed', lost:'Lost', expired:'Expired',
+  };
   let REC = {};
 
   async function load() {
@@ -79,9 +91,10 @@
     document.getElementById('root').innerHTML = `
       <div class="header-card">
         <div class="entity-icon" style="background:${color}">${initials}</div>
-        <div>
+        <div style="flex:1;min-width:0">
           <div class="header-name">${a.name}</div>
           <div class="header-sub">${[a.entity_type, a.city && a.state ? a.city+', '+a.state : null].filter(Boolean).join(' · ') || ''}</div>
+          ${d.roles_resolved && d.roles_resolved.length ? `<div class="role-badges">${d.roles_resolved.map(r => `<span class="role-badge">${r.display_name}</span>`).join('')}</div>` : ''}
         </div>
         ${a.entity_type ? `<span class="badge ${TC[a.entity_type]||'badge-stone'}" style="margin-left:auto">${a.entity_type}</span>` : ''}
       </div>
@@ -119,12 +132,34 @@
               </div>`).join('') : '<span style="font-size:12.5px;color:var(--stone)">No linked contacts</span>'}
           </div></div>
 
-          <div class="dc"><div class="dc-title">Properties${d.properties.length ? ' (' + d.properties.length + ')' : ''}</div><div class="dc-body" style="padding:8px">
-            ${d.properties.length ? d.properties.map(p =>
+          <div class="dc"><div class="dc-title">Properties${(d.properties.length + d.owned_properties.length + d.managed_properties.length) ? ' (' + (d.properties.length + d.owned_properties.length + d.managed_properties.length) + ')' : ''}</div><div class="dc-body" style="padding:8px">
+            ${d.owned_properties.map(p =>
+              `<a class="chip" style="display:flex;justify-content:space-between;align-items:center;border-radius:var(--radius);width:100%;padding:8px 10px;margin:3px 0"
+                 href="/pages/property.html?id=${p.id}">
+                <span>${p.name||p.address}</span>
+                <span class="badge badge-stone pf-badge">Owner</span>
+              </a>`).join('')}
+            ${d.managed_properties.map(p =>
+              `<a class="chip" style="display:flex;justify-content:space-between;align-items:center;border-radius:var(--radius);width:100%;padding:8px 10px;margin:3px 0"
+                 href="/pages/property.html?id=${p.id}">
+                <span>${p.name||p.address}</span>
+                <span class="badge badge-stone pf-badge">Manager</span>
+              </a>`).join('')}
+            ${d.properties.map(p =>
               `<a class="chip" style="display:flex;border-radius:var(--radius);width:100%;padding:8px 10px;margin:3px 0"
                  href="/pages/property.html?id=${p.id}">
                 ${Fmt.propType(p.property_type)} ${p.name||p.address}
-              </a>`).join('') : '<span style="font-size:12.5px;color:var(--stone);padding:4px">No properties</span>'}
+              </a>`).join('')}
+            ${(d.properties.length + d.owned_properties.length + d.managed_properties.length) === 0 ? '<span style="font-size:12.5px;color:var(--stone);padding:4px">No properties</span>' : ''}
+          </div></div>
+
+          <div class="dc"><div class="dc-title">Engagements${d.engagements.length ? ' (' + d.engagements.length + ')' : ''}</div><div class="dc-body" style="padding:8px">
+            ${d.engagements.length ? d.engagements.map(e =>
+              `<a class="chip" style="display:flex;justify-content:space-between;align-items:center;border-radius:var(--radius);width:100%;padding:8px 10px;margin:3px 0"
+                 href="/pages/pipeline.html">
+                <span>${e.name}<br><span style="font-size:10.5px;color:var(--stone)">${ENG_TYPE_LABELS[e.type]||e.type}</span></span>
+                <span class="badge badge-stone pf-badge">${ENG_STAGE_LABELS[e.stage]||e.stage}</span>
+              </a>`).join('') : '<span style="font-size:12.5px;color:var(--stone);padding:4px">No engagements</span>'}
           </div></div>
 
           <div class="dc"><div class="dc-title">Deals${d.deals.length ? ' (' + d.deals.length + ')' : ''}</div><div class="dc-body" style="padding:8px">
