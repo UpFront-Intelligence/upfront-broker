@@ -50,6 +50,12 @@
     /* Map tab */
     #prop-map-tab { height:520px; }
     .no-location { height:200px; border-radius:var(--radius); background:var(--cream); display:flex; align-items:center; justify-content:center; font-size:13px; color:var(--stone); margin:12px; }
+    /* Public record search */
+    .parcel-row { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:9px 12px; cursor:pointer; font-size:13px; border-bottom:1px solid var(--cream-dark); transition:background 0.1s; }
+    .parcel-row:last-child { border-bottom:none; }
+    .parcel-row:hover { background:var(--cream); }
+    .parcel-attach-btn { font-size:11px; font-weight:600; color:var(--gold); border:1px solid var(--gold); border-radius:20px; padding:3px 10px; flex-shrink:0; white-space:nowrap; transition:all 0.1s; }
+    .parcel-row:hover .parcel-attach-btn { background:var(--gold); color:#fff; }
   </style>
 </head>
 <body>
@@ -448,6 +454,15 @@
                  background:#fff;border:1px solid var(--cream-dark);border-top:none;border-radius:0 0 var(--radius) var(--radius);
                  box-shadow:var(--shadow-hover);max-height:220px;overflow-y:auto"></div>
           </div>
+          ${p.parcel_id ? `
+          <div style="margin-top:14px;padding:12px 14px;border-radius:var(--radius);background:rgba(45,125,79,0.07);border:1px solid rgba(45,125,79,0.25)">
+            <div style="font-size:12px;font-weight:600;color:var(--green);margin-bottom:6px">✓ Public record attached</div>
+            <div class="fr"><span class="fl">Parcel ID</span><span class="fv" style="cursor:default">${p.parcel_id}</span></div>
+            <div class="fr"><span class="fl">Site Address</span><span class="fv" style="cursor:default">${[p.address,p.city,p.zip].filter(Boolean).join(', ')||'—'}</span></div>
+            <div class="fr"><span class="fl">Assessed Value</span><span class="fv" style="cursor:default">${p.assessed_value?Fmt.currency(p.assessed_value):'—'}</span></div>
+            <div class="fr"><span class="fl">Living Area</span><span class="fv" style="cursor:default">${p.sf_rentable?Fmt.sf(p.sf_rentable):'—'}</span></div>
+            <div class="fr"><span class="fl">Class / Type</span><span class="fv" style="cursor:default">${p.property_type||'—'}</span></div>
+          </div>` : ''}
         </div></div>
         <div id="assessor-section">
           <div style="text-align:center;padding:40px;color:var(--stone);font-size:13px">Loading public record…</div>
@@ -760,10 +775,12 @@
     try {
       const hits = await API.get(`/finder/parcels/search?q=${encodeURIComponent(q)}`);
       box.innerHTML = hits.length
-        ? hits.map(p => `<div style="padding:9px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--cream-dark)"
-              onmousedown="attachParcel('${(p.keypin||'').replace(/'/g,"\\'")}')">
-              <div style="font-weight:500">${p.siteaddress||'—'}${p.sitecity?', '+p.sitecity:''}</div>
-              <div style="font-size:11px;color:var(--stone)">Parcel ${p.keypin}${p.assessedvalue?' · '+Fmt.currency(p.assessedvalue):''}</div>
+        ? hits.map(p => `<div class="parcel-row" onmousedown="attachParcel('${(p.keypin||'').replace(/'/g,"\\'")}')">
+              <div>
+                <div style="font-weight:500">${p.siteaddress||'—'}${p.sitecity?', '+p.sitecity:''}</div>
+                <div style="font-size:11px;color:var(--stone)">Parcel ${p.keypin}${p.assessedvalue?' · '+Fmt.currency(p.assessedvalue):''}</div>
+              </div>
+              <span class="parcel-attach-btn">Attach</span>
             </div>`).join('')
         : `<div style="padding:9px 12px;font-size:13px;color:var(--stone)">No matches</div>`;
       box.style.display = 'block';
@@ -771,13 +788,18 @@
   }
 
   async function attachParcel(keypin) {
-    document.getElementById('parcel-suggestions').style.display = 'none';
+    const box = document.getElementById('parcel-suggestions');
+    box.innerHTML = '<div style="padding:9px 12px;font-size:13px;color:var(--stone)">Attaching…</div>';
+    box.style.display = 'block';
     document.getElementById('parcel-search').value = '';
     try {
       await API.post(`/${SILO}/${ID}/attach-parcel`, { keypin });
       Toast.success('Public record attached');
       await refreshAfterAttach();
-    } catch(e) { Toast.error(e.message); }
+    } catch(e) {
+      box.innerHTML = `<div style="padding:9px 12px;font-size:13px;color:var(--red)">Failed to attach: ${e.message}</div>`;
+      Toast.error('Failed to attach parcel: ' + e.message);
+    }
   }
 
   async function refreshAfterAttach() {
@@ -818,8 +840,9 @@
           ${arow('Parcel Area SF', fmtSF(data.shapearea))}
         </div></div>`;
     } catch(_) {
-      document.getElementById('assessor-section').innerHTML =
-        '<div style="padding:20px;font-size:13px;color:var(--stone)">No public record found for this property.</div>';
+      document.getElementById('assessor-section').innerHTML = parcelId
+        ? '<div style="padding:20px;font-size:13px;color:var(--stone)">No additional assessor details available for this parcel.</div>'
+        : '<div style="padding:20px;font-size:13px;color:var(--stone)">No public record found for this property.</div>';
     }
   }
 
