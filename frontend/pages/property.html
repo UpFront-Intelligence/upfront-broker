@@ -54,8 +54,6 @@
     .parcel-row { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:9px 12px; cursor:pointer; font-size:13px; border-bottom:1px solid var(--cream-dark); transition:background 0.1s; }
     .parcel-row:last-child { border-bottom:none; }
     .parcel-row:hover { background:var(--cream); }
-    .parcel-attach-btn { font-size:11px; font-weight:600; color:var(--gold); border:1px solid var(--gold); border-radius:20px; padding:3px 10px; flex-shrink:0; white-space:nowrap; transition:all 0.1s; }
-    .parcel-row:hover .parcel-attach-btn { background:var(--gold); color:#fff; }
   </style>
 </head>
 <body>
@@ -182,7 +180,6 @@
       document.title = (REC.name || REC.address || 'Property') + ' — UpFront Broker';
       render(d);
       renderRecordedOwner();
-      loadAssessor(REC.parcel_id, REC.id);
       loadTenants();
     } catch(e) { Toast.error('Failed to load: ' + e.message); }
   }
@@ -454,19 +451,9 @@
                  background:#fff;border:1px solid var(--cream-dark);border-top:none;border-radius:0 0 var(--radius) var(--radius);
                  box-shadow:var(--shadow-hover);max-height:220px;overflow-y:auto"></div>
           </div>
-          ${p.parcel_id ? `
-          <div style="margin-top:14px;padding:12px 14px;border-radius:var(--radius);background:rgba(45,125,79,0.07);border:1px solid rgba(45,125,79,0.25)">
-            <div style="font-size:12px;font-weight:600;color:var(--green);margin-bottom:6px">✓ Public record attached</div>
-            <div class="fr"><span class="fl">Parcel ID</span><span class="fv" style="cursor:default">${p.parcel_id}</span></div>
-            <div class="fr"><span class="fl">Site Address</span><span class="fv" style="cursor:default">${[p.address,p.city,p.zip].filter(Boolean).join(', ')||'—'}</span></div>
-            <div class="fr"><span class="fl">Assessed Value</span><span class="fv" style="cursor:default">${p.assessed_value?Fmt.currency(p.assessed_value):'—'}</span></div>
-            <div class="fr"><span class="fl">Living Area</span><span class="fv" style="cursor:default">${p.sf_rentable?Fmt.sf(p.sf_rentable):'—'}</span></div>
-            <div class="fr"><span class="fl">Class / Type</span><span class="fv" style="cursor:default">${p.property_type||'—'}</span></div>
-          </div>` : ''}
+          <div id="attach-status"></div>
         </div></div>
-        <div id="assessor-section">
-          <div style="text-align:center;padding:40px;color:var(--stone);font-size:13px">Loading public record…</div>
-        </div>
+        <div id="assessor-section">${publicRecordCard(p)}</div>
       </div>
 
       <!-- TAB 5: MAP -->
@@ -780,7 +767,7 @@
                 <div style="font-weight:500">${p.siteaddress||'—'}${p.sitecity?', '+p.sitecity:''}</div>
                 <div style="font-size:11px;color:var(--stone)">Parcel ${p.keypin}${p.assessedvalue?' · '+Fmt.currency(p.assessedvalue):''}</div>
               </div>
-              <span class="parcel-attach-btn">Attach</span>
+              <button type="button" class="btn btn-gold btn-sm">Attach</button>
             </div>`).join('')
         : `<div style="padding:9px 12px;font-size:13px;color:var(--stone)">No matches</div>`;
       box.style.display = 'block';
@@ -788,17 +775,21 @@
   }
 
   async function attachParcel(keypin) {
-    const box = document.getElementById('parcel-suggestions');
-    box.innerHTML = '<div style="padding:9px 12px;font-size:13px;color:var(--stone)">Attaching…</div>';
-    box.style.display = 'block';
+    document.getElementById('parcel-suggestions').style.display = 'none';
     document.getElementById('parcel-search').value = '';
+    let status = document.getElementById('attach-status');
+    status.innerHTML = '<div style="margin-top:10px;font-size:13px;color:var(--stone)">Attaching…</div>';
     try {
       await API.post(`/${SILO}/${ID}/attach-parcel`, { keypin });
-      Toast.success('Public record attached');
       await refreshAfterAttach();
+      status = document.getElementById('attach-status');
+      status.innerHTML = '<div style="margin-top:10px;font-size:13px;font-weight:600;color:var(--green)">✓ Public record attached</div>';
+      setTimeout(() => {
+        const s = document.getElementById('attach-status');
+        if (s) s.innerHTML = '';
+      }, 4000);
     } catch(e) {
-      box.innerHTML = `<div style="padding:9px 12px;font-size:13px;color:var(--red)">Failed to attach: ${e.message}</div>`;
-      Toast.error('Failed to attach parcel: ' + e.message);
+      status.innerHTML = `<div style="margin-top:10px;font-size:13px;color:var(--red)">Failed to attach: ${e.message}</div>`;
     }
   }
 
@@ -810,40 +801,24 @@
       RECORDED_OWNER = d.recorded_owner_account || null;
       render(d);
       renderRecordedOwner();
-      loadAssessor(REC.parcel_id, REC.id);
       renderTenants();
       switchTab(activeTab);
     } catch(e) { Toast.error('Failed to refresh: ' + e.message); }
   }
 
-  // ── Oakland County Assessor ───────────────────────────────────────────────
-  async function loadAssessor(parcelId, propertyId) {
-    try {
-      const kp   = encodeURIComponent(parcelId || '-');
-      const data = await API.get(`/finder/parcel/${kp}?property_id=${propertyId}`);
-      if (!data || !Object.keys(data).length) throw new Error('empty');
-      function arow(label, val) {
-        if (val == null || val === '') return '';
-        return `<div class="fr"><span class="fl">${label}</span><span class="fv" style="cursor:default" data-raw="${String(val).replace(/"/g,'&quot;')}">${val}</span></div>`;
-      }
-      const fmtVal = v => v ? Fmt.currency(v) : null;
-      const fmtSF  = v => v ? Number(v).toLocaleString() + ' SF' : null;
-      document.getElementById('assessor-section').innerHTML =
-        `<div class="dc"><div class="dc-title">🏛 Oakland County Assessor</div><div class="dc-body">
-          ${arow('Owner',          data.name1)}
-          ${arow('Owner 2',        data.name2)}
-          ${arow('Municipality',   data.cvttaxdescription)}
-          ${arow('Class Code',     data.classcode)}
-          ${arow('Assessed Value', fmtVal(data.assessedvalue))}
-          ${arow('Taxable Value',  fmtVal(data.taxablevalue))}
-          ${arow('Living Area SF', fmtSF(data.living_area_sqft))}
-          ${arow('Parcel Area SF', fmtSF(data.shapearea))}
-        </div></div>`;
-    } catch(_) {
-      document.getElementById('assessor-section').innerHTML = parcelId
-        ? '<div style="padding:20px;font-size:13px;color:var(--stone)">No additional assessor details available for this parcel.</div>'
-        : '<div style="padding:20px;font-size:13px;color:var(--stone)">No public record found for this property.</div>';
+  // ── Public record card (sourced from the property's own fields) ──────────
+  function publicRecordCard(p) {
+    if (!p.parcel_id) {
+      return '<div style="padding:20px;font-size:13px;color:var(--stone)">No public record found for this property.</div>';
     }
+    const fmtSF = v => v ? Number(v).toLocaleString() + ' SF' : '—';
+    return `<div class="dc"><div class="dc-title">🏛 Public Record</div><div class="dc-body">
+      <div class="fr"><span class="fl">Parcel ID</span><span class="fv" style="cursor:default">${p.parcel_id}</span></div>
+      <div class="fr"><span class="fl">Site Address</span><span class="fv" style="cursor:default">${[p.address,p.city,p.zip].filter(Boolean).join(', ')||'—'}</span></div>
+      <div class="fr"><span class="fl">Assessed Value</span><span class="fv" style="cursor:default">${p.assessed_value?Fmt.currency(p.assessed_value):'—'}</span></div>
+      <div class="fr"><span class="fl">Living Area</span><span class="fv" style="cursor:default">${fmtSF(p.sf_rentable)}</span></div>
+      <div class="fr"><span class="fl">Class / Type</span><span class="fv" style="cursor:default">${p.property_type||'—'}</span></div>
+    </div></div>`;
   }
 
   // ── Inline edit ──────────────────────────────────────────────────────────
