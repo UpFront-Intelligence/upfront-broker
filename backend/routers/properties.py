@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, List, Tuple
@@ -10,6 +11,7 @@ from models.property import Property
 from models.user import User
 from auth_utils import get_current_user
 from services.accounts import ensure_role
+from routers.finder import _classcode_to_type
 
 
 def _geocode(address: str, city: str, state: str) -> Tuple[Optional[float], Optional[float]]:
@@ -113,6 +115,9 @@ class PropertyResponse(PropertyCreate):
 
     class Config:
         from_attributes = True
+
+class AttachParcelRequest(BaseModel):
+    keypin: str
 
 @router.get("/")
 def list_properties(
@@ -308,6 +313,53 @@ def update_property(
             prop.lat, prop.lng = lat, lng
             db.commit()
             db.refresh(prop)
+    return prop
+
+@router.post("/{property_id}/attach-parcel", response_model=PropertyResponse)
+def attach_parcel(
+    property_id: int,
+    data: AttachParcelRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Pull public-record fields from the local parcels table onto a property.
+
+    Owner-isolated on the property; the parcels table itself is shared
+    reference data (Option A) with no owner_id scoping.
+    """
+    prop = db.query(Property).filter(
+        Property.id == property_id,
+        Property.owner_id == current_user.id
+    ).first()
+    if not prop:
+        raise HTTPException(status_code=404, detail="Property not found")
+
+    row = db.execute(
+        text("SELECT keypin, siteaddress, sitecity, sitezip5, classcode,"
+             " assessedvalue, living_area_sqft FROM parcels WHERE keypin = :k"),
+        {"k": data.keypin},
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Parcel not found")
+
+    prop.parcel_id = row.keypin or data.keypin
+    if row.assessedvalue is not None:
+        prop.assessed_value = float(row.assessedvalue)
+    if row.living_area_sqft is not None:
+        prop.sf_rentable = float(row.living_area_sqft)
+    if row.classcode:
+        mapped_type = _classcode_to_type(row.classcode)
+        if mapped_type:
+            prop.property_type = mapped_type
+    if not prop.address and row.siteaddress:
+        prop.address = row.siteaddress
+    if not prop.city and row.sitecity:
+        prop.city = row.sitecity.title()
+    if not prop.zip and row.sitezip5:
+        prop.zip = row.sitezip5
+
+    db.commit()
+    db.refresh(prop)
     return prop
 
 @router.get("/{property_id}/full")

@@ -441,6 +441,14 @@
       <!-- TAB 4: PUBLIC RECORD -->
       <div id="tab-public" class="tab-pane">
         <div class="dc"><div class="dc-title">Recorded Owner</div><div class="dc-body" id="ro-body"></div></div>
+        <div class="dc"><div class="dc-title">Attach Public Record</div><div class="dc-body">
+          <div style="position:relative;max-width:420px">
+            <input type="text" id="parcel-search" class="form-control" placeholder="Search by address or parcel ID…" autocomplete="off" oninput="onParcelSearchInput()">
+            <div id="parcel-suggestions" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:200;
+                 background:#fff;border:1px solid var(--cream-dark);border-top:none;border-radius:0 0 var(--radius) var(--radius);
+                 box-shadow:var(--shadow-hover);max-height:220px;overflow-y:auto"></div>
+          </div>
+        </div></div>
         <div id="assessor-section">
           <div style="text-align:center;padding:40px;color:var(--stone);font-size:13px">Loading public record…</div>
         </div>
@@ -735,6 +743,55 @@
       const acct = await API.post('/accounts/', { name });
       await selectOwnerAccount(acct.id, acct.name);
     } catch(e) { Toast.error(e.message); }
+  }
+
+  // ── Attach public record (parcels search) ────────────────────────────────
+  let _parcelSearchTimer = null;
+
+  function onParcelSearchInput() {
+    clearTimeout(_parcelSearchTimer);
+    _parcelSearchTimer = setTimeout(doParcelSearch, 280);
+  }
+
+  async function doParcelSearch() {
+    const q   = document.getElementById('parcel-search').value.trim();
+    const box = document.getElementById('parcel-suggestions');
+    if (q.length < 2) { box.style.display = 'none'; return; }
+    try {
+      const hits = await API.get(`/finder/parcels/search?q=${encodeURIComponent(q)}`);
+      box.innerHTML = hits.length
+        ? hits.map(p => `<div style="padding:9px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--cream-dark)"
+              onmousedown="attachParcel('${(p.keypin||'').replace(/'/g,"\\'")}')">
+              <div style="font-weight:500">${p.siteaddress||'—'}${p.sitecity?', '+p.sitecity:''}</div>
+              <div style="font-size:11px;color:var(--stone)">Parcel ${p.keypin}${p.assessedvalue?' · '+Fmt.currency(p.assessedvalue):''}</div>
+            </div>`).join('')
+        : `<div style="padding:9px 12px;font-size:13px;color:var(--stone)">No matches</div>`;
+      box.style.display = 'block';
+    } catch(_) { box.style.display = 'none'; }
+  }
+
+  async function attachParcel(keypin) {
+    document.getElementById('parcel-suggestions').style.display = 'none';
+    document.getElementById('parcel-search').value = '';
+    try {
+      await API.post(`/${SILO}/${ID}/attach-parcel`, { keypin });
+      Toast.success('Public record attached');
+      await refreshAfterAttach();
+    } catch(e) { Toast.error(e.message); }
+  }
+
+  async function refreshAfterAttach() {
+    const activeTab = document.querySelector('.tab-btn.active')?.dataset.tab || 'public';
+    try {
+      const d = await API.get(`/${SILO}/${ID}/full`);
+      REC = d.property;
+      RECORDED_OWNER = d.recorded_owner_account || null;
+      render(d);
+      renderRecordedOwner();
+      loadAssessor(REC.parcel_id, REC.id);
+      renderTenants();
+      switchTab(activeTab);
+    } catch(e) { Toast.error('Failed to refresh: ' + e.message); }
   }
 
   // ── Oakland County Assessor ───────────────────────────────────────────────

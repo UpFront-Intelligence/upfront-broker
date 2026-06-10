@@ -461,6 +461,38 @@ def get_parcels(
     }
 
 
+@router.get("/parcels/search")
+def search_parcels(
+    q:            str     = "",
+    db:           Session = Depends(get_db),
+    current_user: User    = Depends(get_current_user),
+):
+    """Lightweight typeahead over the local parcels table — shared reference
+    data (Option A), no owner_id scoping."""
+    q = q.strip()
+    if len(q) < 2:
+        return []
+    try:
+        rows = db.execute(
+            text("SELECT keypin, siteaddress, sitecity, sitezip5, classcode,"
+                 " assessedvalue, living_area_sqft FROM parcels"
+                 " WHERE siteaddress ILIKE :q OR keypin ILIKE :q"
+                 " LIMIT 10"),
+            {"q": f"%{q}%"},
+        ).fetchall()
+    except Exception:
+        return []
+    return [{
+        "keypin":           r.keypin,
+        "siteaddress":      r.siteaddress,
+        "sitecity":         r.sitecity,
+        "sitezip5":         r.sitezip5,
+        "classcode":        r.classcode,
+        "assessedvalue":    float(r.assessedvalue) if r.assessedvalue is not None else None,
+        "living_area_sqft": float(r.living_area_sqft) if r.living_area_sqft is not None else None,
+    } for r in rows]
+
+
 @router.get("/parcel/{keypin}")
 def get_parcel_by_keypin(
     keypin:       str,
