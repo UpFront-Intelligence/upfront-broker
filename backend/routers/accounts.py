@@ -113,6 +113,24 @@ def create_account(
     db.refresh(account)
     return account
 
+@router.get("/search")
+def search_accounts(
+    q: str = "",
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Lightweight typeahead — owner-scoped name search."""
+    q = q.strip()
+    if len(q) < 2:
+        return []
+    rows = (db.query(Account.id, Account.name)
+              .filter(Account.owner_id == current_user.id, Account.name.ilike(f"%{q}%"))
+              .order_by(Account.name)
+              .limit(8)
+              .all())
+    return [{"id": r.id, "name": r.name} for r in rows]
+
+
 @router.get("/{account_id}", response_model=AccountResponse)
 def get_account(
     account_id: int,

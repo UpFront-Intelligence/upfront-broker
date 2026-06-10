@@ -165,14 +165,17 @@
   let REC = {};
   let tabMap = null, nearbyActive = false, nearbyMarkers = [];
   let TENANTS = [];
+  let RECORDED_OWNER = null, roEditing = false;
 
   async function load() {
     try {
       const d = await API.get(`/${SILO}/${ID}/full`);
       REC = d.property;
+      RECORDED_OWNER = d.recorded_owner_account || null;
       document.getElementById('page-title').textContent = REC.name || REC.address || 'Property';
       document.title = (REC.name || REC.address || 'Property') + ' — UpFront Broker';
       render(d);
+      renderRecordedOwner();
       loadAssessor(REC.parcel_id, REC.id);
       loadTenants();
     } catch(e) { Toast.error('Failed to load: ' + e.message); }
@@ -437,6 +440,7 @@
 
       <!-- TAB 4: PUBLIC RECORD -->
       <div id="tab-public" class="tab-pane">
+        <div class="dc"><div class="dc-title">Recorded Owner</div><div class="dc-body" id="ro-body"></div></div>
         <div id="assessor-section">
           <div style="text-align:center;padding:40px;color:var(--stone);font-size:13px">Loading public record…</div>
         </div>
@@ -668,6 +672,68 @@
       TENANTS = TENANTS.filter(t => t.id !== id);
       renderTenants();
       Toast.success('Removed');
+    } catch(e) { Toast.error(e.message); }
+  }
+
+  // ── Recorded Owner (links property to an Account) ─────────────────────────
+  let _ownerTimer = null;
+
+  function renderRecordedOwner() {
+    const body = document.getElementById('ro-body');
+    if (!body) return;
+    if (RECORDED_OWNER && !roEditing) {
+      body.innerHTML = `
+        <a class="chip" href="/pages/account.html?id=${RECORDED_OWNER.id}">${RECORDED_OWNER.name}</a>
+        <button class="btn btn-ghost btn-sm" onclick="roEditing=true;renderRecordedOwner()">Change</button>`;
+      return;
+    }
+    body.innerHTML = `
+      <div style="position:relative;max-width:320px">
+        <input type="text" id="ro-search" class="form-control" placeholder="Search accounts…" autocomplete="off" oninput="onOwnerInput()">
+        <div id="ro-suggestions" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:200;
+             background:#fff;border:1px solid var(--cream-dark);border-top:none;border-radius:0 0 var(--radius) var(--radius);
+             box-shadow:var(--shadow-hover);max-height:180px;overflow-y:auto"></div>
+      </div>
+      ${RECORDED_OWNER ? `<button class="btn btn-ghost btn-sm" style="margin-top:6px" onclick="roEditing=false;renderRecordedOwner()">Cancel</button>` : ''}`;
+  }
+
+  function onOwnerInput() {
+    clearTimeout(_ownerTimer);
+    _ownerTimer = setTimeout(doOwnerSearch, 280);
+  }
+
+  async function doOwnerSearch() {
+    const q   = document.getElementById('ro-search').value.trim();
+    const box = document.getElementById('ro-suggestions');
+    if (q.length < 2) { box.style.display = 'none'; return; }
+    try {
+      const hits = await API.get(`/accounts/search?q=${encodeURIComponent(q)}`);
+      box.innerHTML = hits.map(h =>
+        `<div style="padding:9px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--cream-dark)"
+              onmousedown="selectOwnerAccount(${h.id},'${h.name.replace(/'/g,"\\'")}')">${h.name}</div>`
+      ).join('') +
+        `<div style="padding:9px 12px;cursor:pointer;font-size:12px;color:var(--stone);background:var(--cream)"
+              onmousedown="createOwnerAccount('${q.replace(/'/g,"\\'")}')">+ Create "${q}" as new account</div>`;
+      box.style.display = 'block';
+    } catch(_) { box.style.display = 'none'; }
+  }
+
+  async function selectOwnerAccount(id, name) {
+    document.getElementById('ro-suggestions').style.display = 'none';
+    try {
+      await API.put(`/${SILO}/${ID}`, { recorded_owner_account_id: id });
+      RECORDED_OWNER = {id, name};
+      roEditing = false;
+      renderRecordedOwner();
+      Toast.success('Owner linked');
+    } catch(e) { Toast.error(e.message); }
+  }
+
+  async function createOwnerAccount(name) {
+    document.getElementById('ro-suggestions').style.display = 'none';
+    try {
+      const acct = await API.post('/accounts/', { name });
+      await selectOwnerAccount(acct.id, acct.name);
     } catch(e) { Toast.error(e.message); }
   }
 
