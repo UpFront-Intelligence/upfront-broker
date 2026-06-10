@@ -35,5 +35,6 @@ class Account(Base):
     # Relationships
     owner           = relationship("User",           back_populates="accounts")
     contact_links   = relationship("ContactAccount", back_populates="account")
-    properties      = relationship("Property",       back_populates="account")
+    properties      = relationship("Property",       back_populates="account",
+                                    foreign_keys="Property.account_id")
     deal_links      = relationship("DealContact",    back_populates="account")

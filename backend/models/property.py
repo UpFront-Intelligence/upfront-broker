@@ -209,7 +209,8 @@ class Property(Base):
 
     # Relationships
     owner       = relationship("User",     back_populates="properties")
-    account     = relationship("Account",  back_populates="properties")
+    account     = relationship("Account",  back_populates="properties",
+                                foreign_keys=[account_id])
     deals       = relationship("Deal",     back_populates="property")
     activities  = relationship("Activity", back_populates="property")
     documents   = relationship("Document", back_populates="property")
