@@ -4,6 +4,12 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import os
 
+class RevalidateStaticFiles(StaticFiles):
+    async def get_response(self, path, scope):
+        resp = await super().get_response(path, scope)
+        resp.headers["Cache-Control"] = "no-cache, must-revalidate"
+        return resp
+
 from routers import contacts, accounts, properties, deals, activities, documents, portal, comps, auth, imports, finder, portfolio, tenants
 
 # Table creation is handled exclusively by Alembic (alembic upgrade head on startup).
@@ -39,8 +45,8 @@ app.include_router(tenants.router,      prefix="/api/tenants",      tags=["tenan
 frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend")
 pages_path    = os.path.join(frontend_path, "pages")
 
-app.mount("/static", StaticFiles(directory=os.path.join(frontend_path, "css"), html=False), name="css")
-app.mount("/js",     StaticFiles(directory=os.path.join(frontend_path, "js"),  html=False), name="js")
+app.mount("/static", RevalidateStaticFiles(directory=os.path.join(frontend_path, "css"), html=False), name="css")
+app.mount("/js",     RevalidateStaticFiles(directory=os.path.join(frontend_path, "js"),  html=False), name="js")
 
 # ── HTML pages — never cached ─────────────────────────────────────────────────
 # StaticFiles cannot set response headers reliably; explicit FileResponse routes
