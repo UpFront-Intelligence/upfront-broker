@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, ARRAY
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
@@ -10,12 +10,14 @@ class Account(Base):
     owner_id    = Column(Integer, ForeignKey("users.id"), nullable=False)
 
     # Entity info
-    name        = Column(String, nullable=False, index=True)
-    entity_type = Column(String)  # LLC, Corp, Trust, Individual, REIT, Partnership
-    ein         = Column(String)  # Tax ID
-    website     = Column(String)
-    phone       = Column(String)
-    email       = Column(String)
+    name            = Column(String, nullable=False, index=True)
+    normalized_name = Column(String, nullable=True)
+    roles           = Column(ARRAY(String), nullable=False, server_default='{}', default=list)
+    entity_type     = Column(String)  # LLC, Corp, Trust, Individual, REIT, Partnership
+    ein             = Column(String)  # Tax ID
+    website         = Column(String)
+    phone           = Column(String)
+    email           = Column(String)
 
     # Address
     address     = Column(String)

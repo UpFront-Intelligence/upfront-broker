@@ -4,7 +4,6 @@ Tenants router — /api/tenants
 Route ordering matters: /fuzzy and /spaces/* must appear before /{tenant_id}
 so FastAPI doesn't swallow them as integer path params.
 """
-import re
 import xml.etree.ElementTree as ET
 from datetime import date as DateType
 from typing import Optional
@@ -25,27 +24,9 @@ from models.property import Property
 from models.property_tenant import PropertyTenant
 from models.tenant import Tenant
 from models.user import User
+from services.naming import normalize_name as _normalize
 
 router = APIRouter()
-
-# ── Name normalisation ────────────────────────────────────────────────────────
-
-_STRIP = {
-    'llc', 'corp', 'corporation', 'co', 'inc', 'incorporated', 'ltd', 'limited',
-    'coffee', 'restaurant', 'cafe', 'company', 'the', 'group', 'holdings',
-    'enterprises', 'bar', 'grill', 'kitchen', 'bistro', 'eatery', 'diner',
-    'and', 'of', 'at', 'by',
-}
-
-
-def _normalize(name: str) -> str:
-    if not name:
-        return ''
-    n = name.lower().strip()
-    n = re.sub(r"[^\w\s]", ' ', n)
-    words = [w for w in n.split() if w not in _STRIP]
-    return ' '.join(words) if words else n.strip()
-
 
 # ── Serialisers ───────────────────────────────────────────────────────────────
 
