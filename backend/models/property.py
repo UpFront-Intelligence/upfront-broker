@@ -15,6 +15,11 @@ class Property(Base):
     owner_id    = Column(Integer, ForeignKey("users.id"),    nullable=False)
     account_id  = Column(Integer, ForeignKey("accounts.id"), nullable=True)  # current owner entity
 
+    # Linked parties (accounts) — separate from owner_id, which is the broker
+    recorded_owner_account_id = Column(Integer, ForeignKey("accounts.id", ondelete="SET NULL"), nullable=True)
+    manager_account_id        = Column(Integer, ForeignKey("accounts.id", ondelete="SET NULL"), nullable=True)
+    tax_bill_account_id       = Column(Integer, ForeignKey("accounts.id", ondelete="SET NULL"), nullable=True)
+
     # Identity
     name        = Column(String)
     address     = Column(String, nullable=False)

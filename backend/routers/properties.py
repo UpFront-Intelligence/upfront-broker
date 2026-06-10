@@ -5,9 +5,11 @@ from typing import Optional, List, Tuple
 from datetime import date
 import urllib.request, urllib.parse, json
 from database import get_db
+from models.account import Account
 from models.property import Property
 from models.user import User
 from auth_utils import get_current_user
+from services.accounts import ensure_role
 
 
 def _geocode(address: str, city: str, state: str) -> Tuple[Optional[float], Optional[float]]:
@@ -27,6 +29,41 @@ def _geocode(address: str, city: str, state: str) -> Tuple[Optional[float], Opti
     return None, None
 
 router = APIRouter()
+
+# Account-link fields on Property -> the role ensure_role() should add to
+# that account once linked. tax_bill_account_id is a clue only — no role.
+ACCOUNT_LINK_ROLES = {
+    'recorded_owner_account_id': 'owner',
+    'manager_account_id': 'property_manager',
+    'tax_bill_account_id': None,
+}
+
+
+def _validate_account_links(db, link_values, current_user):
+    """Resolve {field: account_id} to {field: Account} for non-null ids.
+
+    Owner-isolation check: the referenced account must belong to the
+    current broker, or the whole request is rejected.
+    """
+    accounts = {}
+    for field, account_id in link_values.items():
+        if account_id is None:
+            continue
+        acct = db.query(Account).filter(
+            Account.id == account_id, Account.owner_id == current_user.id
+        ).first()
+        if not acct:
+            raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
+        accounts[field] = acct
+    return accounts
+
+
+def _apply_account_link_roles(accounts):
+    for field, acct in accounts.items():
+        role = ACCOUNT_LINK_ROLES.get(field)
+        if role:
+            ensure_role(acct, role)
+
 
 class PropertyCreate(BaseModel):
     name: Optional[str] = None
@@ -60,6 +97,9 @@ class PropertyCreate(BaseModel):
     last_sale_date: Optional[date] = None
     notes: Optional[str] = None
     account_id: Optional[int] = None
+    recorded_owner_account_id: Optional[int] = None
+    manager_account_id: Optional[int] = None
+    tax_bill_account_id: Optional[int] = None
     lat: Optional[float] = None
     lng: Optional[float] = None
 
@@ -212,8 +252,11 @@ def create_property(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    accounts = _validate_account_links(
+        db, {f: getattr(data, f) for f in ACCOUNT_LINK_ROLES}, current_user)
     prop = Property(**data.dict(), owner_id=current_user.id)
     db.add(prop)
+    _apply_account_link_roles(accounts)
     db.commit()
     db.refresh(prop)
     if not prop.lat and prop.address:
@@ -252,8 +295,11 @@ def update_property(
     if not prop:
         raise HTTPException(status_code=404, detail="Property not found")
     updated = data.dict(exclude_unset=True)
+    accounts = _validate_account_links(
+        db, {f: updated[f] for f in ACCOUNT_LINK_ROLES if f in updated}, current_user)
     for key, val in updated.items():
         setattr(prop, key, val)
+    _apply_account_link_roles(accounts)
     db.commit()
     db.refresh(prop)
     if updated.keys() & {'address', 'city', 'state'} and prop.address:
@@ -270,7 +316,6 @@ def get_property_full(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    from models.account import Account
     from models.contact import Contact
     from models.contact_account import ContactAccount
     from models.deal import Deal, DealContact
@@ -281,13 +326,24 @@ def get_property_full(
     if not prop:
         raise HTTPException(404, "Property not found")
 
+    # Batch-load any linked accounts (current owner entity + recorded owner)
+    linked_ids = [aid for aid in (prop.account_id, prop.recorded_owner_account_id) if aid]
+    accounts_by_id = {}
+    if linked_ids:
+        for a in db.query(Account).filter(Account.id.in_(linked_ids),
+                                           Account.owner_id == current_user.id).all():
+            accounts_by_id[a.id] = a
+
     acct = None
-    if prop.account_id:
-        a = db.query(Account).filter(Account.id == prop.account_id,
-                                     Account.owner_id == current_user.id).first()
-        if a:
-            acct = {"id": a.id, "name": a.name, "entity_type": a.entity_type,
-                    "city": a.city, "state": a.state}
+    if prop.account_id and prop.account_id in accounts_by_id:
+        a = accounts_by_id[prop.account_id]
+        acct = {"id": a.id, "name": a.name, "entity_type": a.entity_type,
+                "city": a.city, "state": a.state}
+
+    recorded_owner_account = None
+    if prop.recorded_owner_account_id and prop.recorded_owner_account_id in accounts_by_id:
+        a = accounts_by_id[prop.recorded_owner_account_id]
+        recorded_owner_account = {"id": a.id, "name": a.name}
 
     contacts = []
     if prop.account_id:
@@ -320,6 +376,7 @@ def get_property_full(
     return {
         "property":   prop_d,
         "account":    acct,
+        "recorded_owner_account": recorded_owner_account,
         "contacts":   contacts,
         "deals":      deals,
         "activities": [{"id": a.id, "activity_type": a.activity_type, "subject": a.subject,
