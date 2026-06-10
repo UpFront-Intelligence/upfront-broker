@@ -344,18 +344,40 @@ uvicorn main:app --reload --port 8000
 - [ ] comps.html      — comp table + CRE data import
 - [ ] Macomb County ArcGIS — second county for Property Finder
 
+### Tenant Module (complete)
+- [x] tenants.html / tenant.html — list page + detail page with Properties / Contacts / News tabs
+- [x] Tenant + PropertyTenant models — top-level `tenants` entity + `property_tenants`
+                         junction (migration b2c3d4e5f6a7), `normalized_name` + rapidfuzz
+                         fuzzy matching (`fuzz.partial_ratio`, threshold 55)
+- [x] property.html Tab 2 (Spaces & Tenants) — fuzzy typeahead, auto-creates Tenant on save
+- [x] Tenant News tab — Google News RSS (no API key required)
+- [x] Contacts tab — `tenant_id` FK on contacts (migration c3d4e5f6a7b8); GET
+                         /tenants/{id}/contacts returns direct FK + fuzzy account-name
+                         matches, deduplicated; Link/New Contact flows; tenant badges
+                         on contact.html + contacts.html
+- [ ] scripts/migrate_tenants.py — backfills legacy `property.tenant` text field into
+                         tenants/property_tenants. Confirm it has been run on Render
+                         (`cd /opt/render/project/src && python scripts/migrate_tenants.py`)
+
 ### Infrastructure (complete)
 - [x] Google OAuth 2.0 + email/password auth (both active)
-- [x] Alembic migrations — enrichment_cache, lat/lng, google_id, 108 commercial fields
+- [x] Alembic migrations — enrichment_cache, lat/lng, google_id, 108 commercial fields,
+                         tenants/property_tenants module, tenant_id on contacts
 - [x] Render deploy — render.yaml, alembic upgrade on startup, no-cache HTML headers
+- [x] Static asset cache control — RevalidateStaticFiles on /static + /js mounts
+                         (Cache-Control: no-cache, must-revalidate); main.css/app.js
+                         references cache-busted with ?v=2
 
 ## Next Session Priorities
-1. **Portfolio Intelligence testing** — verify all 6 query types against live data
-2. **Daily Digest** — morning email/dashboard summarizing activity, closes, pipeline moves
-3. **Macomb County ArcGIS** — second parcel source for Property Finder
-4. **LLC clustering deep-dive** — owner pattern query + visualization improvements
-5. **Constant Contact / email outreach** — native broker outreach from contact records
-6. **Buyer profile AI** — scrape acquisition criteria pages, match to pipeline properties
+1. **Tenant module smoke test** — confirm scripts/migrate_tenants.py has run on Render,
+   then exercise tenant.html (Properties/Contacts/News tabs, Link/New Contact, fuzzy
+   typeahead on property.html Tab 2) against live data
+2. **Portfolio Intelligence testing** — verify all 6 query types against live data
+3. **Daily Digest** — morning email/dashboard summarizing activity, closes, pipeline moves
+4. **Macomb County ArcGIS** — second parcel source for Property Finder
+5. **LLC clustering deep-dive** — owner pattern query + visualization improvements
+6. **Constant Contact / email outreach** — native broker outreach from contact records
+7. **Buyer profile AI** — scrape acquisition criteria pages, match to pipeline properties
 
 ---
 
