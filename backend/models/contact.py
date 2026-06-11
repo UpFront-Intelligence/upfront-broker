@@ -40,3 +40,5 @@ class Contact(Base):
     deal_links          = relationship("DealContact",     back_populates="contact")
     activities          = relationship("Activity",        back_populates="contact")
     documents           = relationship("Document",        back_populates="contact")
+    phones              = relationship("ContactPhone",    back_populates="contact",
+                                        foreign_keys="ContactPhone.contact_id")

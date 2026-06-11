@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 from database import get_db
 from models.contact import Contact
+from models.contact_phone import ContactPhone
 from models.contact_account import ContactAccount
 from models.account import Account
 from models.user import User
@@ -58,6 +59,45 @@ class ContactResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class ContactPhoneCreate(BaseModel):
+    label: Optional[str] = None
+    number: str
+    is_primary: Optional[bool] = False
+
+class ContactPhoneUpdate(BaseModel):
+    label: Optional[str] = None
+    number: Optional[str] = None
+    is_primary: Optional[bool] = None
+
+class ContactPhoneResponse(BaseModel):
+    id: int
+    label: Optional[str]
+    number: str
+    is_primary: bool
+
+    class Config:
+        from_attributes = True
+
+
+def _get_owned_contact(contact_id: int, db: Session, current_user: User) -> Contact:
+    contact = db.query(Contact).filter(
+        Contact.id == contact_id, Contact.owner_id == current_user.id
+    ).first()
+    if not contact:
+        raise HTTPException(status_code=404, detail="Contact not found")
+    return contact
+
+
+def _resync_legacy_phone(db, contact, contact_id, current_user):
+    """Mirror the contact's primary phone into contacts.phone for legacy reads."""
+    primary = db.query(ContactPhone).filter(
+        ContactPhone.contact_id == contact_id,
+        ContactPhone.owner_id == current_user.id,
+        ContactPhone.is_primary.is_(True)
+    ).first()
+    contact.phone = primary.number if primary else None
 
 
 def _load_tenant_names(contacts, db) -> dict:
@@ -230,6 +270,111 @@ def delete_contact(
     return {"deleted": True}
 
 
+@router.get("/{contact_id}/phones", response_model=List[ContactPhoneResponse])
+def list_contact_phones(
+    contact_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    _get_owned_contact(contact_id, db, current_user)
+    return (
+        db.query(ContactPhone)
+        .filter(ContactPhone.contact_id == contact_id, ContactPhone.owner_id == current_user.id)
+        .order_by(ContactPhone.is_primary.desc(), ContactPhone.id.asc())
+        .all()
+    )
+
+
+@router.post("/{contact_id}/phones", response_model=ContactPhoneResponse)
+def create_contact_phone(
+    contact_id: int,
+    data: ContactPhoneCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    contact = _get_owned_contact(contact_id, db, current_user)
+    phone = ContactPhone(
+        owner_id=current_user.id,
+        contact_id=contact_id,
+        label=data.label,
+        number=data.number,
+        is_primary=bool(data.is_primary),
+    )
+    db.add(phone)
+    if phone.is_primary:
+        db.flush()
+        db.query(ContactPhone).filter(
+            ContactPhone.contact_id == contact_id,
+            ContactPhone.owner_id == current_user.id,
+            ContactPhone.id != phone.id
+        ).update({"is_primary": False})
+        _resync_legacy_phone(db, contact, contact_id, current_user)
+    db.commit()
+    db.refresh(phone)
+    return phone
+
+
+@router.put("/{contact_id}/phones/{phone_id}", response_model=ContactPhoneResponse)
+def update_contact_phone(
+    contact_id: int,
+    phone_id: int,
+    data: ContactPhoneUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    contact = _get_owned_contact(contact_id, db, current_user)
+    phone = db.query(ContactPhone).filter(
+        ContactPhone.id == phone_id,
+        ContactPhone.contact_id == contact_id,
+        ContactPhone.owner_id == current_user.id
+    ).first()
+    if not phone:
+        raise HTTPException(status_code=404, detail="Phone not found")
+
+    fields = data.dict(exclude_unset=True)
+    for key, val in fields.items():
+        setattr(phone, key, val)
+
+    if phone.is_primary:
+        db.query(ContactPhone).filter(
+            ContactPhone.contact_id == contact_id,
+            ContactPhone.owner_id == current_user.id,
+            ContactPhone.id != phone_id
+        ).update({"is_primary": False})
+
+    db.flush()
+    if 'is_primary' in fields or 'number' in fields:
+        _resync_legacy_phone(db, contact, contact_id, current_user)
+    db.commit()
+    db.refresh(phone)
+    return phone
+
+
+@router.delete("/{contact_id}/phones/{phone_id}")
+def delete_contact_phone(
+    contact_id: int,
+    phone_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    contact = _get_owned_contact(contact_id, db, current_user)
+    phone = db.query(ContactPhone).filter(
+        ContactPhone.id == phone_id,
+        ContactPhone.contact_id == contact_id,
+        ContactPhone.owner_id == current_user.id
+    ).first()
+    if not phone:
+        raise HTTPException(status_code=404, detail="Phone not found")
+
+    was_primary = phone.is_primary
+    db.delete(phone)
+    db.flush()
+    if was_primary:
+        _resync_legacy_phone(db, contact, contact_id, current_user)
+    db.commit()
+    return {"deleted": True}
+
+
 @router.get("/{contact_id}/full")
 def get_contact_full(
     contact_id: int,
@@ -265,6 +410,13 @@ def get_contact_full(
     docs = db.query(Document).filter(Document.contact_id == contact_id,
                                      Document.owner_id == current_user.id).all()
 
+    phones = (
+        db.query(ContactPhone)
+        .filter(ContactPhone.contact_id == contact_id, ContactPhone.owner_id == current_user.id)
+        .order_by(ContactPhone.is_primary.desc(), ContactPhone.id.asc())
+        .all()
+    )
+
     c_dict = ContactResponse.model_validate(c).model_dump()
     if c.tenant_id:
         from models.tenant import Tenant
@@ -281,4 +433,6 @@ def get_contact_full(
                         "created_at": str(a.created_at)} for a in acts],
         "documents":  [{"id": d.id, "name": d.name, "doc_type": d.doc_type,
                         "file_url": d.file_url} for d in docs],
+        "phones":     [{"id": p.id, "label": p.label, "number": p.number,
+                        "is_primary": p.is_primary} for p in phones],
     }

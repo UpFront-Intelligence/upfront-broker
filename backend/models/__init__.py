@@ -1,5 +1,6 @@
 from models.user import User
 from models.contact import Contact
+from models.contact_phone import ContactPhone
 from models.account import Account
 from models.account_role import AccountRole
 from models.contact_account import ContactAccount

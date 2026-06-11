@@ -54,12 +54,14 @@
   const SILO = 'contacts';
   const ACT_ICONS = {'Call':'📞','Email':'✉️','Meeting':'🤝','Tour':'🏢','Offer':'📋','LOI':'📄','Contract':'✍️','Note':'📝'};
   const TYPE_CLASS = {'Owner':'badge-navy','Buyer':'badge-green','Tenant':'badge-blue','Attorney':'badge-stone','Lender':'badge-amber','Broker':'badge-gold'};
+  const PHONE_LABELS = ['mobile','office','direct','fax','other'];
   let REC = {};
 
   async function load() {
     try {
       const d = await API.get(`/${SILO}/${ID}/full`);
       REC = d.contact;
+      REC.phones = d.phones || [];
       const name = `${REC.first_name||''} ${REC.last_name||''}`.trim();
       document.getElementById('page-title').textContent = name || 'Contact';
       document.title = (name || 'Contact') + ' — UpFront Broker';
@@ -72,6 +74,102 @@
     const attrs = display ? `data-raw="${display.replace(/"/g,'&quot;')}"` : 'data-empty data-raw=""';
     const click = `onclick="ef(this,'${field}'${opts ? ','+JSON.stringify(opts) : ''})"`;
     return `<div class="fr"><span class="fl">${label}</span><span class="fv" ${attrs} ${click}>${display}</span></div>`;
+  }
+
+  // ── Phones ───────────────────────────────────────────────────────
+  function phoneLabelOptions(selected) {
+    return PHONE_LABELS.map(l => `<option value="${l}" ${l===selected?'selected':''}>${l}</option>`).join('');
+  }
+
+  function phonesListHtml(phones) {
+    if (!phones || !phones.length) {
+      return '<div style="font-size:12.5px;color:var(--stone-light);padding:3px 0">No phone numbers</div>';
+    }
+    return phones.map(p => `
+      <div class="phone-row" data-id="${p.id}" style="display:flex;align-items:center;gap:8px;padding:4px 0;flex-wrap:wrap">
+        <span style="font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:var(--stone);min-width:50px">${p.label || 'other'}</span>
+        <span style="font-size:13px">${p.number}</span>
+        ${p.is_primary ? '<span class="badge badge-navy">Primary</span>' : ''}
+        <span style="margin-left:auto;display:flex;gap:4px">
+          <button class="btn btn-ghost btn-sm" onclick="editPhoneRow(${p.id})">Edit</button>
+          <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="deletePhone(${p.id})">✕</button>
+        </span>
+      </div>`).join('');
+  }
+
+  function renderPhones() {
+    const el = document.getElementById('phones-list');
+    if (el) el.innerHTML = phonesListHtml(REC.phones);
+  }
+
+  async function reloadPhones() {
+    REC.phones = await API.get(`/contacts/${ID}/phones`);
+    renderPhones();
+  }
+
+  function showAddPhoneForm() {
+    if (document.getElementById('phone-form')) return;
+    const el = document.getElementById('phones-list');
+    const form = document.createElement('div');
+    form.id = 'phone-form';
+    form.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 0;flex-wrap:wrap';
+    form.innerHTML = `
+      <select class="form-control" id="pf-label" style="width:auto;font-size:13px;padding:4px 6px">${phoneLabelOptions('mobile')}</select>
+      <input type="tel" class="form-control" id="pf-number" placeholder="Phone number" style="width:160px;font-size:13px;padding:4px 6px">
+      <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--stone)">
+        <input type="checkbox" id="pf-primary"> Primary
+      </label>
+      <button class="btn btn-primary btn-sm" onclick="savePhone()">Save</button>
+      <button class="btn btn-ghost btn-sm" onclick="this.closest('#phone-form').remove()">Cancel</button>`;
+    el.appendChild(form);
+    document.getElementById('pf-number').focus();
+  }
+
+  async function savePhone() {
+    const label = document.getElementById('pf-label').value;
+    const number = document.getElementById('pf-number').value.trim();
+    const is_primary = document.getElementById('pf-primary').checked;
+    if (!number) { Toast.error('Enter a phone number'); return; }
+    try {
+      await API.post(`/contacts/${ID}/phones`, { label, number, is_primary });
+      await reloadPhones();
+      Toast.success('Phone added');
+    } catch(e) { Toast.error(e.message); }
+  }
+
+  function editPhoneRow(id) {
+    const p = (REC.phones || []).find(x => x.id === id);
+    const row = document.querySelector(`.phone-row[data-id="${id}"]`);
+    if (!p || !row) return;
+    row.innerHTML = `
+      <select class="form-control" id="pf-label-${id}" style="width:auto;font-size:13px;padding:4px 6px">${phoneLabelOptions(p.label)}</select>
+      <input type="tel" class="form-control" id="pf-number-${id}" value="${(p.number||'').replace(/"/g,'&quot;')}" style="width:160px;font-size:13px;padding:4px 6px">
+      <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--stone)">
+        <input type="checkbox" id="pf-primary-${id}" ${p.is_primary?'checked':''}> Primary
+      </label>
+      <button class="btn btn-primary btn-sm" onclick="savePhoneEdit(${id})">Save</button>
+      <button class="btn btn-ghost btn-sm" onclick="renderPhones()">Cancel</button>`;
+  }
+
+  async function savePhoneEdit(id) {
+    const label = document.getElementById(`pf-label-${id}`).value;
+    const number = document.getElementById(`pf-number-${id}`).value.trim();
+    const is_primary = document.getElementById(`pf-primary-${id}`).checked;
+    if (!number) { Toast.error('Enter a phone number'); return; }
+    try {
+      await API.put(`/contacts/${ID}/phones/${id}`, { label, number, is_primary });
+      await reloadPhones();
+      Toast.success('Saved');
+    } catch(e) { Toast.error(e.message); }
+  }
+
+  async function deletePhone(id) {
+    if (!confirm('Delete this phone number?')) return;
+    try {
+      await API.delete(`/contacts/${ID}/phones/${id}`);
+      await reloadPhones();
+      Toast.success('Deleted');
+    } catch(e) { Toast.error(e.message); }
   }
 
   function render(d) {
@@ -100,7 +198,13 @@
             ${frow('Last Name',   'last_name',  c.last_name)}
             ${frow('Title',       'title',      c.title)}
             ${frow('Email',       'email',      c.email,   {inputType:'email'})}
-            ${frow('Phone',       'phone',      c.phone,   {inputType:'tel'})}
+            <div class="fr" style="flex-direction:column;align-items:stretch;gap:4px">
+              <div style="display:flex;align-items:center">
+                <span class="fl">Phones</span>
+                <button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="showAddPhoneForm()">+ Add phone</button>
+              </div>
+              <div id="phones-list">${phonesListHtml(d.phones)}</div>
+            </div>
             ${frow('Mobile',      'mobile',     c.mobile,  {inputType:'tel'})}
             ${frow('LinkedIn',    'linkedin',   c.linkedin)}
           </div></div>
