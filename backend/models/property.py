@@ -22,6 +22,8 @@ class Property(Base):
 
     # Identity
     name        = Column(String)
+    building_name = Column(Text, nullable=True)  # official building name, e.g. "One Towne Square"
+    park_name     = Column(Text, nullable=True)  # business/industrial park, e.g. "Galleria Officentre"
     address     = Column(String, nullable=False)
     city        = Column(String, nullable=False)
     state       = Column(String, nullable=False)

@@ -91,6 +91,8 @@ def _apply_account_link_roles(accounts):
 
 class PropertyCreate(BaseModel):
     name: Optional[str] = None
+    building_name: Optional[str] = None
+    park_name: Optional[str] = None
     address: str
     city: str
     state: str

@@ -365,6 +365,7 @@
         <div class="detail-grid">
           <div>
             <div class="dc"><div class="dc-title">Property Details</div><div class="dc-body">
+              ${frow('Building Name','building_name',p.building_name)} ${frow('Park Name','park_name',p.park_name)}
               ${frow('Address','address',p.address)} ${frow('City','city',p.city)}
               ${frow('State','state',p.state)} ${frow('ZIP','zip',p.zip)}
               ${frow('Property Type','property_type',p.property_type,{choices:PROP_TYPES})}
