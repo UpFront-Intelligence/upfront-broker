@@ -7,9 +7,7 @@ POST /api/import/execute  — import rows using confirmed mapping, detect duplic
 import csv
 import io
 import json
-import re
 from datetime import datetime
-from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from rapidfuzz import fuzz
@@ -19,9 +17,16 @@ from database import get_db
 from models.user import User
 from models.property import Property
 from models.contact import Contact
+from models.contact_phone import ContactPhone
 from models.account import Account
+from models.account_role import AccountRole
 from models.contact_account import ContactAccount
+from models.tenant import Tenant
+from models.shared import Comp
 from auth_utils import get_current_user
+from services.naming import normalize_name
+from services.accounts import ensure_role
+from routers.contacts import _resync_legacy_phone
 
 router = APIRouter()
 
@@ -922,7 +927,8 @@ SYNONYMS = {
 VALID_FIELDS = {
     "property": {
         # Core
-        "name","address","city","state","zip","county","property_type","subtype",
+        "name","building_name","park_name","address","city","state","zip","county",
+        "property_type","subtype",
         "status","year_built","sf_rentable","sf_land","units","stories","zoning",
         "parking_ratio","occupancy_pct","asking_price","asking_price_per_sf",
         "assessed_value","tax_amount","tax_year","cap_rate","noi",
@@ -965,15 +971,19 @@ VALID_FIELDS = {
         "school_district","has_basement","has_fireplace","has_pool",
         "mls_number","list_date","days_on_market",
     },
-    # owner_* fields are virtual — handled in execute, never passed to Property()
-    "_owner_fields": {"owner_name","owner_contact","owner_phone",
-                      "owner_email","owner_address","owner_city_state_zip"},
     "contact":  {"first_name","last_name","email","phone","mobile","title",
                  "contact_type","source","notes"},
     "account":  {"name","entity_type","ein","website","phone","email",
                  "address","city","state","zip","notes"},
+    "tenant":   {"name","industry","website","hq_address","hq_city","hq_state",
+                 "hq_zip","notes"},
+    "comp":     {"address","city","state","property_type","sf","sale_price",
+                 "price_per_sf","cap_rate","sale_date","year_built","notes"},
     "deal":     {"name","deal_type","stage","list_price","sale_price",
-                 "commission_pct","projected_close","notes"},
+                 "lease_rate","lease_sf","lease_term_months",
+                 "commission_pct","our_split_pct",
+                 "co_broker","co_broker_name","co_broker_firm","co_broker_split_pct",
+                 "projected_close","actual_close","list_date","days_on_market","notes"},
 }
 
 # Fields that need numeric coercion
@@ -1017,7 +1027,13 @@ NUMERIC_FIELDS = {
     },
     "contact":  {},
     "account":  {},
-    "deal":     {"list_price":float,"sale_price":float,"commission_pct":float},
+    "tenant":   {},
+    "comp":     {"sf":float,"sale_price":float,"price_per_sf":float,
+                 "cap_rate":float,"year_built":int},
+    "deal":     {"list_price":float,"sale_price":float,"lease_rate":float,
+                 "lease_sf":float,"lease_term_months":int,
+                 "commission_pct":float,"our_split_pct":float,
+                 "co_broker_split_pct":float,"days_on_market":int},
 }
 
 
@@ -1065,7 +1081,8 @@ def _best_match(header: str, synonyms: dict):
 
 _DATE_FIELDS = {
     "property": {"last_sale_date","franchise_expiry","lease_expiration","list_date"},
-    "deal":     {"projected_close"},
+    "deal":     {"projected_close","actual_close","list_date"},
+    "comp":     {"sale_date"},
 }
 
 _DATE_FMTS = ("%m/%d/%Y", "%Y-%m-%d", "%m/%d/%y", "%m-%d-%Y", "%Y/%m/%d")
@@ -1077,14 +1094,6 @@ def _parse_date(val: str):
         except ValueError:
             pass
     return None
-
-
-def _parse_csz(val: str):
-    """Parse 'City, ST 12345' → (city, state, zip). Returns (None, None, None) on failure."""
-    m = re.match(r'^(.+),\s*([A-Za-z]{2})\s+(\d{5})', val.strip())
-    if m:
-        return m.group(1).strip(), m.group(2).upper(), m.group(3)
-    return None, None, None
 
 
 def _coerce(mapped: dict, record_type: str) -> dict:
@@ -1105,6 +1114,272 @@ def _coerce(mapped: dict, record_type: str) -> dict:
             else:
                 del out[field]
     return out
+
+
+# ── Field chooser catalog ─────────────────────────────────────────────────────
+# Module-prefixed mapping targets ("property.address", "contact.phone_mobile", …)
+# grouped into the six sections the chooser renders, each sorted alphabetically
+# by display label. A single CSV row can map columns across sections — e.g. a
+# "property" import row can also carry account/contact/tenant/comp columns to
+# create linked records (the "linked silo" pattern).
+
+_LABEL_OVERRIDES = {
+    "ein":"EIN","noi":"NOI","hoa":"HOA","adr":"ADR","revpar":"RevPAR","icu":"ICU",
+    "tif":"TIF","leed":"LEED","gla":"GLA","rba":"RBA","mls":"MLS","sf":"SF",
+    "pct":"%","id":"ID","hq":"HQ",
+}
+
+def _label(field: str) -> str:
+    return " ".join(_LABEL_OVERRIDES.get(w.lower(), w.capitalize()) for w in field.split("_"))
+
+
+PROPERTY_FIELDS = {f: _label(f) for f in VALID_FIELDS["property"]}
+
+ACCOUNT_FIELDS = {
+    "id": "Account ID (existing)",
+    "name": "Name", "entity_type": "Entity Type", "ein": "EIN",
+    "website": "Website", "phone": "Phone", "email": "Email",
+    "address": "Address", "city": "City", "state": "State", "zip": "Zip",
+    "notes": "Notes",
+}
+
+CONTACT_FIELDS = {
+    "first_name": "First Name", "last_name": "Last Name", "full_name": "Full Name",
+    "email": "Email", "phone": "Phone", "mobile": "Mobile", "title": "Title",
+    "contact_type": "Contact Type", "source": "Source",
+    "role": "Role (Linked Account)",
+    "phone_mobile": "Phone - Mobile", "phone_office": "Phone - Office",
+    "phone_direct": "Phone - Direct", "phone_fax": "Phone - Fax",
+    "phone_other": "Phone - Other",
+    "notes": "Notes",
+}
+
+TENANT_FIELDS = {
+    "id": "Tenant ID (existing)", "name": "Name (Company)",
+    "industry": "Industry", "website": "Website",
+    "hq_address": "HQ Address", "hq_city": "HQ City",
+    "hq_state": "HQ State", "hq_zip": "HQ Zip", "notes": "Notes",
+}
+
+DEAL_FIELDS = {f: _label(f) for f in VALID_FIELDS["deal"]}
+COMP_FIELDS = {f: _label(f) for f in VALID_FIELDS["comp"]}
+
+_FIELD_CATALOG = [
+    ("Properties", "property", PROPERTY_FIELDS),
+    ("Accounts",   "account",  ACCOUNT_FIELDS),
+    ("Contacts",   "contact",  CONTACT_FIELDS),
+    ("Tenants",    "tenant",   TENANT_FIELDS),
+    ("Deals",      "deal",     DEAL_FIELDS),
+    ("Comps",      "comp",     COMP_FIELDS),
+]
+
+MODULES = [module for _, module, _ in _FIELD_CATALOG]
+
+
+def _build_field_sections():
+    sections = []
+    for section, module, fields in _FIELD_CATALOG:
+        items = sorted(
+            ({"value": f"{module}.{key}", "label": label} for key, label in fields.items()),
+            key=lambda x: x["label"].lower(),
+        )
+        sections.append({"section": section, "module": module, "fields": items})
+    return sections
+
+
+FIELD_SECTIONS = _build_field_sections()
+
+
+# ── Linked-record helpers (Account / Contact / Tenant cross-module import) ───
+
+PHONE_SLOT_PRIORITY = ["mobile", "direct", "office", "other", "fax"]
+PHONE_SLOT_FIELDS = {
+    "phone_mobile": "mobile", "phone_direct": "direct", "phone_office": "office",
+    "phone_other": "other", "phone_fax": "fax",
+}
+
+
+def _apply_contact_phones(db, contact, contact_map, current_user):
+    """Create contact_phones rows for any mapped phone_* slots and mirror the
+    primary one into contacts.phone via the legacy-resync helper."""
+    present = {label: contact_map[field] for field, label in PHONE_SLOT_FIELDS.items()
+               if contact_map.get(field)}
+    if not present:
+        return
+    primary_label = next((l for l in PHONE_SLOT_PRIORITY if l in present), None)
+    for label, number in present.items():
+        db.add(ContactPhone(
+            owner_id=current_user.id, contact_id=contact.id,
+            label=label, number=number, is_primary=(label == primary_label),
+        ))
+    db.flush()
+    _resync_legacy_phone(db, contact, contact.id, current_user)
+
+
+def _resolve_role(db, raw_role: str):
+    """Match a CSV role/type value against the account_roles vocabulary.
+
+    Returns (slug_or_None, display_value, warning_or_None). Unknown values are
+    kept as-is on the link (never silently dropped) with a warning surfaced.
+    """
+    norm = raw_role.strip()
+    row = db.query(AccountRole).filter(
+        (AccountRole.slug.ilike(norm)) | (AccountRole.display_name.ilike(norm))
+    ).first()
+    if row:
+        return row.slug, row.display_name, None
+    return None, norm, f"Unrecognized role '{norm}' — saved as-is"
+
+
+def _find_or_create_account(db, account_map, current_user, warnings):
+    """Resolve account.id (owner-validated) or fuzzy-match/create by name."""
+    acct_id = account_map.get("id")
+    if acct_id:
+        try:
+            acct = db.query(Account).filter(
+                Account.id == int(acct_id), Account.owner_id == current_user.id
+            ).first()
+        except (ValueError, TypeError):
+            acct = None
+        if not acct:
+            warnings.append(f"Account ID {acct_id} not found — link skipped")
+        return acct
+
+    name = account_map.get("name")
+    if not name:
+        return None
+
+    norm = normalize_name(name)
+    best, best_score = None, 0
+    for cand in db.query(Account).filter(Account.owner_id == current_user.id).all():
+        score = fuzz.partial_ratio(norm, cand.normalized_name or '')
+        if score > best_score:
+            best, best_score = cand, score
+    if best and best_score >= 55:
+        return best
+
+    fields = {k: v for k, v in account_map.items() if k in VALID_FIELDS["account"]}
+    acct = Account(owner_id=current_user.id, normalized_name=norm, roles=[], **fields)
+    db.add(acct)
+    db.flush()
+    return acct
+
+
+def _find_or_create_contact(db, contact_map, current_user):
+    """Find-or-create a linked Contact from contact.* mapped fields.
+
+    Splits full_name into first/last when first_name/last_name aren't mapped.
+    Returns None if no name data is present (nothing to link).
+    """
+    first = contact_map.get("first_name")
+    last  = contact_map.get("last_name")
+    if not first and not last:
+        full = contact_map.get("full_name")
+        if full:
+            parts = full.strip().split(" ", 1)
+            first, last = parts[0], (parts[1] if len(parts) > 1 else "")
+    if not first and not last:
+        return None
+
+    email = (contact_map.get("email") or "").lower() or None
+    contact = None
+    if email:
+        contact = db.query(Contact).filter(
+            Contact.owner_id == current_user.id, Contact.email == email,
+        ).first()
+    if not contact:
+        contact = db.query(Contact).filter(
+            Contact.owner_id == current_user.id,
+            Contact.first_name.ilike(first or ""),
+            Contact.last_name.ilike(last or ""),
+        ).first()
+    if not contact:
+        fields = {k: v for k, v in contact_map.items() if k in VALID_FIELDS["contact"]}
+        fields["first_name"] = first or ""
+        fields["last_name"]  = last or ""
+        if email:
+            fields["email"] = email
+        contact = Contact(owner_id=current_user.id, **fields)
+        db.add(contact)
+        db.flush()
+    return contact
+
+
+def _find_or_create_tenant(db, tenant_map, current_user, warnings):
+    """Resolve tenant.id (owner-validated) or fuzzy-match/create by name."""
+    tid = tenant_map.get("id")
+    if tid:
+        try:
+            t = db.query(Tenant).filter(
+                Tenant.id == int(tid), Tenant.owner_id == current_user.id
+            ).first()
+        except (ValueError, TypeError):
+            t = None
+        if not t:
+            warnings.append(f"Tenant ID {tid} not found — link skipped")
+        return t
+
+    name = tenant_map.get("name")
+    if not name:
+        return None
+
+    norm = normalize_name(name)
+    best, best_score = None, 0
+    for cand in db.query(Tenant).filter(Tenant.owner_id == current_user.id).all():
+        score = fuzz.partial_ratio(norm, cand.normalized_name or '')
+        if score > best_score:
+            best, best_score = cand, score
+    if best and best_score >= 55:
+        return best
+
+    fields = {k: v for k, v in tenant_map.items() if k in VALID_FIELDS["tenant"]}
+    fields["name"] = name
+    t = Tenant(owner_id=current_user.id, normalized_name=norm, **fields)
+    db.add(t)
+    db.flush()
+    return t
+
+
+def _link_contact_account(db, contact, acct, role_display, role_slug):
+    existing = db.query(ContactAccount).filter(
+        ContactAccount.contact_id == contact.id,
+        ContactAccount.account_id == acct.id,
+    ).first()
+    if existing:
+        return
+    is_primary = db.query(ContactAccount).filter(
+        ContactAccount.contact_id == contact.id
+    ).count() == 0
+    db.add(ContactAccount(
+        contact_id=contact.id, account_id=acct.id,
+        role=role_display, is_primary=is_primary,
+    ))
+    if role_slug:
+        ensure_role(acct, role_slug)
+
+
+def _link_account_and_contact(db, account_map, contact_map, current_user,
+                               default_role_slug=None, default_role_display=None):
+    """Find/create a linked Account and Contact, apply phone slots, and link
+    them with a role resolved from contact_map["role"] (or the given default).
+
+    Returns (account_or_None, contact_or_None, warnings).
+    """
+    warnings = []
+    acct    = _find_or_create_account(db, account_map, current_user, warnings)
+    contact = _find_or_create_contact(db, contact_map, current_user)
+    if contact:
+        _apply_contact_phones(db, contact, contact_map, current_user)
+    if acct and contact:
+        raw_role = contact_map.get("role")
+        if raw_role:
+            role_slug, role_display, warn = _resolve_role(db, raw_role)
+            if warn:
+                warnings.append(warn)
+        else:
+            role_slug, role_display = default_role_slug, default_role_display
+        _link_contact_account(db, contact, acct, role_display, role_slug)
+    return acct, contact, warnings
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -1128,28 +1403,21 @@ async def preview_import(
     for h in headers:
         field, score = _best_match(h, syns)
         mapping[h] = {
-            "field":      field,
+            "field":      f"{record_type}.{field}" if field else None,
             "score":      score,
             "confidence": "high" if score >= 85 else "medium" if score >= 60 else "none",
         }
-
-    owner_fields_present = (
-        record_type == "property" and
-        any(v.get("field") in VALID_FIELDS.get("_owner_fields", set())
-            for v in mapping.values())
-    )
 
     return {
         "headers":            headers,
         "preview_rows":       rows[:3],
         "total_rows":         len(rows),
         "suggested_mapping":  mapping,
-        "available_fields":   list(syns.keys()),
-        "owner_columns_detected": owner_fields_present,
-        "owner_notice": (
-            "This import will also create Accounts and Contacts from owner data"
-            if owner_fields_present else None
-        ),
+        "field_sections":     FIELD_SECTIONS,
+        "linked_notice": (
+            "Columns can also be mapped to Account, Contact, and Tenant fields "
+            "below to create linked records on import."
+        ) if record_type != "deal" else None,
     }
 
 
@@ -1157,144 +1425,97 @@ async def preview_import(
 async def execute_import(
     file:             UploadFile = File(...),
     record_type:      str        = Form(...),
-    mapping:          str        = Form(...),   # JSON: {"CSV col": "model_field"|"_skip"|null}
+    mapping:          str        = Form(...),   # JSON: {"CSV col": "module.field"|"_skip"|null}
     current_user:     User       = Depends(get_current_user),
     db:               Session    = Depends(get_db),
 ):
     if record_type not in SYNONYMS:
         raise HTTPException(400, f"Unknown record_type: {record_type}")
 
-    confirmed = json.loads(mapping)           # {csv_header: field_name | "_skip" | null}
+    confirmed = json.loads(mapping)           # {csv_header: "module.field" | "_skip" | null}
     content   = await file.read()
     _, rows   = _read_file(content, file.filename or "")
 
-    valid        = VALID_FIELDS.get(record_type, set())
-    owner_fields = VALID_FIELDS.get("_owner_fields", set())
-    all_allowed  = valid | owner_fields   # both sets pass through to mapped
     imported, skipped = 0, 0
-    duplicates, flagged, errors = [], [], []
+    duplicates, flagged, errors, warnings = [], [], [], []
 
     for row_num, row in enumerate(rows, start=2):
         try:
-            # Build mapped dict from confirmed field assignments
-            mapped = {}
-            for csv_col, field in confirmed.items():
-                if not field or field == "_skip":
+            # Bucket confirmed mappings by module ("property.address" -> mapped["property"]["address"])
+            mapped = {m: {} for m in MODULES}
+            for csv_col, target in confirmed.items():
+                if not target or target == "_skip" or "." not in target:
                     continue
-                if field not in all_allowed:
+                module, field = target.split(".", 1)
+                if module not in mapped:
                     continue
                 val = str(row.get(csv_col, "") or "").strip()
                 if val:
-                    mapped[field] = val
+                    mapped[module][field] = val
 
-            mapped = _coerce(mapped, record_type)
+            for m in MODULES:
+                mapped[m] = _coerce(mapped[m], m)
+
+            prop_map, account_map, contact_map, tenant_map, deal_map, comp_map = (
+                mapped["property"], mapped["account"], mapped["contact"],
+                mapped["tenant"], mapped["deal"], mapped["comp"],
+            )
 
             # ── Property ──────────────────────────────────────────
             if record_type == "property":
-                if not mapped.get("address"):
+                if not prop_map.get("address"):
                     flagged.append({"row": row_num, "reason": "Missing address",
                                     "data": dict(row)})
                     continue
                 existing = db.query(Property).filter(
                     Property.owner_id == current_user.id,
-                    Property.address.ilike(mapped.get("address", "")),
-                    Property.city.ilike(mapped.get("city", "")),
+                    Property.address.ilike(prop_map.get("address", "")),
+                    Property.city.ilike(prop_map.get("city", "")),
                 ).first()
                 if existing:
                     duplicates.append({"row": row_num,
-                                       "reason": f"{mapped.get('address')}, {mapped.get('city')} already exists"})
+                                       "reason": f"{prop_map.get('address')}, {prop_map.get('city')} already exists"})
                     skipped += 1
                     continue
 
-                # Separate owner fields (go to Account/Contact) from property fields
-                owner_fields = VALID_FIELDS.get("_owner_fields", set())
-                owner_data   = {k: v for k, v in mapped.items() if k in owner_fields}
-                prop_data    = {k: v for k, v in mapped.items() if k not in owner_fields}
+                if not prop_map.get("name"):
+                    prop_map["name"] = prop_map.get("address", "")
 
-                if not prop_data.get("name"):
-                    prop_data["name"] = prop_data.get("address", "")
-
-                prop = Property(**{k: v for k, v in prop_data.items() if k in valid},
-                                owner_id=current_user.id)
+                prop = Property(**{k: v for k, v in prop_map.items() if k in VALID_FIELDS["property"]},
+                                 owner_id=current_user.id)
                 db.add(prop)
-                db.flush()   # need prop.id for Account link
+                db.flush()   # need prop.id for Account/Comp links
 
-                # ── Create / link Account from owner_name ──────────
-                acct = None
-                if owner_data.get("owner_name"):
-                    acct_name = owner_data["owner_name"].strip()
-                    acct = db.query(Account).filter(
-                        Account.owner_id == current_user.id,
-                        Account.name.ilike(acct_name),
-                    ).first()
-                    if not acct:
-                        city_o, state_o, zip_o = _parse_csz(
-                            owner_data.get("owner_city_state_zip") or "")
-                        acct = Account(
-                            owner_id = current_user.id,
-                            name     = acct_name,
-                            address  = owner_data.get("owner_address") or None,
-                            city     = city_o,
-                            state    = state_o,
-                            zip      = zip_o,
-                        )
-                        db.add(acct)
-                        db.flush()
+                # ── Linked Account + Contact (role-aware) ───────────
+                acct, _contact, warns = _link_account_and_contact(
+                    db, account_map, contact_map, current_user,
+                    default_role_slug="owner", default_role_display="Owner")
+                warnings.extend(warns)
+                if acct:
                     prop.account_id = acct.id
 
-                # ── Create / link Contact from owner_contact ───────
-                if owner_data.get("owner_contact"):
-                    parts   = owner_data["owner_contact"].strip().split(" ", 1)
-                    first   = parts[0]
-                    last    = parts[1] if len(parts) > 1 else ""
-                    email   = (owner_data.get("owner_email") or "").lower() or None
-                    phone   = owner_data.get("owner_phone") or None
-
-                    contact = None
-                    if email:
-                        contact = db.query(Contact).filter(
-                            Contact.owner_id == current_user.id,
-                            Contact.email == email,
-                        ).first()
-                    if not contact:
-                        contact = db.query(Contact).filter(
-                            Contact.owner_id == current_user.id,
-                            Contact.first_name.ilike(first),
-                            Contact.last_name.ilike(last),
-                        ).first()
-                    if not contact:
-                        contact = Contact(
-                            owner_id     = current_user.id,
-                            first_name   = first,
-                            last_name    = last,
-                            email        = email,
-                            phone        = phone,
-                            contact_type = "Owner",
-                        )
-                        db.add(contact)
-                        db.flush()
-
-                    # Link contact ↔ account (if account exists and not already linked)
-                    if acct:
-                        already = db.query(ContactAccount).filter(
-                            ContactAccount.contact_id == contact.id,
-                            ContactAccount.account_id == acct.id,
-                        ).first()
-                        if not already:
-                            db.add(ContactAccount(
-                                contact_id = contact.id,
-                                account_id = acct.id,
-                                role       = "Owner",
-                                is_primary = True,
-                            ))
+                # ── Linked Comp (subject-row comparable sale) ───────
+                comp_fields = {k: v for k, v in comp_map.items() if k in VALID_FIELDS["comp"]}
+                if comp_fields:
+                    db.add(Comp(owner_id=current_user.id, property_id=prop.id,
+                                source="CRE Import", **comp_fields))
 
             # ── Contact ───────────────────────────────────────────
             elif record_type == "contact":
-                if not mapped.get("first_name") and not mapped.get("last_name"):
+                first = contact_map.get("first_name")
+                last  = contact_map.get("last_name")
+                if not first and not last:
+                    full = contact_map.get("full_name")
+                    if full:
+                        parts = full.strip().split(" ", 1)
+                        first, last = parts[0], (parts[1] if len(parts) > 1 else "")
+                        contact_map["first_name"], contact_map["last_name"] = first, last
+                if not first and not last:
                     flagged.append({"row": row_num, "reason": "Missing name",
                                     "data": dict(row)})
                     continue
-                email = (mapped.get("email") or "").lower()
+
+                email = (contact_map.get("email") or "").lower()
                 if email:
                     existing = db.query(Contact).filter(
                         Contact.owner_id == current_user.id,
@@ -1305,33 +1526,71 @@ async def execute_import(
                                            "reason": f"Contact {email} already exists"})
                         skipped += 1
                         continue
-                    mapped["email"] = email
-                db.add(Contact(**{k: v for k, v in mapped.items() if k in valid},
-                               owner_id=current_user.id))
+                    contact_map["email"] = email
+
+                contact = Contact(**{k: v for k, v in contact_map.items() if k in VALID_FIELDS["contact"]},
+                                   owner_id=current_user.id)
+                db.add(contact)
+                db.flush()
+
+                _apply_contact_phones(db, contact, contact_map, current_user)
+
+                tenant = _find_or_create_tenant(db, tenant_map, current_user, warnings)
+                if tenant:
+                    contact.tenant_id = tenant.id
+
+                if account_map:
+                    acct = _find_or_create_account(db, account_map, current_user, warnings)
+                    if acct:
+                        raw_role = contact_map.get("role")
+                        if raw_role:
+                            role_slug, role_display, warn = _resolve_role(db, raw_role)
+                            if warn:
+                                warnings.append(warn)
+                        else:
+                            role_slug, role_display = None, None
+                        _link_contact_account(db, contact, acct, role_display, role_slug)
 
             # ── Account ───────────────────────────────────────────
             elif record_type == "account":
-                if not mapped.get("name"):
+                if not account_map.get("name"):
                     flagged.append({"row": row_num, "reason": "Missing account name",
                                     "data": dict(row)})
                     continue
                 existing = db.query(Account).filter(
                     Account.owner_id == current_user.id,
-                    Account.name.ilike(mapped.get("name", "")),
+                    Account.name.ilike(account_map.get("name", "")),
                 ).first()
                 if existing:
                     duplicates.append({"row": row_num,
-                                       "reason": f"Account '{mapped.get('name')}' already exists"})
+                                       "reason": f"Account '{account_map.get('name')}' already exists"})
                     skipped += 1
                     continue
-                db.add(Account(**{k: v for k, v in mapped.items() if k in valid},
-                               owner_id=current_user.id))
+
+                fields = {k: v for k, v in account_map.items() if k in VALID_FIELDS["account"]}
+                acct = Account(owner_id=current_user.id,
+                                normalized_name=normalize_name(account_map["name"]),
+                                roles=[], **fields)
+                db.add(acct)
+                db.flush()
+
+                contact = _find_or_create_contact(db, contact_map, current_user)
+                if contact:
+                    _apply_contact_phones(db, contact, contact_map, current_user)
+                    raw_role = contact_map.get("role")
+                    if raw_role:
+                        role_slug, role_display, warn = _resolve_role(db, raw_role)
+                        if warn:
+                            warnings.append(warn)
+                    else:
+                        role_slug, role_display = None, None
+                    _link_contact_account(db, contact, acct, role_display, role_slug)
 
             # ── Deal (preview-only — requires property linking) ───
             elif record_type == "deal":
                 flagged.append({"row": row_num,
                                  "reason": "Deals require a linked Property — add via the Deals page",
-                                 "data": mapped})
+                                 "data": deal_map})
                 continue
 
             imported += 1
@@ -1349,4 +1608,5 @@ async def execute_import(
         "flagged_rows": flagged,
         "duplicates":   duplicates,
         "errors":       errors,
+        "warnings":     sorted(set(warnings)),
     }

@@ -169,7 +169,8 @@
       <div class="page-header" style="margin-bottom:4px">
         <div>
           <div class="page-title">Map your columns</div>
-          <div class="page-sub">Green = auto-mapped. Amber = suggested — confirm. Gray = unmapped — choose or skip.</div>
+          <div class="page-sub">Green = auto-mapped. Amber = suggested — confirm. Gray = unmapped — choose or skip. "Maps To" is grouped by record type.</div>
+          <div id="linked-notice" style="display:none;font-size:12.5px;color:var(--stone);margin-top:6px"></div>
         </div>
       </div>
       <div class="card" style="margin-top:16px">
@@ -216,6 +217,7 @@
         </div>
       </div>
       <div id="results-cards" style="max-width:560px"></div>
+      <div id="results-warnings" style="display:none;max-width:560px"></div>
       <div id="btn-download-wrap" style="margin-top:20px;display:none">
         <button class="btn btn-outline" onclick="downloadErrorReport()">⬇ Download Error Report</button>
       </div>
@@ -324,23 +326,20 @@
 
   // ── Step 3 ─────────────────────────────────────────────────────────────────
   function renderMappingTable() {
-    const { headers, preview_rows, suggested_mapping, available_fields } = previewData;
+    const { headers, preview_rows, suggested_mapping, field_sections, linked_notice } = previewData;
     const sample = preview_rows[0] || {};
     const tbody = document.getElementById('map-tbody');
 
-    const options = ['_skip', ...available_fields]
-      .map(f => `<option value="${f}">${f === '_skip' ? '— skip this column —' : f.replace(/_/g,' ')}</option>`)
-      .join('');
+    const groupsHtml = field_sections.map(sec => `<optgroup label="${sec.section}">${
+      sec.fields.map(f => `<option value="${f.value}">${f.label}</option>`).join('')}</optgroup>`).join('');
 
     tbody.innerHTML = headers.map(h => {
       const m = suggested_mapping[h] || { field: null, score: 0, confidence: 'none' };
       const confBadge = m.confidence === 'high'   ? `<span class="conf-high">High ${m.score}%</span>`
                       : m.confidence === 'medium' ? `<span class="conf-medium">Medium ${m.score}%</span>`
                       :                             `<span class="conf-none">Unmapped</span>`;
-      const sel = `<select class="form-control" style="font-size:12.5px;padding:5px 8px"
-                     data-col="${h}" onchange="updateMapping('${h}',this.value)">
-                     ${options}
-                   </select>`;
+      const sel = `<select class="form-control" style="font-size:12.5px;padding:5px 8px" data-col="${h}">
+                     <option value="_skip">— skip this column —</option>${groupsHtml}</select>`;
       const rowStyle = m.confidence === 'high'   ? 'background:rgba(45,125,79,0.04)'
                      : m.confidence === 'medium' ? 'background:rgba(196,124,32,0.04)'
                      : '';
@@ -358,10 +357,9 @@
       const sel = tbody.querySelector(`select[data-col="${h}"]`);
       if (sel && m?.field) sel.value = m.field;
     });
-  }
 
-  function updateMapping(col, val) {
-    // Mapping is read live from the selects in goStep(4)
+    document.getElementById('linked-notice').textContent = linked_notice || '';
+    document.getElementById('linked-notice').style.display = linked_notice ? '' : 'none';
   }
 
   function getConfirmedMapping() {
@@ -422,7 +420,7 @@
 
   // ── Step 5 ─────────────────────────────────────────────────────────────────
   function renderResults() {
-    const { imported, skipped, flagged, flagged_rows, duplicates, errors } = importResult;
+    const { imported, skipped, flagged, flagged_rows, duplicates, errors, warnings } = importResult;
     document.getElementById('results-sub').textContent =
       `${imported} record${imported !== 1 ? 's' : ''} imported from ${uploadedFile.name}`;
 
@@ -443,6 +441,15 @@
         <span class="result-icon">✕</span>
         <div><div class="result-num">${errors.length}</div><div class="result-label">Errors</div></div>
       </div>` : ''}`;
+
+    const warnBox = document.getElementById('results-warnings');
+    if (warnings && warnings.length) {
+      warnBox.innerHTML = `<div style="font-size:11px;font-weight:600;letter-spacing:0.07em;text-transform:uppercase;color:var(--stone);margin:18px 0 8px">Warnings</div>
+        <ul style="font-size:13px;color:var(--ink);padding-left:20px;line-height:1.8;margin:0">${warnings.map(w => `<li>${w}</li>`).join('')}</ul>`;
+      warnBox.style.display = 'block';
+    } else {
+      warnBox.style.display = 'none';
+    }
 
     const allIssues = [...(flagged_rows || []), ...(errors || [])];
     if (allIssues.length) {
