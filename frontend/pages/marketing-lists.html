@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UpFront Broker — Marketing Lists</title>
+  <link rel="stylesheet" href="/static/main.css?v=3">
+  <style>
+    #page-content { padding: 24px 28px; max-width: 1000px; }
+    .lists-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; margin-top: 20px; }
+    .list-card { background: #fff; border: 1px solid var(--cream-dark); border-radius: var(--radius-lg); box-shadow: var(--shadow-card); padding: 18px 20px; cursor: pointer; transition: box-shadow 0.15s, border-color 0.15s; text-decoration: none; display: block; }
+    .list-card:hover { box-shadow: 0 4px 16px rgba(15,25,35,0.12); border-color: var(--gold); }
+    .list-card-name { font-family: var(--font-serif); font-size: 16px; color: var(--navy); margin-bottom: 4px; }
+    .list-card-desc { font-size: 12.5px; color: var(--stone); margin-bottom: 12px; min-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .list-card-meta { display: flex; align-items: center; justify-content: space-between; }
+    .list-count { font-family: var(--font-mono); font-size: 22px; font-weight: 700; color: var(--navy); }
+    .list-count-label { font-size: 10.5px; color: var(--stone); text-transform: uppercase; letter-spacing: 0.05em; }
+    .list-date { font-size: 11px; color: var(--stone-light); }
+    .empty-state { text-align: center; padding: 80px 20px; color: var(--stone); }
+    .empty-icon { font-size: 48px; margin-bottom: 16px; }
+    .empty-title { font-family: var(--font-serif); font-size: 22px; color: var(--navy); margin-bottom: 8px; }
+    .empty-sub { font-size: 14px; margin-bottom: 24px; }
+  </style>
+</head>
+<body>
+<div id="sidebar"></div>
+<div id="main">
+  <div id="topbar">
+    <div class="topbar-title">Marketing Lists</div>
+    <div class="topbar-actions">
+      <button class="btn btn-primary btn-sm" onclick="Modal.open('new-list-modal')">+ New List</button>
+    </div>
+  </div>
+  <div id="page-content" class="fade-in">
+    <div id="root"><div style="text-align:center;padding:60px"><div class="spinner"></div></div></div>
+  </div>
+</div>
+
+<!-- New List Modal -->
+<div class="modal-overlay" id="new-list-modal">
+  <div class="modal" style="max-width:440px">
+    <div class="modal-header">
+      <div class="modal-title">New Marketing List</div>
+      <button class="btn btn-ghost btn-sm" onclick="Modal.close('new-list-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">List Name <span style="color:var(--red)">*</span></label>
+        <input type="text" class="form-control" id="nl-name" placeholder="e.g. Industrial Owners — Oakland County" autofocus>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Description</label>
+        <textarea class="form-control" id="nl-desc" rows="2" placeholder="Optional — what is this list for?"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="Modal.close('new-list-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="createList()">Create List</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/app.js?v=3"></script>
+<script>
+  if (!Auth.requireAuth()) throw new Error('Not authenticated');
+  renderSidebar('marketing-lists');
+  Modal.closeOnOverlay('new-list-modal');
+
+  let LISTS = [];
+
+  async function load() {
+    try {
+      LISTS = await API.get('/marketing-lists/');
+      render();
+    } catch(e) { Toast.error('Failed to load: ' + e.message); }
+  }
+
+  function render() {
+    const root = document.getElementById('root');
+    if (!LISTS.length) {
+      root.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">◈</div>
+          <div class="empty-title">No marketing lists yet</div>
+          <div class="empty-sub">Create a list to segment accounts and contacts for targeted outreach.</div>
+          <button class="btn btn-primary" onclick="Modal.open('new-list-modal')">+ New List</button>
+        </div>`;
+      return;
+    }
+    root.innerHTML = `<div class="lists-grid">
+      ${LISTS.map(l => `
+        <a class="list-card" href="/pages/marketing-list.html?id=${l.id}">
+          <div class="list-card-name">${esc(l.name)}</div>
+          <div class="list-card-desc">${esc(l.description || '')}</div>
+          <div class="list-card-meta">
+            <div>
+              <div class="list-count">${l.member_count}</div>
+              <div class="list-count-label">${l.member_count === 1 ? 'member' : 'members'}</div>
+            </div>
+            <div class="list-date">Created ${Fmt.date(l.created_at)}</div>
+          </div>
+        </a>`).join('')}
+    </div>`;
+  }
+
+  async function createList() {
+    const name = document.getElementById('nl-name').value.trim();
+    const desc = document.getElementById('nl-desc').value.trim();
+    if (!name) { Toast.error('List name is required'); return; }
+    try {
+      const nl = await API.post('/marketing-lists/', { name, description: desc || null });
+      Modal.close('new-list-modal');
+      document.getElementById('nl-name').value = '';
+      document.getElementById('nl-desc').value = '';
+      Toast.success('List created');
+      window.location.href = `/pages/marketing-list.html?id=${nl.id}`;
+    } catch(e) { Toast.error(e.message); }
+  }
+
+  function esc(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // Allow Enter in name field to submit
+  document.getElementById('nl-name').addEventListener('keydown', e => {
+    if (e.key === 'Enter') createList();
+  });
+
+  load();
+</script>
+</body>
+</html>

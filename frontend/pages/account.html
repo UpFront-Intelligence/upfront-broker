@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>UpFront Broker — Account</title>
-  <link rel="stylesheet" href="/static/main.css?v=2">
+  <link rel="stylesheet" href="/static/main.css?v=3">
   <style>
     #page-content { padding:24px 28px; max-width:1100px; }
     .detail-grid { display:grid; grid-template-columns:1fr 300px; gap:20px; }
@@ -47,7 +47,7 @@
     <div id="root"><div style="text-align:center;padding:60px"><div class="spinner"></div></div></div>
   </div>
 </div>
-<script src="/js/app.js?v=2"></script>
+<script src="/js/app.js?v=3"></script>
 <script>
   if (!Auth.requireAuth()) throw new Error('Not authenticated');
   renderSidebar('accounts');
@@ -170,6 +170,10 @@
                 <span class="stage-pill ${Fmt.stageClass(de.stage)}" style="font-size:10px">${de.stage}</span>
               </a>`).join('') : '<span style="font-size:12.5px;color:var(--stone);padding:4px">No deals</span>'}
           </div></div>
+
+          <div class="dc" id="lists-card"><div class="dc-title">Marketing Lists</div><div class="dc-body" style="padding:10px" id="lists-card-body">
+            <div style="font-size:12.5px;color:var(--stone)">Loading…</div>
+          </div></div>
         </div>
       </div>`;
   }
@@ -225,7 +229,86 @@
     });
   }
 
-  load();
+  // ── Marketing Lists card ──────────────────────────────────────────
+  let ALL_LISTS = [];
+
+  async function loadListsCard() {
+    try {
+      ALL_LISTS = await API.get('/marketing-lists/');
+      renderListsCard();
+    } catch(e) {}
+  }
+
+  function renderListsCard() {
+    const el = document.getElementById('lists-card-body');
+    if (!el) return;
+    const memberOf = ALL_LISTS.filter(l => l._member_of); // enriched after add
+    el.innerHTML = `
+      <div style="position:relative">
+        <button class="btn btn-outline btn-sm" style="width:100%;text-align:left"
+          onclick="toggleListsPicker()">+ Add to list ▾</button>
+        <div id="lists-picker" style="display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;
+          background:#fff;border:1px solid var(--cream-dark);border-radius:var(--radius);
+          box-shadow:var(--shadow-card);z-index:50;max-height:220px;overflow-y:auto">
+          ${ALL_LISTS.length ? ALL_LISTS.map(l =>
+            `<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--cream-dark)"
+              onclick="addToList(${l.id},'${(l.name||'').replace(/'/g,"\\'")}')">
+              <span>${l.name}</span>
+              <span style="font-size:10.5px;color:var(--stone)">${l.member_count} members</span>
+            </div>`).join('') : ''}
+          <div style="padding:7px 12px;border-top:1px solid var(--cream-dark)">
+            <input type="text" class="form-control" id="new-list-name"
+              placeholder="+ Create new list…"
+              style="font-size:12.5px;padding:4px 8px"
+              onkeydown="if(event.key==='Enter')createAndAdd()">
+          </div>
+        </div>
+      </div>`;
+    document.addEventListener('click', outsidePickerClose, { once: false });
+  }
+
+  function toggleListsPicker() {
+    const p = document.getElementById('lists-picker');
+    if (!p) return;
+    p.style.display = p.style.display === 'none' ? 'block' : 'none';
+  }
+
+  function outsidePickerClose(e) {
+    const card = document.getElementById('lists-card');
+    if (card && !card.contains(e.target)) {
+      const p = document.getElementById('lists-picker');
+      if (p) p.style.display = 'none';
+    }
+  }
+
+  async function addToList(listId, listName) {
+    const p = document.getElementById('lists-picker');
+    if (p) p.style.display = 'none';
+    try {
+      const result = await API.post(`/marketing-lists/${listId}/members`, { account_id: ID });
+      if (result.already_existed) {
+        Toast.info(`Already in "${listName}"`);
+      } else {
+        Toast.success(`Added to "${listName}"`);
+      }
+      ALL_LISTS = await API.get('/marketing-lists/');
+      renderListsCard();
+    } catch(e) { Toast.error(e.message); }
+  }
+
+  async function createAndAdd() {
+    const name = (document.getElementById('new-list-name')?.value || '').trim();
+    if (!name) return;
+    try {
+      const nl = await API.post('/marketing-lists/', { name });
+      await API.post(`/marketing-lists/${nl.id}/members`, { account_id: ID });
+      Toast.success(`Added to new list "${name}"`);
+      ALL_LISTS = await API.get('/marketing-lists/');
+      renderListsCard();
+    } catch(e) { Toast.error(e.message); }
+  }
+
+  load().then(() => loadListsCard());
 </script>
 </body>
 </html>

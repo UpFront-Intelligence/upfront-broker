@@ -191,6 +191,37 @@ def create_contact(
     db.refresh(contact)
     return contact
 
+@router.get("/search")
+def search_contacts(
+    q: str = "",
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Lightweight typeahead — owner-scoped name/email search. Registered before /{id}."""
+    q = q.strip()
+    if len(q) < 2:
+        return []
+    rows = (
+        db.query(Contact.id, Contact.first_name, Contact.last_name, Contact.email)
+        .filter(
+            Contact.owner_id == current_user.id,
+            (Contact.first_name.ilike(f"%{q}%")) |
+            (Contact.last_name.ilike(f"%{q}%")) |
+            (Contact.email.ilike(f"%{q}%")),
+        )
+        .order_by(Contact.last_name, Contact.first_name)
+        .limit(8)
+        .all()
+    )
+    return [
+        {
+            "id": r.id,
+            "name": f"{r.first_name or ''} {r.last_name or ''}".strip() or r.email or f"Contact #{r.id}",
+        }
+        for r in rows
+    ]
+
+
 @router.get("/{contact_id}", response_model=ContactResponse)
 def get_contact(
     contact_id: int,

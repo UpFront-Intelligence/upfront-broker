@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UpFront Broker — Marketing List</title>
+  <link rel="stylesheet" href="/static/main.css?v=3">
+  <style>
+    #page-content { padding: 24px 28px; max-width: 900px; }
+    .list-header { background: var(--navy); border-radius: var(--radius-lg); padding: 20px 24px; color: #fff; margin-bottom: 20px; display: flex; align-items: center; gap: 16px; }
+    .list-icon { width: 48px; height: 48px; border-radius: var(--radius); background: rgba(255,255,255,0.12); display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; }
+    .list-title { font-family: var(--font-serif); font-size: 20px; }
+    .list-sub { font-size: 12px; color: rgba(255,255,255,0.6); margin-top: 3px; }
+    .dc { background: #fff; border: 1px solid var(--cream-dark); border-radius: var(--radius-lg); box-shadow: var(--shadow-card); margin-bottom: 16px; overflow: hidden; }
+    .dc-title { font-family: var(--font-serif); font-size: 13.5px; color: var(--navy); padding: 11px 16px; border-bottom: 1px solid var(--cream-dark); background: var(--cream); display: flex; align-items: center; justify-content: space-between; }
+    .dc-body { padding: 0; }
+    .member-row { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--cream-dark); }
+    .member-row:last-child { border-bottom: none; }
+    .type-badge { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; padding: 2px 7px; border-radius: 20px; flex-shrink: 0; }
+    .type-account { background: rgba(15,25,35,0.1); color: var(--navy); }
+    .type-contact { background: rgba(45,125,79,0.12); color: var(--green); }
+    .member-name { flex: 1; font-size: 13px; color: var(--navy); text-decoration: none; font-weight: 500; }
+    .member-name:hover { text-decoration: underline; }
+    .member-note { font-size: 12px; color: var(--stone); flex-shrink: 0; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .member-source { font-size: 10.5px; color: var(--stone-light); flex-shrink: 0; }
+    .empty-members { padding: 40px 16px; text-align: center; color: var(--stone); font-size: 13px; }
+    .add-member-row { padding: 10px 16px; border-top: 1px solid var(--cream-dark); background: var(--cream); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+    /* Typeahead dropdown */
+    .ta-wrap { position: relative; flex: 1; min-width: 200px; }
+    .ta-input { width: 100%; font-size: 13px; padding: 6px 10px; }
+    .ta-dropdown { position: absolute; top: calc(100% + 2px); left: 0; right: 0; background: #fff; border: 1px solid var(--cream-dark); border-radius: var(--radius); box-shadow: var(--shadow-card); z-index: 100; max-height: 200px; overflow-y: auto; display: none; }
+    .ta-item { padding: 7px 12px; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 8px; }
+    .ta-item:hover { background: var(--cream); }
+    .ta-item-type { font-size: 10px; font-weight: 700; text-transform: uppercase; color: var(--stone); min-width: 52px; }
+    .ta-empty { padding: 10px 12px; font-size: 12.5px; color: var(--stone); }
+  </style>
+</head>
+<body>
+<div id="sidebar"></div>
+<div id="main">
+  <div id="topbar">
+    <div style="display:flex;align-items:center;gap:12px">
+      <button class="btn btn-ghost btn-sm" onclick="navigate('marketing-lists')">← Lists</button>
+      <div class="topbar-title" id="page-title">Marketing List</div>
+    </div>
+    <div class="topbar-actions">
+      <button class="btn btn-outline btn-sm" onclick="promptRename()">Rename</button>
+      <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="deleteList()">Delete List</button>
+    </div>
+  </div>
+  <div id="page-content" class="fade-in">
+    <div id="root"><div style="text-align:center;padding:60px"><div class="spinner"></div></div></div>
+  </div>
+</div>
+
+<script src="/js/app.js?v=3"></script>
+<script>
+  if (!Auth.requireAuth()) throw new Error('Not authenticated');
+  renderSidebar('marketing-lists');
+
+  const ID = +new URLSearchParams(window.location.search).get('id');
+  let REC = null;
+  let taResults = [];
+  let taSelected = null; // {type, id, name}
+
+  async function load() {
+    try {
+      REC = await API.get(`/marketing-lists/${ID}`);
+      document.getElementById('page-title').textContent = REC.name;
+      document.title = REC.name + ' — UpFront Broker';
+      render();
+    } catch(e) { Toast.error('Failed to load: ' + e.message); }
+  }
+
+  function render() {
+    const members = REC.members || [];
+    document.getElementById('root').innerHTML = `
+      <div class="list-header">
+        <div class="list-icon">◈</div>
+        <div>
+          <div class="list-title">${esc(REC.name)}</div>
+          <div class="list-sub">${esc(REC.description || '')}${REC.description ? ' · ' : ''}${members.length} member${members.length !== 1 ? 's' : ''}</div>
+        </div>
+      </div>
+
+      <div class="dc">
+        <div class="dc-title">
+          <span>Members (${members.length})</span>
+        </div>
+        <div class="dc-body" id="members-body">
+          ${renderMembers(members)}
+        </div>
+        <div class="add-member-row">
+          <div class="ta-wrap">
+            <input type="text" class="form-control ta-input" id="ta-input"
+              placeholder="Search accounts or contacts…"
+              oninput="taSearch(this.value)"
+              onkeydown="taKeydown(event)"
+              autocomplete="off">
+            <div class="ta-dropdown" id="ta-dropdown"></div>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="addSelected()">Add</button>
+        </div>
+      </div>`;
+  }
+
+  function renderMembers(members) {
+    if (!members.length) {
+      return `<div class="empty-members">No members yet — search above to add accounts or contacts.</div>`;
+    }
+    return members.map(m => {
+      const href = m.type === 'account'
+        ? `/pages/account.html?id=${m.entity_id}`
+        : `/pages/contact.html?id=${m.entity_id}`;
+      return `<div class="member-row" id="member-${m.id}">
+        <span class="type-badge type-${m.type}">${m.type}</span>
+        <a class="member-name" href="${href}">${esc(m.display_name)}</a>
+        ${m.note ? `<span class="member-note" title="${esc(m.note)}">${esc(m.note)}</span>` : ''}
+        <span class="member-source">${m.source !== 'manual' ? esc(m.source) : ''}</span>
+        <button class="btn btn-ghost btn-sm" style="color:var(--stone);flex-shrink:0" title="Remove"
+          onclick="removeMember(${m.id})">✕</button>
+      </div>`;
+    }).join('');
+  }
+
+  // ── Typeahead ─────────────────────────────────────────────────
+
+  let taTimer = null;
+  async function taSearch(q) {
+    taSelected = null;
+    clearTimeout(taTimer);
+    const dd = document.getElementById('ta-dropdown');
+    if (q.trim().length < 2) { dd.style.display = 'none'; return; }
+    taTimer = setTimeout(async () => {
+      try {
+        const [accts, cts] = await Promise.all([
+          API.get(`/accounts/search?q=${encodeURIComponent(q)}`),
+          API.get(`/contacts/search?q=${encodeURIComponent(q)}`),
+        ]);
+        taResults = [
+          ...(accts || []).map(a => ({type:'account', id:a.id, name:a.name})),
+          ...(cts   || []).map(c => ({type:'contact', id:c.id, name:c.name || `${c.first_name||''} ${c.last_name||''}`.trim()})),
+        ];
+        if (!taResults.length) {
+          dd.innerHTML = `<div class="ta-empty">No results</div>`;
+        } else {
+          dd.innerHTML = taResults.map((r, i) => `
+            <div class="ta-item" data-i="${i}" onmousedown="taSelect(${i})">
+              <span class="ta-item-type">${r.type}</span>
+              <span>${esc(r.name)}</span>
+            </div>`).join('');
+        }
+        dd.style.display = 'block';
+      } catch(e) {}
+    }, 220);
+  }
+
+  function taKeydown(e) {
+    if (e.key === 'Escape') { document.getElementById('ta-dropdown').style.display = 'none'; }
+    if (e.key === 'Enter') { addSelected(); }
+  }
+
+  function taSelect(i) {
+    taSelected = taResults[i];
+    document.getElementById('ta-input').value = taSelected.name;
+    document.getElementById('ta-dropdown').style.display = 'none';
+  }
+
+  document.addEventListener('click', e => {
+    if (!e.target.closest('.ta-wrap')) {
+      const dd = document.getElementById('ta-dropdown');
+      if (dd) dd.style.display = 'none';
+    }
+  });
+
+  // ── Add / Remove members ──────────────────────────────────────
+
+  async function addSelected() {
+    if (!taSelected) {
+      Toast.error('Select an account or contact first');
+      return;
+    }
+    const body = taSelected.type === 'account'
+      ? { account_id: taSelected.id }
+      : { contact_id: taSelected.id };
+    try {
+      const result = await API.post(`/marketing-lists/${ID}/members`, body);
+      if (result.already_existed) {
+        Toast.info(`${taSelected.name} is already in this list`);
+      } else {
+        Toast.success(`${taSelected.name} added`);
+      }
+      document.getElementById('ta-input').value = '';
+      taSelected = null;
+      // Reload and re-render
+      REC = await API.get(`/marketing-lists/${ID}`);
+      document.getElementById('members-body').innerHTML = renderMembers(REC.members || []);
+    } catch(e) { Toast.error(e.message); }
+  }
+
+  async function removeMember(memberId) {
+    try {
+      await API.delete(`/marketing-lists/${ID}/members/${memberId}`);
+      const row = document.getElementById(`member-${memberId}`);
+      if (row) row.remove();
+      REC.members = (REC.members || []).filter(m => m.id !== memberId);
+      // Update count in header
+      const sub = document.querySelector('.list-sub');
+      if (sub) {
+        const n = REC.members.length;
+        const parts = [];
+        if (REC.description) parts.push(esc(REC.description));
+        parts.push(`${n} member${n !== 1 ? 's' : ''}`);
+        sub.textContent = parts.join(' · ');
+      }
+      if (!REC.members.length) {
+        document.getElementById('members-body').innerHTML = renderMembers([]);
+      }
+      Toast.success('Removed');
+    } catch(e) { Toast.error(e.message); }
+  }
+
+  // ── Rename / Delete ───────────────────────────────────────────
+
+  async function promptRename() {
+    const name = window.prompt('New list name:', REC.name);
+    if (!name || name.trim() === REC.name) return;
+    try {
+      const res = await fetch(`/api/marketing-lists/${ID}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API.token()}` },
+        body: JSON.stringify({ name: name.trim() }),
+      });
+      if (!res.ok) { const e = await res.json(); Toast.error(e.detail || 'Failed'); return; }
+      const data = await res.json();
+      REC.name = data.name;
+      document.getElementById('page-title').textContent = data.name;
+      document.title = data.name + ' — UpFront Broker';
+      document.querySelector('.list-title').textContent = data.name;
+      Toast.success('Renamed');
+    } catch(e) { Toast.error(e.message); }
+  }
+
+  async function deleteList() {
+    if (!confirm(`Delete "${REC.name}" and all its members?`)) return;
+    try {
+      await API.delete(`/marketing-lists/${ID}`);
+      Toast.success('List deleted');
+      navigate('marketing-lists');
+    } catch(e) { Toast.error(e.message); }
+  }
+
+  function esc(s) {
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  load();
+</script>
+</body>
+</html>
