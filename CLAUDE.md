@@ -1,386 +1,373 @@
-# UpFront Broker — Claude Code Context
+# UpFront Broker — CLAUDE.md
+
+> Read this before every prompt. Surgical edits. Don't rewrite what works.
+
+---
 
 ## What This Is
-A B2B CRE CRM built for independent commercial real estate brokers.
-Solo-agent, IC-first — the broker owns their data, fully portable.
-Built from scratch with lessons learned from UpFront (AI-SalesWizard).
 
-**Live target:** Render (same pattern as UpFront)
-**Local dev:** `cd backend && uvicorn main:app --reload`
+B2B CRE broker intelligence platform for independent commercial real estate brokers in Metro Detroit. Solo-agent, IC-first — broker owns their data, fully portable. Live at **upfront-broker.onrender.com**.
 
----
-
-## Tech Stack
-- **Backend:** FastAPI (Python) + SQLAlchemy ORM + Alembic migrations
-- **Database:** PostgreSQL (Render managed DB)
-- **Auth:** Email/password (bcrypt + passlib) + JWT (python-jose)
-  — Google OAuth code is present but commented out; restore after product is live
-- **Frontend:** Vanilla JS (ES6+), multi-file, no framework
-- **Fonts:** DM Sans (body) + DM Serif Display (headings) via Google Fonts
-- **Deploy:** Render via render.yaml
+> NOT a property database. Brokers have CoStar for that.
+> This is a BROKER INTELLIGENCE PLATFORM: know who owns what, find the human behind the LLC, stay ahead of transactions, build targeted buyer outreach.
 
 ---
 
-## Project Structure
+## Stack
+
+- **Backend:** FastAPI + SQLAlchemy + PostgreSQL + Alembic
+- **Frontend:** Vanilla JS (ES6+), no frameworks, multi-file
+- **Deployment:** Render (web service + PostgreSQL), auto-deploy via GitHub webhook
+- **Auth:** Google OAuth + email/password, JWT tokens
+- **Maps:** Leaflet.js
+- **Geospatial:** Oakland County ArcGIS (geometry/coordinates only)
+
+## Repo & Local
+
+- **GitHub:** github.com/AI-ResumeWizard/upfront-broker
+- **Local:** /Applications/UpFront Broker/upfront-broker
+- **Claude Code:** `cd "/Applications/UpFront Broker/upfront-broker" && claude` (green terminal)
+- **Render shell:** Render dashboard → service → Shell tab
+
+## Design System
+
 ```
-upfront-broker/
-├── backend/
-│   ├── main.py              # FastAPI entry point, all routers mounted
-│   ├── database.py          # SQLAlchemy engine + get_db dependency
-│   ├── auth_utils.py        # JWT create/verify, get_current_user
-│   ├── models/
-│   │   ├── __init__.py      # imports all models (required for table creation)
-│   │   ├── user.py          # broker profile
-│   │   ├── contact.py       # center of gravity — Contact is king
-│   │   ├── account.py       # LLC/entity layer
-│   │   ├── contact_account.py  # junction: 1 contact → many LLCs
-│   │   ├── property.py      # CRE property, 9 types
-│   │   ├── deal.py          # transaction + DealContact junction
-│   │   └── shared.py        # Activity, Document, Portal, PortalView, Comp
-│   ├── routers/
-│   │   ├── auth.py          # /api/auth — register, login, me
-│   │   ├── contacts.py      # /api/contacts — full CRUD
-│   │   ├── accounts.py      # /api/accounts — full CRUD + contact linking
-│   │   ├── properties.py    # /api/properties — full CRUD
-│   │   ├── deals.py         # /api/deals — full CRUD + pipeline-summary
-│   │   ├── activities.py    # /api/activities — log calls, emails, tours
-│   │   ├── documents.py     # /api/documents — file references
-│   │   ├── portal.py        # /api/portal — buyer/seller portal
-│   │   └── comps.py         # /api/comps — manual + CRE data import
-│   └── requirements.txt
-├── frontend/
-│   ├── css/
-│   │   └── main.css         # full design system + CSS variables
-│   ├── js/
-│   │   └── app.js           # API, Auth, Toast, Fmt, Modal, renderSidebar
-│   └── pages/
-│       ├── login.html       # sign in + register
-│       ├── dashboard.html   # morning view — pipeline, closes, activity
-│       ├── properties.html  # [TODO]
-│       ├── contacts.html    # [TODO]
-│       ├── accounts.html    # [TODO]
-│       ├── deals.html       # [TODO]
-│       └── portal.html      # [TODO]
-├── alembic/                 # DB migrations (init when ready)
-├── .env                     # local env vars (not committed)
-├── render.yaml              # Render deploy config
-└── CLAUDE.md                # this file
+Navy:   #0f1923  (sidebar, headers)
+Gold:   #c9943a  (accent, primary buttons)
+Cream:  #f7f4ef  (background)
+Fonts:  DM Sans (body), DM Serif Display (headings), JetBrains Mono (numbers)
 ```
 
 ---
 
-## Data Model (Critical — Read Before Touching Models)
+## Coding Rules (CRITICAL)
 
-**Hierarchy: Contact is the center of gravity.**
-```
-CONTACT (the human, the relationship)
-    └── ACCOUNT (LLC/entity they control) — via contact_accounts junction
-            └── PROPERTY (what the entity owns)
-                    └── DEAL (the transaction)
-                            ├── ACTIVITY (log of all touchpoints)
-                            ├── DOCUMENT (files attached to the deal)
-                            └── PORTAL (buyer/seller client portal)
-```
-
-One contact can control many LLCs.
-One LLC can own many properties.
-One property can have many deals over time.
-Every deal tracks both sides (listing + buyer rep), co-broker splits, full commission math.
+- ES6+ OK on frontend — **no frameworks, vanilla JS only**
+- CSS variables always — **never hardcode colors**
+- `owner_id` on **every** DB query — data isolation is the product promise
+- Validate any FK passed from the client belongs to the current `owner_id` before assignment (not just isolation on read — isolation on write)
+- Surgical edits — **don't rewrite what works**
+- One file per concern, pages under 500 lines
+- All code changes via **Claude Code** (green terminal)
+- All ops commands via **Render shell** (browser)
+- Set `foreign_keys=` explicitly on any SQLAlchemy relationship between two tables that share more than one FK (properties↔accounts now has four FKs — already burned us twice; be defensive on every new pair)
 
 ---
 
-## Data Privacy Architecture
+## Operational Protocol
 
-Two distinct isolation models exist in this codebase. **Never mix them.**
+Every action the user must take is spelled out explicitly: the environment (Claude Code / Render Shell / Render Dashboard / Browser / Local Terminal), the exact command or click, and the order. No ambiguity about what to run or when.
 
-### Option A — Shared cache (no `owner_id`)
-Used for data sourced entirely from third-party public records. The same
-county parcel record has the same assessed value regardless of which broker
-looks it up. Caching it per-user wastes space, burns API quota, and produces
-stale divergence between brokers who enriched on different days.
+**Environment labels:**
+- `→ CLAUDE CODE` — green terminal, AI coding assistant local
+- `→ RENDER DASHBOARD` — browser, Render web UI
+- `→ RENDER SHELL` — Render dashboard → service → Shell tab
+- `→ LOCAL TERMINAL` — dark grey terminal on Mac, in repo dir
+- `→ BROWSER` — live site or test page
 
-**Table:** `enrichment_cache`
-- No `owner_id` column.
-- Keyed on `(lookup_type, lookup_key)` — e.g. `("parcel_id", "12-34-567-890")`.
-- 90-day TTL via `expires_at`; stale rows are re-fetched transparently.
-- `hit_count` tracks demand for cache warming and quota planning.
-- All writes come from the enrichment service, never from broker input.
+**Auto-deploy quirk:** Render's auto-deploy webhook occasionally stops firing silently. If a push doesn't trigger a new deploy within a few minutes, queue Manual Deploy → Deploy latest commit from the dashboard.
 
-### Option B — Per-user isolation (`owner_id` on every row)
-Used for everything the broker creates, edits, or appends. Two brokers can
-track the same property address and never see each other's data.
+**Auto-migrate on deploy:** Render runs `alembic upgrade head` during build. A silent two-line `alembic upgrade head` output (just the two `INFO` lines, no "Running upgrade") is success, not failure. Confirm with `alembic current` against the expected head.
 
-**All other tables** (`properties`, `contacts`, `accounts`, `deals`,
-`activities`, `documents`, `comps`, `portals`, …) carry `owner_id` and every
-query filters on it. This is the product promise.
-
-### The boundary
-```
-Public-records fetch  →  enrichment_cache (Option A, shared)
-                      ↓
-Broker confirms diff  →  properties / accounts (Option B, per-user)
-```
-Raw third-party responses live in the shared cache. The moment a broker
-accepts an enrichment result, the data is written into their own isolated
-`Property` record. The cache entry is never exposed directly to the frontend.
+**Render shell is shallow/grafted clone:** `git log` only shows the build's tip commit. `git show --stat HEAD~1` will fail with "ambiguous argument" because there's no parent. To inspect a commit's actual diff stats, do it from the local repo, not Render.
 
 ---
 
-## Property Types (v1 — Commercial Only)
-Office, Industrial, Retail, Land, Multifamily, STNL, Self Storage, Hospitality, Medical
+## Data Model
 
-Residential is on the roadmap but explicitly out of scope for v1.
-
-## Property Model — Field Groups
-
-**Core (all types):** name, address, city, state, zip, county, property_type, subtype,
-status, year_built, sf_rentable, sf_land, units, stories, zoning, parking_ratio,
-occupancy_pct, asking_price, asking_price_per_sf, assessed_value, tax_amount,
-tax_year, cap_rate, noi, parcel_id, legal_desc, tenant, last_sale_price,
-last_sale_date, lat, lng, notes
-
-**Industrial:** clear_height_min/max, dock_doors, drive_in_doors, rail_service,
-rail_service_type, power_amps/volts/phase, column_spacing, floor_thickness,
-floor_load, sprinklers, sprinkler_type, crane_capacity/height, office_pct/sf,
-yard_area, secured_yard, cross_dock
-
-**Retail:** anchor_tenant, inline_space, end_cap, pylon_sign, monument_sign,
-traffic_count, frontage_ft, drive_through, number_of_buildings
-
-**Office:** building_class, fiber_optic, generator, raised_floor,
-data_center_ready, leed_certified, energy_star
-
-**Multifamily:** unit_mix, avg_unit_sf, avg_rent_per_unit/sf, laundry,
-pet_friendly, affordable_units, market_rate_units
-
-**Hospitality:** number_of_rooms, flag, franchise_expiry, adr, revpar,
-restaurant_seats, meeting_space_sf, pool_hotel, fitness_center
-
-**Medical:** exam_rooms, procedure_rooms, imaging_rooms, surgical_suites,
-icu_beds, licensed_beds, medical_gas, emergency_power
-
-**Land:** zoning_jurisdiction, floodplain/zone, wetlands/acres,
-utilities_to_site, road_frontage_ft, corner_lot, subdivided, number_of_lots,
-plat_recorded, environmental
-
-**Extended Financial:** gross_income, operating_expense, vacancy_allowance,
-expense_ratio, debt_service, cash_flow, price_per_unit/room, lease_type,
-tenant_pays, owner_pays, lease_expiration, lease_term_months, renewal_options,
-rent_bumps
-
-**General Commercial:** business_name, business_type, employee_count, franchise,
-franchise_name, opportunity_zone, enterprise_zone, historic_district, tif_district
-
-**Residential (future, nullable):** bedrooms, bathrooms, garage_spaces, hoa_fee,
-hoa_frequency, school_district, has_basement, has_fireplace, has_pool,
-mls_number, list_date, days_on_market
-
----
-
-## Deal Stages (in order)
-Prospecting → Pitching → Active Listing → Under Contract → Closed → Dead
-
----
-
-## Commission Math (auto-calculated on save — see routers/deals.py)
-- `commission_total` = sale_price × commission_pct
-- `our_commission`   = commission_total × our_split_pct
-- Co-broker split tracked separately
-- Lease deals: base = lease_rate × sf × (term_months / 12)
-
----
-
-## Design System (CSS Variables — do not freestyle)
+### CONTACT
 ```
---navy:        #0f1923   (sidebar, primary UI)
---navy-mid:    #16263a
---navy-light:  #1e3450
---gold:        #c9943a   (accent, active states)
---gold-light:  #e0b060
---cream:       #f7f4ef   (main background)
---cream-dark:  #ede9e2   (borders, hover states)
---stone:       #8a8278   (secondary text)
---green:       #2d7d4f   (success, commission)
---amber:       #c47c20   (warning)
---red:         #a83232   (error, dead deals)
-
-Fonts:
---font-body:   'DM Sans', sans-serif
---font-serif:  'DM Serif Display', serif    (headings, titles)
---font-mono:   'JetBrains Mono', monospace  (numbers, stats)
+id, owner_id, first_name, last_name, email, phone, title, company,
+account_id, tenant_id (FK → tenants),
+address, city, state, zip, notes, created_at
 ```
 
----
+### CONTACT_PHONES (multi-phone child table)
+```
+id, owner_id, contact_id (CASCADE),
+label (mobile|office|direct|fax|other), number, is_primary,
+created_at
+```
+- `contacts.phone` retained as legacy mirror — synced to current primary via `_resync_legacy_phone`
+- Multi-primary guard: setting `is_primary=true` on one row unsets it on the contact's others, same transaction
+- 2,322 legacy phones backfilled
 
-## Frontend Patterns (follow these exactly)
+### ACCOUNT (party model — not just companies)
+```
+id, owner_id, name, normalized_name,
+roles text[] NOT NULL DEFAULT '{}',
+account_type (deprecated, kept for display),
+entity_type (LLC / Corp / Trust / Individual — legal form, separate from roles),
+website, phone, email,
+address, city, state, zip, notes, created_at
+```
+- An Account is a **party** — any actor that can own, be owned, or play a role in a deal. A company, a trust, a fund, OR a person.
+- A person who owns something = Account (role `individual`) paired to a Contact for phone/email
+- Multi-role via `roles` array — additive and sticky, never auto-stripped
+- `normalized_name`: lowercase, strip punctuation + LLC/Inc/Corp/Co/Trust/LP/LLP/Holdings/Company — used for Regrid reconciliation
+- GIN index on `roles`, btree on `normalized_name`
 
-### Every page needs:
-```html
-<div id="sidebar"></div>
-<div id="main">
-  <div id="topbar">...</div>
-  <div id="page-content" class="fade-in">...</div>
-</div>
-<script src="/js/app.js"></script>
-<script>
-  if (!Auth.requireAuth()) throw new Error('Not authenticated');
-  renderSidebar('PAGE_NAME');  // matches nav-item data-page
-  // page logic here
-</script>
+### ACCOUNT_ROLES (canonical vocabulary, seeded — 33 entries across 7 categories)
+```
+slug (PK), display_name, category
+```
+**Categories:** principals, brokerage_mgmt, capital_finance, legal_professional, diligence_project, government_public, vendor
+**Key slugs:** owner, tenant, buyer, seller, investor, developer, guarantor, individual, brokerage, property_manager, asset_manager, lender, mortgage_broker, appraiser, loan_servicer, qi_1031, attorney, title_company, escrow_agent, accounting_firm, tax_consultant, insurance, environmental, engineering, surveyor, architect, general_contractor, zoning_consultant, inspector, municipality, econ_dev_authority, utility, vendor
+
+### `ensure_role()` helper
+```python
+def ensure_role(account, role):
+    if role not in account.roles:
+        account.roles = account.roles + [role]   # reassign for SQLAlchemy ARRAY tracking
+```
+Fires automatically from every link-writer:
+- `property.recorded_owner_account_id` set → `ensure_role(acct, 'owner')`
+- `property.manager_account_id` set → `ensure_role(acct, 'property_manager')`
+- Engagement created (`listing_sale|listing_lease|bov` → `'owner'`, `buyer_rep` → `'buyer'`, `tenant_rep` → `'tenant'`, `consulting|referral` → no role)
+- Future: listings (brokerage_account_id → `'brokerage'`), comps (involved_brokerage_account_id → `'brokerage'`)
+
+### PROPERTY
+```
+id, owner_id, name, building_name, park_name,
+address, city, state, zip, lat, lng,
+property_type, subtype, sf_rentable, sf_land, year_built,
+assessed_value, tax_year, zoning, parcel_id,
+
+recorded_owner_account_id (FK accounts, SET NULL)   -- the LLC on the deed
+manager_account_id        (FK accounts, SET NULL)   -- property manager
+tax_bill_account_id       (FK accounts, SET NULL)   -- tax bill recipient (clue, no role)
+
+-- Industrial: clear_height, dock_doors, drive_in_doors, rail_service,
+   power_amps, sprinklers, crane_capacity, cross_dock
+-- Retail: anchor_tenant, traffic_count, frontage_ft, drive_through, pylon_sign
+-- Office: building_class, leed_certified, fiber_optic, generator
+-- Multifamily: unit_mix, avg_rent_per_unit, laundry, pet_friendly
+-- Hospitality: flag, adr, revpar, number_of_rooms
+-- Medical: exam_rooms, surgical_suites, licensed_beds
+-- Land: floodplain, wetlands, utilities_to_site, environmental
+-- Financial: gross_income, operating_expense, lease_type, tenant_pays, owner_pays
+-- General: opportunity_zone, tif_district, historic_district
+-- Legacy: tenant (text, migrated to property_tenants)
+
+notes, created_at
+```
+- Three FKs to accounts → `Property.account` ↔ `Account.properties` relationship pinned to `account_id` explicitly (foreign_keys=)
+- Owner-isolation validation via `_validate_account_links` before any FK assignment
+
+### ENGAGEMENT (brokerage pipeline — distinct from deals)
+```
+id, owner_id,
+type   -- listing_sale | listing_lease | tenant_rep | buyer_rep | bov | consulting | referral
+stage  -- pursuing | proposed | active | closed | lost | expired
+signed_agreement bool, agreement_date,
+client_account_id    (FK accounts, SET NULL),
+subject_property_id  (FK properties, SET NULL),
+name, notes, created_at
+```
+- Type × stage collapses the "Listings I want / Listings I have / Assignments I want / Assignments I have / BOVs" buckets into one entity
+- Kanban by stage at `/pages/pipeline.html`, drag-to-PUT
+- `_validate_account_links`-style owner-isolation on `client_account_id` and `subject_property_id`
+- Future child junctions (Phase B): `opportunities` for listings (prospective buyers/tenants), `candidate_properties` for rep assignments
+
+### DEAL (transaction pipeline — distinct from engagements)
+```
+id, owner_id, property_id, name, stage, deal_type,
+price, commission_pct, commission_amt, co_broker, co_broker_split,
+expected_close, actual_close, notes, created_at
+```
+Stages: Lead → Qualified → Proposal → LOI → Under Contract → Closed
+Future: add `buyer_account_id`, `seller_account_id` for party links.
+
+### ACTIVITY
+```
+id, owner_id, deal_id, contact_id,
+activity_type, subject, notes, activity_date, created_at
 ```
 
-### API calls:
-```javascript
-// GET
-const data = await API.get('/contacts/');
+### DOCUMENT
+```
+id, owner_id, deal_id, property_id,
+filename, file_url, doc_type, notes, created_at
+```
+Future: generalize across all entities (account_id, contact_id, tenant_id, comp_id), add `kind` (file|url|text), serve via auth-checked endpoint.
 
-// POST
-const result = await API.post('/contacts/', { first_name: 'John', ... });
+### TENANT (top-level entity)
+```
+id, owner_id, name, normalized_name,
+industry (Food & Beverage / Financial / Retail / Medical /
+          Office / Industrial / Service / Other),
+website, hq_address, hq_city, hq_state, hq_zip,
+notes, created_at
+```
+`normalized_name` strips: LLC, Corp, Co, Coffee, Inc, Restaurant, Cafe, punctuation. Used for fuzzy matching (rapidfuzz partial_ratio, threshold 55).
 
-// PUT
-await API.put(`/contacts/${id}`, updates);
-
-// DELETE
-await API.delete(`/contacts/${id}`);
+### PROPERTY_TENANTS (space/lease junction)
+```
+id, owner_id, property_id, tenant_id,
+sf, pct_of_building, rent_per_sf,
+lease_type (NNN / Gross / Modified Gross / Full Service),
+lease_start, lease_expiry, is_available, notes
 ```
 
-### Toast notifications:
-```javascript
-Toast.success('Contact saved');
-Toast.error('Something went wrong');
-Toast.info('Loading...');
+### COMPS
+```
+id, owner_id, address, city, state, zip, property_type,
+sf, sale_price, price_per_sf, sale_date, cap_rate, notes, created_at
+```
+Future: add `property_id` (FK), `involved_brokerage_account_id` (FK).
+
+### PARCELS (local Oakland County reference table — ~50k rows currently, target 490k after Regrid)
+```
+keypin (PK), pin, revisiondate, cvttaxcode, cvttaxdescription,
+classcode, name1, name2, siteaddress, sitecity, sitestate,
+sitezip5, postaladdress, assessedvalue, taxablevalue,
+num_beds, num_baths, structure_desc, living_area_sqft,
+shapearea, shapelen, county (default: 'oakland')
+
+Indexes: sitezip5, name1, classcode, county
+```
+- name1/name2 NULL in Oakland County public data — Regrid fills these
+- Search at `GET /api/finder/parcels/search?q=` (ILIKE on siteaddress/keypin, cap 10)
+- Attach at `POST /api/properties/{id}/attach-parcel` — owner-scoped, fills blank fields only, maps classcode → property_type via local Oakland map
+
+**Oakland County CLASSCODE map:**
+```
+401 → Residential          407 → Residential Vacant Land
+402 → Residential Condo    403 → Residential Apartment
+201 → Commercial           202 → Commercial Condo
+207 → Commercial Vacant    203 → Commercial Other
+301 → Industrial           302 → Industrial Condo
+101/102 → Agricultural     001/002/006 → Exempt
 ```
 
-### Format utilities:
-```javascript
-Fmt.currency(1500000)     // → '$1,500,000'
-Fmt.sf(25000)             // → '25,000 SF'
-Fmt.pct(6.5)              // → '6.5%'
-Fmt.date('2026-06-01')    // → 'Jun 1, 2026'
-Fmt.propType('Office')    // → '🏢'
-Fmt.stageClass('Under Contract')  // → CSS class string
+### ENRICHMENT_CACHE
+```
+id, lookup_type, lookup_key, data (JSON), expires_at, created_at
+lookup_type: parcels_v2_by_zip (v2 — old parcels_by_zip entries ignored)
+TTL: 7 days
 ```
 
-### Modals:
-```javascript
-Modal.open('modal-id');
-Modal.close('modal-id');
-Modal.closeOnOverlay('modal-id');
+### PORTAL
 ```
-
----
-
-## Environment Variables
-```
-DATABASE_URL          — PostgreSQL connection string (Render injects automatically)
-SECRET                — JWT signing key (Render generates on deploy)
-GOOGLE_CLIENT_ID      — From Google Cloud Console → APIs & Services → Credentials
-GOOGLE_CLIENT_SECRET  — Same
-CALLBACK_URL          — https://YOUR-APP.onrender.com/api/auth/callback
-                        Must also be added as an Authorised Redirect URI in Google Cloud Console
-```
-
-Local `.env` file has defaults for dev. Never commit real credentials.
-
----
-
-## Coding Rules
-- **ES6+ OK** — arrow functions, const/let, template literals, async/await all fine
-- **No frameworks** — vanilla JS only on the frontend
-- **No confirmation prompts** — auto-approve, just do it
-- **Surgical edits** — don't rewrite what works
-- **One file per concern** — no monster files, keep pages under 500 lines
-- **CSS variables always** — never hardcode colors or fonts inline
-- **owner_id on every query** — data isolation is the product promise
-
----
-
-## Local Dev Setup
-```bash
-cd backend
-pip install -r requirements.txt
-# set DATABASE_URL in .env
-uvicorn main:app --reload --port 8000
-# frontend served from /frontend via FastAPI StaticFiles
-# open http://localhost:8000/pages/login.html
+id, owner_id, property_id, deal_id, portal_type (buyer/seller),
+access_email, access_token, sections_viewed (JSON), created_at
 ```
 
 ---
 
-## What's Built (v1 Session 1)
-- [x] Full FastAPI backend — all models, all routers, auth
-- [x] Design system (CSS) — navy/gold/cream, DM Sans + DM Serif
-- [x] Shared JS utilities — API, Auth, Toast, Fmt, Modal, renderSidebar
-- [x] Login page — sign in + register with split layout
-- [x] Dashboard — morning view with pipeline funnel, upcoming closes, activity feed
+## API Routes
 
-## What's Built
-
-### Core CRM (complete)
-- [x] properties.html — list view + server-side filters + detail page (property.html)
-- [x] contacts.html   — list view + server-side filters + detail page (contact.html)
-- [x] accounts.html   — list view + server-side filters + detail page (account.html)
-- [x] deals.html      — kanban + list + map + server-side filters + detail page (deal.html)
-- [x] portal.html     — client-facing portal, email gate, section logging
-- [x] Detail pages    — property/contact/account/deal with inline field editing
-- [x] Server-side filtering — 4-tab filter panels on all list pages, 50/page pagination
-
-### Data & Import (complete)
-- [x] import.html     — 5-step CSV/XLSX wizard, RESO fuzzy mapping, linked multi-silo
-- [x] Full commercial property fields — 108 columns across all 8 property types
-- [x] RESO Data Dictionary 2.1 — 77 fields, 400+ synonyms (see RESO_DATA_DICTIONARY.md)
-- [x] Linked silo import — owner columns create Accounts + Contacts from CSV
-
-### Market Intelligence (complete / in progress)
-- [x] finder.html     — Property Finder, Oakland County ArcGIS MapServer,
-                         Web Mercator → WGS84 projection, Add to Pipeline
-- [x] EnrichmentCache — local parcel cache, 7-day TTL, shared Option A store
-- [x] portfolio.html  — Portfolio Intelligence, 6 cross-silo queries:
-                         accounts by type, properties by owner location,
-                         portfolio size ranking, tenant search,
-                         LLC clustering / owner pattern, owner name search
-- [~] Finder owner name — NAME1 mapped correctly; 7-day cache may hold stale data
-                           until it expires or is cleared
-- [ ] comps.html      — comp table + CRE data import
-- [ ] Macomb County ArcGIS — second county for Property Finder
-
-### Tenant Module (complete)
-- [x] tenants.html / tenant.html — list page + detail page with Properties / Contacts / News tabs
-- [x] Tenant + PropertyTenant models — top-level `tenants` entity + `property_tenants`
-                         junction (migration b2c3d4e5f6a7), `normalized_name` + rapidfuzz
-                         fuzzy matching (`fuzz.partial_ratio`, threshold 55)
-- [x] property.html Tab 2 (Spaces & Tenants) — fuzzy typeahead, auto-creates Tenant on save
-- [x] Tenant News tab — Google News RSS (no API key required)
-- [x] Contacts tab — `tenant_id` FK on contacts (migration c3d4e5f6a7b8); GET
-                         /tenants/{id}/contacts returns direct FK + fuzzy account-name
-                         matches, deduplicated; Link/New Contact flows; tenant badges
-                         on contact.html + contacts.html
-- [ ] scripts/migrate_tenants.py — backfills legacy `property.tenant` text field into
-                         tenants/property_tenants. Confirm it has been run on Render
-                         (`cd /opt/render/project/src && python scripts/migrate_tenants.py`)
-
-### Infrastructure (complete)
-- [x] Google OAuth 2.0 + email/password auth (both active)
-- [x] Alembic migrations — enrichment_cache, lat/lng, google_id, 108 commercial fields,
-                         tenants/property_tenants module, tenant_id on contacts
-- [x] Render deploy — render.yaml, alembic upgrade on startup, no-cache HTML headers
-- [x] Static asset cache control — RevalidateStaticFiles on /static + /js mounts
-                         (Cache-Control: no-cache, must-revalidate); main.css/app.js
-                         references cache-busted with ?v=2
-
-## Next Session Priorities
-1. **Tenant module smoke test** — confirm scripts/migrate_tenants.py has run on Render,
-   then exercise tenant.html (Properties/Contacts/News tabs, Link/New Contact, fuzzy
-   typeahead on property.html Tab 2) against live data
-2. **Portfolio Intelligence testing** — verify all 6 query types against live data
-3. **Daily Digest** — morning email/dashboard summarizing activity, closes, pipeline moves
-4. **Macomb County ArcGIS** — second parcel source for Property Finder
-5. **LLC clustering deep-dive** — owner pattern query + visualization improvements
-6. **Constant Contact / email outreach** — native broker outreach from contact records
-7. **Buyer profile AI** — scrape acquisition criteria pages, match to pipeline properties
+```
+/api/auth                          — login, register, Google OAuth
+/api/contacts                      — full CRUD (tenant_id field, /full includes phones)
+/api/contacts/{id}/phones          — phone CRUD (owner-scoped via _get_owned_contact)
+/api/contacts/search               — typeahead
+/api/accounts                      — full CRUD (roles, normalized_name)
+/api/accounts/search?q=            — typeahead (ILIKE name, owner-scoped, limit 8) — **registered BEFORE /{id} to avoid route shadowing**
+/api/accounts/{id}/full            — includes roles_resolved, owned_properties, managed_properties, engagements, contacts
+/api/properties                    — full CRUD (recorded_owner_account_id, manager_account_id, tax_bill_account_id, building_name, park_name)
+/api/properties/search?q=          — typeahead
+/api/properties/{id}/full          — includes recorded_owner_account (id+name)
+/api/properties/{id}/attach-parcel — owner-scoped parcel attach
+/api/deals                         — full CRUD
+/api/activities                    — full CRUD
+/api/documents                     — full CRUD
+/api/portal                        — buyer/seller portal
+/api/comps                         — full CRUD
+/api/imports                       — CSV/XLSX, sectioned/alphabetized chooser, role-aware account creation, phone-slot mapping
+/api/finder/parcels/search?q=      — local parcels table search
+/api/finder/parcel/{keypin}        — single lookup (3-step fallback: exact → strip → address)
+/api/finder/add                    — add parcel to pipeline
+/api/tenants                       — full CRUD + fuzzy match
+/api/tenants/{id}/contacts         — direct FK + account-name fuzzy match, deduped
+/api/tenants/{id}/news             — Google News RSS
+/api/tenants/fuzzy?name=           — fuzzy match (rapidfuzz, threshold 55)
+/api/tenants/spaces                — space/lease CRUD
+/api/engagements                   — full CRUD, list/group by stage, drag-to-PUT
+/api/portfolio                     — cross-silo intelligence queries
+```
 
 ---
 
-## Out of Scope (v1)
-BOV Generator, Residential, Mobile app, MLS integration,
-Stripe/billing, Skip tracing API, Chrome extension
+## Pages
+
+| Page | Status | Notes |
+|------|--------|-------|
+| Dashboard | ✅ | Pipeline funnel, upcoming closes, activity feed |
+| Properties | ✅ | List, filter, 5-tab CoStar-style detail page |
+| Property detail | ✅ | Summary / Spaces & Tenants / Contacts / Public Record / Map; Recorded Owner picker + Attach Public Record card on Public Record tab |
+| Contacts | ✅ | List, filter, detail with phones list (label · number, primary badge, inline add/edit/delete) |
+| Accounts | ✅ | List, filter; detail = party hub with role badges, owned/managed properties, engagements, contacts |
+| Deals | ✅ | Kanban + List + Map, commission math, co-broker splits |
+| Pipeline (engagements) | ✅ | Kanban by stage, "+ New Engagement" with account typeahead, property typeahead, "+ Create new property" sub-form, listing-type "Set [client] as recorded owner" checkbox |
+| Tenants | ✅ | Grid, detail (Properties/Contacts/News tabs), fuzzy match |
+| Property Finder | ✅ | ZIP → local DB, all types, circleMarker dots |
+| Portfolio Intelligence | ⚠️ | Built, not fully tested |
+| Client Portal | ✅ | Buyer + seller, email-gated, section tracking |
+| Comps | ✅ | Manual + CSV upload |
+| Import | ✅ | Sectioned (Properties · Accounts · Contacts · Tenants · Deals · Comps), alphabetized, role-aware, phone slots (mobile/office/direct/fax/other → contact_phones with priority-based is_primary) |
+
+---
+
+## Frontend Asset Caching (CRITICAL — closed mid-session)
+
+**Problem solved:** stale `app.js` survived hard refresh, broke nav items across deploys.
+
+**Pattern in `backend/main.py`:**
+```python
+class RevalidateStaticFiles(StaticFiles):
+    async def get_response(self, path, scope):
+        resp = await super().get_response(path, scope)
+        resp.headers["Cache-Control"] = "no-cache, must-revalidate"
+        return resp
+
+app.mount("/static", RevalidateStaticFiles(...), name="css")
+app.mount("/js",     RevalidateStaticFiles(...), name="js")
+```
+Plus `?v=2` query on `/js/app.js` and `/static/main.css` references in pages — bump per deploy when needed. HTML routes already serve with `_NO_CACHE = {"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"}`.
+
+---
+
+## Sidebar (in `frontend/js/app.js`)
+
+Single function `renderSidebar(activePage)` builds the nav for every page. Every page calls it; do not introduce per-page static nav blocks. Sections: Workspace (Dashboard, Pipeline), Records (Properties, Contacts, Accounts, Tenants, Deals), Tools (Comps, Import, Property Finder, Portfolio Intel, Client Portal).
+
+---
+
+## Key Learnings & Patterns
+
+- **SQLAlchemy FK ambiguity:** properties↔accounts has FOUR FKs (account_id, recorded_owner_account_id, manager_account_id, tax_bill_account_id). Any relationship between them needs explicit `foreign_keys=`. Pin defensively on every new pair.
+- **Render grafted clone:** `git log` on Render only shows the build's tip. Inspect commit stats locally.
+- **Auto-migrate on deploy:** silent `alembic upgrade head` = success; confirm with `alembic current`.
+- **Render webhook flakiness:** sometimes silently stops; manual deploy re-arms it.
+- **Cache layers:** hard refresh bypasses browser cache but not server-side edge or `immutable` headers; cache-busting at asset URL level is the reliable fix.
+- **Public/assessor data is reference, not authority:** Oakland County's assessor zip may not match USPS delivery zip. Curated/manual data wins. Never auto-overwrite manually entered fields — fill blanks only.
+- **Oakland County strips owner names from ALL public data** (CSV + ArcGIS). Regrid solves this.
+- **ArcGIS field naming:** `Shape.area`, not `Shape__Area` — verify via wildcard outFields=*.
+- **Hybrid architecture:** local DB for attribute/owner queries, ArcGIS for geometry only.
+- **Owner isolation on write, not just read:** validate any FK passed from the client belongs to the current owner before assignment. This bit us once (Contact PUT accepting any tenant_id) — established `_validate_account_links` pattern in properties router, reuse it everywhere.
+- **Generic, broker-invoked, attestation-logged:** the safe pattern for any feature touching potentially-IP-bearing content (brochure parser, future Chrome extension). No source-specific detection in code; surface warnings at the moment of action; log the user's choice. Same posture as Google Drive, Dropbox.
+
+---
+
+## Regrid Status
+
+- **License:** signed terms — 9-month dev license, Michigan-wide, $1,000 flat, credit applied to nationwide conversion
+- **Refresh cadence:** "as available" — urban counties 4-6x/year, rural 1+x/year. Effectively quarterly-or-better on Metro Detroit.
+- **Awaiting:** paperwork from Luke + Jake, then CC payment
+- **Bonus:** Regrid CRO expressed inbound demand for what UpFront is building; partnership/referral conversation open for the future
+- **On arrival:** one-time reconciliation script — fuzzy-match Regrid owner names against `accounts.normalized_name` (owner-scoped), set `property.recorded_owner_account_id`, fire `ensure_role('owner')`. Schema already in place.
+
+---
+
+## Tools & Resources
+
+- **Claude Code** — primary coding interface (green local terminal)
+- **Render** — hosting, shell access, auto-deploy via GitHub webhook
+- **PostgreSQL** — primary database (Render-hosted)
+- **FastAPI / SQLAlchemy / Alembic** — backend framework and ORM/migrations
+- **Oakland County ArcGIS API** — parcel geometry/coordinates (rate-limited)
+- **Regrid** — incoming, enriched parcel data (owner names, zoning, sale history, coordinates)
+- **rapidfuzz** — fuzzy matching for Tenant deduplication and account reconciliation
+- **Google News RSS** — tenant news feed
+- **GitHub** — source control; auto-deploy trigger
