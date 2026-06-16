@@ -10,3 +10,4 @@ from models.shared import Activity, Document, Portal, PortalView, Comp, Enrichme
 from models.tenant import Tenant
 from models.property_tenant import PropertyTenant
 from models.engagement import Engagement
+from models.marketing_list import MarketingList, MarketingListMember

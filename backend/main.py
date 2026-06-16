@@ -10,7 +10,7 @@ class RevalidateStaticFiles(StaticFiles):
         resp.headers["Cache-Control"] = "no-cache, must-revalidate"
         return resp
 
-from routers import contacts, accounts, properties, deals, activities, documents, portal, comps, auth, imports, finder, portfolio, tenants, engagements
+from routers import contacts, accounts, properties, deals, activities, documents, portal, comps, auth, imports, finder, portfolio, tenants, engagements, marketing_lists
 
 # Table creation is handled exclusively by Alembic (alembic upgrade head on startup).
 # create_all is intentionally absent — it conflicts with migration-managed schema.
@@ -40,7 +40,8 @@ app.include_router(imports.router,      prefix="/api/import",       tags=["impor
 app.include_router(finder.router,       prefix="/api/finder",       tags=["finder"])
 app.include_router(portfolio.router,    prefix="/api/portfolio",    tags=["portfolio"])
 app.include_router(tenants.router,      prefix="/api/tenants",      tags=["tenants"])
-app.include_router(engagements.router,  prefix="/api/engagements",  tags=["engagements"])
+app.include_router(engagements.router,      prefix="/api/engagements",      tags=["engagements"])
+app.include_router(marketing_lists.router,  prefix="/api/marketing-lists",  tags=["marketing-lists"])
 
 # ── Static assets (CSS + JS) — cacheable ─────────────────────────────────────
 frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend")
@@ -111,7 +112,13 @@ async def page_tenants():         return _page("tenants.html")
 async def page_tenant():          return _page("tenant.html")
 
 @app.get("/pages/pipeline.html")
-async def page_pipeline():        return _page("pipeline.html")
+async def page_pipeline():              return _page("pipeline.html")
+
+@app.get("/pages/marketing-lists.html")
+async def page_marketing_lists():       return _page("marketing-lists.html")
+
+@app.get("/pages/marketing-list.html")
+async def page_marketing_list_detail(): return _page("marketing-list.html")
 
 @app.get("/")
 async def serve_root():
