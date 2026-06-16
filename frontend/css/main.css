@@ -725,6 +725,38 @@ textarea.form-control { resize: vertical; min-height: 80px; }
 ::-webkit-scrollbar-thumb { background: var(--cream-dark); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--stone-light); }
 
+/* ── Shared clip-proof typeahead (body-mounted, position:fixed) ── */
+.ta-float {
+  position: fixed;
+  z-index: 9999;
+  background: #fff;
+  border: 1px solid var(--cream-dark);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+  max-height: 260px;
+  overflow-y: auto;
+}
+.ta-float-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  border-bottom: 1px solid var(--cream-dark);
+}
+.ta-float-row:last-child { border-bottom: none; }
+.ta-float-row:hover { background: var(--cream); }
+.ta-float-meta {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--stone);
+  min-width: 52px;
+  flex-shrink: 0;
+}
+
 /* ── Animations ─────────────────────────────────────────────── */
 .fade-in { animation: fadeIn 0.3s ease; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>UpFront Broker — Property</title>
-  <link rel="stylesheet" href="/static/main.css?v=3">
+  <link rel="stylesheet" href="/static/main.css?v=4">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <style>
     #page-content { padding:24px 28px; max-width:1200px; }
@@ -50,9 +50,6 @@
     /* Map tab */
     #prop-map-tab { height:520px; }
     .no-location { height:200px; border-radius:var(--radius); background:var(--cream); display:flex; align-items:center; justify-content:center; font-size:13px; color:var(--stone); margin:12px; }
-    /* Public record search */
-    .dc.dc-overflow-visible { overflow:visible; }
-    .dc.dc-overflow-visible > .dc-title { border-radius:var(--radius-lg) var(--radius-lg) 0 0; }
     .parcel-row { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:9px 12px; cursor:pointer; font-size:13px; border-bottom:1px solid var(--cream-dark); transition:background 0.1s; }
     .parcel-row:last-child { border-bottom:none; }
     .parcel-row:hover { background:var(--cream); }
@@ -90,9 +87,6 @@
         <label class="form-label">Tenant *</label>
         <input type="text" id="tm-name" class="form-control"
                placeholder="Start typing a tenant name…" autocomplete="off" oninput="onTenantInput()">
-        <div id="tm-suggestions" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:200;
-             background:#fff;border:1px solid var(--cream-dark);border-top:none;border-radius:0 0 var(--radius) var(--radius);
-             box-shadow:var(--shadow-hover);max-height:180px;overflow-y:auto"></div>
         <div id="tm-tenant-link" style="display:none;margin-top:4px;font-size:12px;color:var(--stone)">
           Linked to <span id="tm-tenant-link-name" style="font-weight:600;color:var(--navy)"></span>
           <span style="cursor:pointer;color:var(--stone);margin-left:4px" onclick="clearTenantLink()">✕</span>
@@ -158,7 +152,7 @@
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="/js/app.js?v=3"></script>
+<script src="/js/app.js?v=4"></script>
 <script>
   if (!Auth.requireAuth()) throw new Error('Not authenticated');
   renderSidebar('properties');
@@ -447,12 +441,9 @@
       <!-- TAB 4: PUBLIC RECORD -->
       <div id="tab-public" class="tab-pane">
         <div class="dc"><div class="dc-title">Recorded Owner</div><div class="dc-body" id="ro-body"></div></div>
-        <div class="dc dc-overflow-visible"><div class="dc-title">Attach Public Record</div><div class="dc-body">
-          <div style="position:relative;max-width:420px">
+        <div class="dc"><div class="dc-title">Attach Public Record</div><div class="dc-body">
+          <div style="max-width:420px">
             <input type="text" id="parcel-search" class="form-control" placeholder="Search by address or parcel ID…" autocomplete="off" oninput="onParcelSearchInput()">
-            <div id="parcel-suggestions" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:200;
-                 background:#fff;border:1px solid var(--cream-dark);border-top:none;border-radius:0 0 var(--radius) var(--radius);
-                 box-shadow:var(--shadow-hover);max-height:400px;overflow-y:auto"></div>
           </div>
           <div id="attach-status"></div>
         </div></div>
@@ -563,33 +554,34 @@
   function onTenantInput() {
     clearTimeout(_fuzzyTimer);
     clearTenantLink(true);
+    Typeahead.close();
     _fuzzyTimer = setTimeout(doFuzzy, 280);
   }
 
   async function doFuzzy() {
-    const name = document.getElementById('tm-name').value.trim();
-    const box  = document.getElementById('tm-suggestions');
-    const iw   = document.getElementById('tm-industry-wrap');
-    if (name.length < 2) { box.style.display = 'none'; iw.style.display = 'none'; return; }
+    const input = document.getElementById('tm-name');
+    const name  = input.value.trim();
+    const iw    = document.getElementById('tm-industry-wrap');
+    if (name.length < 2) { iw.style.display = 'none'; return; }
     try {
       const hits = await API.get(`/tenants/fuzzy?name=${encodeURIComponent(name)}`);
       if (!hits.length) {
-        box.style.display = 'none';
-        iw.style.display  = 'block';   // offer industry for new tenant
+        iw.style.display = 'block';
         return;
       }
-      iw.style.display  = 'none';
-      box.innerHTML = hits.map(h =>
-        `<div style="padding:9px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--cream-dark)"
-              onmousedown="selectTenant(${h.id},'${h.name.replace(/'/g,"\\'")}','${(h.industry||'').replace(/'/g,"\\'")}')">
-           <span style="font-weight:500">${h.name}</span>
-           ${h.industry?`<span style="font-size:11px;color:var(--stone);margin-left:6px">${h.industry}</span>`:''}
-         </div>`
-      ).join('') +
-        `<div style="padding:9px 12px;cursor:pointer;font-size:12px;color:var(--stone);background:var(--cream)"
-              onmousedown="useNewTenant()">+ Create "${name}" as new tenant</div>`;
-      box.style.display = 'block';
-    } catch(_) { box.style.display = 'none'; }
+      iw.style.display = 'none';
+      Typeahead.open(input, [
+        ...hits.map(h => ({
+          label: h.name,
+          meta:  h.industry || '',
+          value: { id: h.id, name: h.name, industry: h.industry || '' },
+        })),
+        { label: `+ Create "${name}" as new tenant`, value: { __create: true, name } },
+      ], item => {
+        if (item.value.__create) useNewTenant();
+        else selectTenant(item.value.id, item.value.name, item.value.industry);
+      });
+    } catch(_) { Typeahead.close(); }
   }
 
   function selectTenant(id, name, industry) {
@@ -597,12 +589,10 @@
     document.getElementById('tm-name').value             = name;
     document.getElementById('tm-tenant-link-name').textContent = name;
     document.getElementById('tm-tenant-link').style.display   = 'block';
-    document.getElementById('tm-suggestions').style.display   = 'none';
     document.getElementById('tm-industry-wrap').style.display = 'none';
   }
 
   function useNewTenant() {
-    document.getElementById('tm-suggestions').style.display   = 'none';
     document.getElementById('tm-industry-wrap').style.display = 'block';
   }
 
@@ -628,7 +618,7 @@
     document.getElementById('tm-expiry').value                 = t && t.lease_expiry ? t.lease_expiry : '';
     document.getElementById('tm-available').checked            = t ? !!t.is_available : false;
     document.getElementById('tm-notes').value                  = t ? (t.notes||'') : '';
-    document.getElementById('tm-suggestions').style.display    = 'none';
+    Typeahead.close();
     document.getElementById('tm-tenant-link').style.display    = 'none';
     document.getElementById('tm-industry-wrap').style.display  = 'none';
     document.getElementById('tm-search-wrap').style.display    = isNew ? 'block' : 'none';
@@ -701,38 +691,36 @@
       return;
     }
     body.innerHTML = `
-      <div style="position:relative;max-width:320px">
+      <div style="max-width:320px">
         <input type="text" id="ro-search" class="form-control" placeholder="Search accounts…" autocomplete="off" oninput="onOwnerInput()">
-        <div id="ro-suggestions" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:200;
-             background:#fff;border:1px solid var(--cream-dark);border-top:none;border-radius:0 0 var(--radius) var(--radius);
-             box-shadow:var(--shadow-hover);max-height:180px;overflow-y:auto"></div>
       </div>
       ${RECORDED_OWNER ? `<button class="btn btn-ghost btn-sm" style="margin-top:6px" onclick="roEditing=false;renderRecordedOwner()">Cancel</button>` : ''}`;
   }
 
   function onOwnerInput() {
+    Typeahead.close();
     clearTimeout(_ownerTimer);
     _ownerTimer = setTimeout(doOwnerSearch, 280);
   }
 
   async function doOwnerSearch() {
-    const q   = document.getElementById('ro-search').value.trim();
-    const box = document.getElementById('ro-suggestions');
-    if (q.length < 2) { box.style.display = 'none'; return; }
+    const input = document.getElementById('ro-search');
+    const q = input ? input.value.trim() : '';
+    if (q.length < 2) { Typeahead.close(); return; }
     try {
       const hits = await API.get(`/accounts/search?q=${encodeURIComponent(q)}`);
-      box.innerHTML = hits.map(h =>
-        `<div style="padding:9px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--cream-dark)"
-              onmousedown="selectOwnerAccount(${h.id},'${h.name.replace(/'/g,"\\'")}')">${h.name}</div>`
-      ).join('') +
-        `<div style="padding:9px 12px;cursor:pointer;font-size:12px;color:var(--stone);background:var(--cream)"
-              onmousedown="createOwnerAccount('${q.replace(/'/g,"\\'")}')">+ Create "${q}" as new account</div>`;
-      box.style.display = 'block';
-    } catch(_) { box.style.display = 'none'; }
+      Typeahead.open(input, [
+        ...hits.map(h => ({ label: h.name, value: { id: h.id, name: h.name } })),
+        { label: `+ Create "${q}" as new account`, value: { __create: true, name: q } },
+      ], item => {
+        if (item.value.__create) createOwnerAccount(item.value.name);
+        else selectOwnerAccount(item.value.id, item.value.name);
+      });
+    } catch(_) { Typeahead.close(); }
   }
 
   async function selectOwnerAccount(id, name) {
-    document.getElementById('ro-suggestions').style.display = 'none';
+    Typeahead.close();
     try {
       await API.put(`/${SILO}/${ID}`, { recorded_owner_account_id: id });
       RECORDED_OWNER = {id, name};
@@ -743,7 +731,7 @@
   }
 
   async function createOwnerAccount(name) {
-    document.getElementById('ro-suggestions').style.display = 'none';
+    Typeahead.close();
     try {
       const acct = await API.post('/accounts/', { name });
       await selectOwnerAccount(acct.id, acct.name);
@@ -754,31 +742,31 @@
   let _parcelSearchTimer = null;
 
   function onParcelSearchInput() {
+    Typeahead.close();
     clearTimeout(_parcelSearchTimer);
     _parcelSearchTimer = setTimeout(doParcelSearch, 280);
   }
 
   async function doParcelSearch() {
-    const q   = document.getElementById('parcel-search').value.trim();
-    const box = document.getElementById('parcel-suggestions');
-    if (q.length < 2) { box.style.display = 'none'; return; }
+    const input = document.getElementById('parcel-search');
+    const q = input ? input.value.trim() : '';
+    if (q.length < 2) { Typeahead.close(); return; }
     try {
       const hits = await API.get(`/finder/parcels/search?q=${encodeURIComponent(q)}`);
-      box.innerHTML = hits.length
-        ? hits.map(p => { const kp = (p.keypin||'').replace(/'/g,"\\'"); return `<div class="parcel-row" onclick="attachParcel('${kp}')">
-              <div>
-                <div style="font-weight:500">${p.siteaddress||'—'}${p.sitecity?', '+p.sitecity:''}</div>
-                <div style="font-size:11px;color:var(--stone)">Parcel ${p.keypin}${p.assessedvalue?' · '+Fmt.currency(p.assessedvalue):''}</div>
-              </div>
-              <button type="button" class="btn btn-gold btn-sm" onclick="event.stopPropagation();attachParcel('${kp}')">Attach</button>
-            </div>`; }).join('')
-        : `<div style="padding:9px 12px;font-size:13px;color:var(--stone)">No matches</div>`;
-      box.style.display = 'block';
-    } catch(_) { box.style.display = 'none'; }
+      if (!hits.length) { Typeahead.close(); return; }
+      Typeahead.open(input, hits.map(p => ({
+        html: `<span style="flex:1">
+          <span style="font-weight:500;font-size:13px">${p.siteaddress||'—'}${p.sitecity ? ', '+p.sitecity : ''}</span>
+          <span style="font-size:11px;color:var(--stone);display:block">Parcel ${p.keypin}${p.assessedvalue ? ' · '+Fmt.currency(p.assessedvalue) : ''}</span>
+        </span>`,
+        label: `${p.siteaddress||''} ${p.keypin}`,
+        value: { keypin: p.keypin },
+      })), item => attachParcel(item.value.keypin));
+    } catch(_) { Typeahead.close(); }
   }
 
   async function attachParcel(keypin) {
-    document.getElementById('parcel-suggestions').style.display = 'none';
+    Typeahead.close();
     document.getElementById('parcel-search').value = '';
     let status = document.getElementById('attach-status');
     status.innerHTML = '<div style="margin-top:10px;font-size:13px;color:var(--stone)">Attaching…</div>';

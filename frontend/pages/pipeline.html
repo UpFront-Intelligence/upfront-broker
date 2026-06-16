@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>UpFront Broker — Pipeline</title>
-  <link rel="stylesheet" href="/static/main.css?v=3">
+  <link rel="stylesheet" href="/static/main.css?v=4">
   <style>
     /* ── Kanban ── */
     #kanban-view { overflow-x: auto; padding-bottom: 20px; }
@@ -35,14 +35,9 @@
     .ec-links { display: flex; flex-wrap: wrap; gap: 4px; }
     .ec-signed { font-size: 10.5px; color: var(--green); margin-top: 6px; }
 
-    /* ── Chips & typeahead (mirrors property.html Recorded Owner pattern) ── */
+    /* ── Chips ─────────────────────────────────────────────────── */
     .chip { display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:20px; font-size:11px; font-weight:500; background:var(--cream-dark); color:var(--navy); text-decoration:none; transition:all 0.1s; }
     .chip:hover { background: var(--navy); color:#fff; }
-    .suggest-wrap { position: relative; }
-    .suggest-box { position:absolute; top:100%; left:0; right:0; z-index:200; background:#fff; border:1px solid var(--cream-dark); border-top:none; border-radius:0 0 var(--radius) var(--radius); box-shadow:var(--shadow-hover); max-height:180px; overflow-y:auto; }
-    .suggest-item { padding:8px 12px; cursor:pointer; font-size:13px; border-bottom:1px solid var(--cream-dark); }
-    .suggest-item:last-child { border-bottom:none; }
-    .suggest-item:hover { background: var(--cream); }
 
     #engagement-modal .modal { width: 520px; }
     .np-form { margin-top:8px; padding:10px; background:var(--cream); border-radius:var(--radius); border:1px solid var(--cream-dark); }
@@ -107,18 +102,13 @@
         <input id="f-name" class="form-control" placeholder="e.g. Acme Holdings — Sale Listing"></div>
 
       <div class="form-group"><label class="form-label">Client (Account)</label>
-        <div class="suggest-wrap">
-          <input type="text" id="f-client-search" class="form-control" placeholder="Search accounts…" autocomplete="off" oninput="onClientInput()">
-          <div id="client-suggestions" class="suggest-box" style="display:none"></div>
-        </div>
+        <input type="text" id="f-client-search" class="form-control" placeholder="Search accounts…" autocomplete="off" oninput="onClientInput()">
         <div id="client-selected" style="margin-top:6px"></div>
       </div>
 
       <div class="form-group"><label class="form-label">Subject Property</label>
-        <div class="suggest-wrap">
-          <input type="text" id="f-property-search" class="form-control" placeholder="Search properties…" autocomplete="off" oninput="onPropertyInput()">
-          <div id="property-suggestions" class="suggest-box" style="display:none"></div>
-        </div>
+        <input type="text" id="f-property-search" class="form-control" placeholder="Search properties…" autocomplete="off" oninput="onPropertyInput()">
+
         <div id="property-selected" style="margin-top:6px"></div>
 
         <div id="new-property-form" class="np-form" style="display:none">
@@ -174,7 +164,7 @@
   </div>
 </div>
 
-<script src="/js/app.js?v=3"></script>
+<script src="/js/app.js?v=4"></script>
 <script>
   if (!Auth.requireAuth()) throw new Error('Not authenticated');
   renderSidebar('pipeline');
@@ -257,23 +247,22 @@
   // ── Client typeahead ──────────────────────────────────────────────────────
   function onClientInput() {
     clearTimeout(_clientTimer);
+    Typeahead.close();
     _clientTimer = setTimeout(doClientSearch, 280);
   }
   async function doClientSearch() {
-    const q = document.getElementById('f-client-search').value.trim();
-    const box = document.getElementById('client-suggestions');
-    if (q.length < 2) { box.style.display = 'none'; return; }
+    const input = document.getElementById('f-client-search');
+    const q = input.value.trim();
+    if (q.length < 2) { Typeahead.close(); return; }
     try {
       const hits = await API.get(`/accounts/search?q=${encodeURIComponent(q)}`);
-      box.innerHTML = hits.length
-        ? hits.map(h => `<div class="suggest-item" onmousedown="selectClient(${h.id},'${h.name.replace(/'/g,"\\'")}')">${h.name}</div>`).join('')
-        : `<div class="suggest-item" style="color:var(--stone)">No matches</div>`;
-      box.style.display = 'block';
-    } catch(_) { box.style.display = 'none'; }
+      if (!hits.length) { Typeahead.close(); return; }
+      Typeahead.open(input, hits.map(h => ({ label: h.name, value: {id: h.id, name: h.name} })),
+        item => selectClient(item.value.id, item.value.name));
+    } catch(_) { Typeahead.close(); }
   }
   function selectClient(id, name) {
     selectedClient = {id, name};
-    document.getElementById('client-suggestions').style.display = 'none';
     document.getElementById('f-client-search').value = '';
     renderClientSelected();
   }
@@ -289,25 +278,31 @@
   // ── Subject property typeahead ────────────────────────────────────────────
   function onPropertyInput() {
     clearTimeout(_propTimer);
+    Typeahead.close();
     _propTimer = setTimeout(doPropertySearch, 280);
   }
   async function doPropertySearch() {
-    const q = document.getElementById('f-property-search').value.trim();
-    const box = document.getElementById('property-suggestions');
-    if (q.length < 2) { box.style.display = 'none'; return; }
+    const input = document.getElementById('f-property-search');
+    const q = input.value.trim();
+    if (q.length < 2) { Typeahead.close(); return; }
     try {
       const hits = await API.get(`/properties/?search=${encodeURIComponent(q)}`);
-      const top = hits.slice(0, 8);
-      box.innerHTML = (top.length
-        ? top.map(p => `<div class="suggest-item" onmousedown="selectProperty(${p.id},'${(p.name||p.address).replace(/'/g,"\\'")}')">${p.name||p.address}${p.city?', '+p.city:''}</div>`).join('')
-        : `<div class="suggest-item" style="color:var(--stone)">No matches</div>`)
-        + `<div class="suggest-item" style="color:var(--stone);background:var(--cream)" onmousedown="openNewPropertyForm('${q.replace(/'/g,"\\'")}')">+ Create new property</div>`;
-      box.style.display = 'block';
-    } catch(_) { box.style.display = 'none'; }
+      const top = (Array.isArray(hits) ? hits : (hits.items || [])).slice(0, 8);
+      const items = [
+        ...top.map(p => ({
+          label: (p.name || p.address) + (p.city ? ', ' + p.city : ''),
+          value: { id: p.id, label: p.name || p.address },
+        })),
+        { label: `+ Create new property`, value: { create: true, name: q } },
+      ];
+      Typeahead.open(input, items, item => {
+        if (item.value.create) openNewPropertyForm(item.value.name);
+        else selectProperty(item.value.id, item.value.label);
+      });
+    } catch(_) { Typeahead.close(); }
   }
   function selectProperty(id, label) {
     selectedProperty = {id, label};
-    document.getElementById('property-suggestions').style.display = 'none';
     document.getElementById('f-property-search').value = '';
     renderPropertySelected();
   }
@@ -322,7 +317,6 @@
 
   // ── Create property on the fly ────────────────────────────────────────────
   function openNewPropertyForm(q) {
-    document.getElementById('property-suggestions').style.display = 'none';
     document.getElementById('f-property-search').value = '';
     document.getElementById('np-name').value = q || '';
     document.getElementById('np-address').value = '';
@@ -377,8 +371,7 @@
     document.getElementById('modal-title').textContent = eng ? 'Edit Engagement' : 'New Engagement';
     document.getElementById('f-client-search').value = '';
     document.getElementById('f-property-search').value = '';
-    document.getElementById('client-suggestions').style.display = 'none';
-    document.getElementById('property-suggestions').style.display = 'none';
+    Typeahead.close();
     document.getElementById('new-property-form').style.display = 'none';
 
     if (eng) {

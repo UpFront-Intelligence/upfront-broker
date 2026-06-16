@@ -255,6 +255,99 @@ function renderSidebar(activePage) {
   `;
 }
 
+// ── Shared clip-proof typeahead ──────────────────────────────────
+// Renders to document.body with position:fixed so no ancestor overflow
+// (rounded-corner cards, modal scrollbodies, overflow:hidden containers)
+// can ever clip the results list.
+const Typeahead = (() => {
+  let _el = null;
+  let _fns = [];
+
+  function _pos(anchor) {
+    if (!_el) return;
+    const r = anchor.getBoundingClientRect();
+    _el.style.top   = (r.bottom + 2) + 'px';
+    _el.style.left  = r.left + 'px';
+    _el.style.width = Math.max(r.width, 200) + 'px';
+  }
+
+  function close() {
+    if (_el) { _el.remove(); _el = null; }
+    _fns.forEach(f => f());
+    _fns = [];
+  }
+
+  // open(anchor, items, onSelect)
+  // item shape: {label, meta?, html?, value?}
+  //   label — display text (used when html is absent)
+  //   meta  — small badge rendered before label
+  //   html  — raw innerHTML for the row (skips label/meta rendering)
+  //   value — passed back to onSelect unchanged
+  function open(anchor, items, onSelect) {
+    close();
+    if (!items || !items.length) return;
+
+    _el = document.createElement('div');
+    _el.className = 'ta-float';
+    document.body.appendChild(_el);
+    _pos(anchor);
+
+    items.forEach(item => {
+      const row = document.createElement('div');
+      if (item.html) {
+        row.innerHTML = item.html;
+      } else {
+        row.className = 'ta-float-row';
+        if (item.meta != null && item.meta !== '') {
+          const m = document.createElement('span');
+          m.className = 'ta-float-meta';
+          m.textContent = item.meta;
+          row.appendChild(m);
+        }
+        const txt = document.createElement('span');
+        txt.textContent = item.label;
+        row.appendChild(txt);
+      }
+      row.addEventListener('mousedown', e => { e.preventDefault(); onSelect(item); close(); });
+      _el.appendChild(row);
+    });
+
+    const reposition = () => _pos(anchor);
+    const outside    = e => { if (_el && !_el.contains(e.target) && e.target !== anchor) close(); };
+    window.addEventListener('scroll', reposition, true);
+    window.addEventListener('resize', reposition);
+    document.addEventListener('mousedown', outside);
+    _fns = [
+      () => window.removeEventListener('scroll', reposition, true),
+      () => window.removeEventListener('resize', reposition),
+      () => document.removeEventListener('mousedown', outside),
+    ];
+  }
+
+  // attach(input, fetchFn, onSelect, opts?)
+  // Wires input events.  fetchFn(q) must return Promise<item[]>.
+  // Caller's onSelect(item, input) receives the item and the input element.
+  function attach(input, fetchFn, onSelect, opts = {}) {
+    const delay  = opts.delay  ?? 220;
+    const minLen = opts.minLen ?? 2;
+    let timer = null;
+    input.addEventListener('input', () => {
+      clearTimeout(timer);
+      close();
+      const q = input.value.trim();
+      if (q.length < minLen) return;
+      timer = setTimeout(async () => {
+        const items = await fetchFn(q).catch(() => []);
+        open(input, items, item => onSelect(item, input));
+      }, delay);
+    });
+    input.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
+    input.addEventListener('blur',    () => setTimeout(() => { if (_el) close(); }, 150));
+  }
+
+  return { open, close, attach };
+})();
+
 // ── SPA Navigation ───────────────────────────────────────────────
 function navigate(page) {
   window.location.href = `/pages/${page}.html`;

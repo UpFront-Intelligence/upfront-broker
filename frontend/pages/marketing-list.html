@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>UpFront Broker — Marketing List</title>
-  <link rel="stylesheet" href="/static/main.css?v=3">
+  <link rel="stylesheet" href="/static/main.css?v=4">
   <style>
     #page-content { padding: 24px 28px; max-width: 900px; }
     .list-header { background: var(--navy); border-radius: var(--radius-lg); padding: 20px 24px; color: #fff; margin-bottom: 20px; display: flex; align-items: center; gap: 16px; }
@@ -24,16 +24,7 @@
     .member-note { font-size: 12px; color: var(--stone); flex-shrink: 0; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .member-source { font-size: 10.5px; color: var(--stone-light); flex-shrink: 0; }
     .empty-members { padding: 40px 16px; text-align: center; color: var(--stone); font-size: 13px; }
-    .add-member-row { padding: 10px 16px; border-top: 1px solid var(--cream-dark); background: var(--cream); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-
-    /* Typeahead dropdown */
-    .ta-wrap { position: relative; flex: 1; min-width: 200px; }
-    .ta-input { width: 100%; font-size: 13px; padding: 6px 10px; }
-    .ta-dropdown { position: absolute; top: calc(100% + 2px); left: 0; right: 0; background: #fff; border: 1px solid var(--cream-dark); border-radius: var(--radius); box-shadow: var(--shadow-card); z-index: 100; max-height: 200px; overflow-y: auto; display: none; }
-    .ta-item { padding: 7px 12px; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 8px; }
-    .ta-item:hover { background: var(--cream); }
-    .ta-item-type { font-size: 10px; font-weight: 700; text-transform: uppercase; color: var(--stone); min-width: 52px; }
-    .ta-empty { padding: 10px 12px; font-size: 12.5px; color: var(--stone); }
+    .add-member-row { padding: 10px 16px; border-top: 1px solid var(--cream-dark); background: var(--cream); display: flex; gap: 8px; align-items: center; }
   </style>
 </head>
 <body>
@@ -54,15 +45,14 @@
   </div>
 </div>
 
-<script src="/js/app.js?v=3"></script>
+<script src="/js/app.js?v=4"></script>
 <script>
   if (!Auth.requireAuth()) throw new Error('Not authenticated');
   renderSidebar('marketing-lists');
 
   const ID = +new URLSearchParams(window.location.search).get('id');
   let REC = null;
-  let taResults = [];
-  let taSelected = null; // {type, id, name}
+  let taSelected = null;
 
   async function load() {
     try {
@@ -85,24 +75,32 @@
       </div>
 
       <div class="dc">
-        <div class="dc-title">
-          <span>Members (${members.length})</span>
-        </div>
-        <div class="dc-body" id="members-body">
-          ${renderMembers(members)}
-        </div>
+        <div class="dc-title"><span>Members (${members.length})</span></div>
+        <div class="dc-body" id="members-body">${renderMembers(members)}</div>
         <div class="add-member-row">
-          <div class="ta-wrap">
-            <input type="text" class="form-control ta-input" id="ta-input"
-              placeholder="Search accounts or contacts…"
-              oninput="taSearch(this.value)"
-              onkeydown="taKeydown(event)"
-              autocomplete="off">
-            <div class="ta-dropdown" id="ta-dropdown"></div>
-          </div>
+          <input type="text" class="form-control" id="ta-input" style="flex:1"
+            placeholder="Search accounts or contacts…" autocomplete="off">
           <button class="btn btn-primary btn-sm" onclick="addSelected()">Add</button>
         </div>
       </div>`;
+
+    // Wire Typeahead after DOM is updated — input now exists
+    taSelected = null;
+    const taInput = document.getElementById('ta-input');
+    Typeahead.attach(taInput, async q => {
+      const [accts, cts] = await Promise.all([
+        API.get(`/accounts/search?q=${encodeURIComponent(q)}`),
+        API.get(`/contacts/search?q=${encodeURIComponent(q)}`),
+      ]);
+      return [
+        ...(accts || []).map(a => ({ label: a.name, meta: 'account', value: {type:'account', id:a.id, name:a.name} })),
+        ...(cts   || []).map(c => ({ label: c.name, meta: 'contact', value: {type:'contact', id:c.id, name:c.name} })),
+      ];
+    }, (item, input) => {
+      taSelected = item.value;
+      input.value = item.value.name;
+    });
+    taInput.addEventListener('keydown', e => { if (e.key === 'Enter') addSelected(); });
   }
 
   function renderMembers(members) {
@@ -124,63 +122,8 @@
     }).join('');
   }
 
-  // ── Typeahead ─────────────────────────────────────────────────
-
-  let taTimer = null;
-  async function taSearch(q) {
-    taSelected = null;
-    clearTimeout(taTimer);
-    const dd = document.getElementById('ta-dropdown');
-    if (q.trim().length < 2) { dd.style.display = 'none'; return; }
-    taTimer = setTimeout(async () => {
-      try {
-        const [accts, cts] = await Promise.all([
-          API.get(`/accounts/search?q=${encodeURIComponent(q)}`),
-          API.get(`/contacts/search?q=${encodeURIComponent(q)}`),
-        ]);
-        taResults = [
-          ...(accts || []).map(a => ({type:'account', id:a.id, name:a.name})),
-          ...(cts   || []).map(c => ({type:'contact', id:c.id, name:c.name || `${c.first_name||''} ${c.last_name||''}`.trim()})),
-        ];
-        if (!taResults.length) {
-          dd.innerHTML = `<div class="ta-empty">No results</div>`;
-        } else {
-          dd.innerHTML = taResults.map((r, i) => `
-            <div class="ta-item" data-i="${i}" onmousedown="taSelect(${i})">
-              <span class="ta-item-type">${r.type}</span>
-              <span>${esc(r.name)}</span>
-            </div>`).join('');
-        }
-        dd.style.display = 'block';
-      } catch(e) {}
-    }, 220);
-  }
-
-  function taKeydown(e) {
-    if (e.key === 'Escape') { document.getElementById('ta-dropdown').style.display = 'none'; }
-    if (e.key === 'Enter') { addSelected(); }
-  }
-
-  function taSelect(i) {
-    taSelected = taResults[i];
-    document.getElementById('ta-input').value = taSelected.name;
-    document.getElementById('ta-dropdown').style.display = 'none';
-  }
-
-  document.addEventListener('click', e => {
-    if (!e.target.closest('.ta-wrap')) {
-      const dd = document.getElementById('ta-dropdown');
-      if (dd) dd.style.display = 'none';
-    }
-  });
-
-  // ── Add / Remove members ──────────────────────────────────────
-
   async function addSelected() {
-    if (!taSelected) {
-      Toast.error('Select an account or contact first');
-      return;
-    }
+    if (!taSelected) { Toast.error('Select an account or contact first'); return; }
     const body = taSelected.type === 'account'
       ? { account_id: taSelected.id }
       : { contact_id: taSelected.id };
@@ -191,9 +134,9 @@
       } else {
         Toast.success(`${taSelected.name} added`);
       }
-      document.getElementById('ta-input').value = '';
+      const inp = document.getElementById('ta-input');
+      if (inp) inp.value = '';
       taSelected = null;
-      // Reload and re-render
       REC = await API.get(`/marketing-lists/${ID}`);
       document.getElementById('members-body').innerHTML = renderMembers(REC.members || []);
     } catch(e) { Toast.error(e.message); }
@@ -205,7 +148,6 @@
       const row = document.getElementById(`member-${memberId}`);
       if (row) row.remove();
       REC.members = (REC.members || []).filter(m => m.id !== memberId);
-      // Update count in header
       const sub = document.querySelector('.list-sub');
       if (sub) {
         const n = REC.members.length;
@@ -220,8 +162,6 @@
       Toast.success('Removed');
     } catch(e) { Toast.error(e.message); }
   }
-
-  // ── Rename / Delete ───────────────────────────────────────────
 
   async function promptRename() {
     const name = window.prompt('New list name:', REC.name);
