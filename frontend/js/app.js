@@ -199,6 +199,9 @@ function renderSidebar(activePage) {
         <div class="nav-item ${activePage==='marketing-lists'?'active':''}" data-page="marketing-lists" onclick="navigate('marketing-lists')">
           <span class="nav-icon">◈</span> Lists
         </div>
+        <div class="nav-item ${activePage==='query'?'active':''}" data-page="query" onclick="navigate('query')">
+          <span class="nav-icon">⊗</span> Query
+        </div>
       </div>
 
       <div class="nav-section">

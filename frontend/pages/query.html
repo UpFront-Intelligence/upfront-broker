@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UpFront Broker — Query</title>
+  <link rel="stylesheet" href="/static/main.css?v=5">
+  <style>
+    #page-content { padding: 24px 28px; max-width: 1100px; }
+
+    .query-layout { display: grid; grid-template-columns: 300px 1fr; gap: 20px; align-items: start; }
+    @media (max-width: 800px) { .query-layout { grid-template-columns: 1fr; } }
+
+    .filter-card { background: #fff; border: 1px solid var(--cream-dark); border-radius: var(--radius-lg);
+                   box-shadow: var(--shadow-card); padding: 20px; position: sticky; top: 20px; }
+    .filter-title { font-family: var(--font-serif); font-size: 15px; color: var(--navy);
+                    margin-bottom: 16px; padding-bottom: 10px; border-bottom: 1px solid var(--cream-dark); }
+    .filter-section { margin-bottom: 14px; }
+    .filter-label { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+                    color: var(--stone); margin-bottom: 6px; }
+    .filter-row { display: flex; flex-direction: column; gap: 6px; }
+    .role-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+    .role-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px;
+                 border: 1px solid var(--cream-dark); border-radius: 20px; font-size: 11.5px;
+                 cursor: pointer; background: var(--cream); color: var(--navy); user-select: none; }
+    .role-chip input { margin: 0; cursor: pointer; }
+    .role-chip.active { background: var(--navy); color: #fff; border-color: var(--navy); }
+
+    .results-card { background: #fff; border: 1px solid var(--cream-dark); border-radius: var(--radius-lg);
+                    box-shadow: var(--shadow-card); overflow: hidden; }
+    .results-header { padding: 12px 16px; background: var(--cream); border-bottom: 1px solid var(--cream-dark);
+                      display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    .results-title { font-family: var(--font-serif); font-size: 14px; color: var(--navy); }
+    .results-actions { display: flex; align-items: center; gap: 8px; }
+    .results-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .results-table th { padding: 8px 12px; text-align: left; font-size: 10.5px; font-weight: 700;
+                        text-transform: uppercase; letter-spacing: 0.05em; color: var(--stone);
+                        border-bottom: 1px solid var(--cream-dark); background: var(--cream); white-space: nowrap; }
+    .results-table td { padding: 9px 12px; border-bottom: 1px solid var(--cream-dark); color: var(--navy); }
+    .results-table tr:last-child td { border-bottom: none; }
+    .results-table tr:hover td { background: var(--cream); }
+    .type-badge { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+                  padding: 2px 7px; border-radius: 20px; display: inline-block; }
+    .type-contact  { background: rgba(45,125,79,0.12); color: var(--green); }
+    .type-account  { background: rgba(15,25,35,0.1); color: var(--navy); }
+    .type-property { background: rgba(201,148,58,0.15); color: #8a6520; }
+    .empty-results { padding: 60px 20px; text-align: center; color: var(--stone); font-size: 13.5px; }
+    .pagination { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px;
+                  border-top: 1px solid var(--cream-dark); background: var(--cream); font-size: 12.5px;
+                  color: var(--stone); }
+    .run-btn { width: 100%; margin-top: 4px; }
+    .form-control-sm { font-size: 12.5px; padding: 5px 8px; }
+  </style>
+</head>
+<body>
+<div id="sidebar"></div>
+<div id="main">
+  <div id="topbar">
+    <div class="topbar-title">Query</div>
+  </div>
+
+  <div id="page-content" class="fade-in">
+    <div class="query-layout">
+
+      <!-- ── Filter panel ─────────────────────────────── -->
+      <div class="filter-card">
+        <div class="filter-title">Query builder</div>
+
+        <div class="filter-section">
+          <div class="filter-label">Return</div>
+          <select class="form-control" id="f-return" onchange="onReturnChange()">
+            <option value="contacts">Contacts</option>
+            <option value="accounts">Accounts</option>
+            <option value="properties">Properties</option>
+          </select>
+        </div>
+
+        <div class="filter-section" id="section-contact">
+          <div class="filter-label">Contact</div>
+          <div class="filter-row">
+            <input type="text" class="form-control" id="f-contact-title"
+              placeholder="Title contains…" autocomplete="off">
+            <input type="text" class="form-control" id="f-contact-name"
+              placeholder="Name contains…" autocomplete="off">
+          </div>
+        </div>
+
+        <div class="filter-section" id="section-account">
+          <div class="filter-label">Account</div>
+          <div class="filter-row">
+            <input type="text" class="form-control" id="f-account-name"
+              placeholder="Name contains…" autocomplete="off">
+          </div>
+          <div class="role-chips">
+            <label class="role-chip"><input type="checkbox" value="owner"> owner</label>
+            <label class="role-chip"><input type="checkbox" value="buyer"> buyer</label>
+            <label class="role-chip"><input type="checkbox" value="seller"> seller</label>
+            <label class="role-chip"><input type="checkbox" value="tenant"> tenant</label>
+            <label class="role-chip"><input type="checkbox" value="investor"> investor</label>
+            <label class="role-chip"><input type="checkbox" value="developer"> developer</label>
+            <label class="role-chip"><input type="checkbox" value="lender"> lender</label>
+          </div>
+        </div>
+
+        <div class="filter-section">
+          <div class="filter-label">Property</div>
+          <div class="filter-row">
+            <select class="form-control" id="f-prop-type">
+              <option value="">Any type</option>
+              <option>Office</option>
+              <option>Industrial</option>
+              <option>Retail</option>
+              <option>Land</option>
+              <option>Multifamily</option>
+              <option>STNL</option>
+              <option>Self Storage</option>
+              <option>Hospitality</option>
+              <option>Medical</option>
+            </select>
+            <input type="text" class="form-control" id="f-prop-county"
+              placeholder="County contains…" autocomplete="off">
+            <input type="text" class="form-control" id="f-prop-city"
+              placeholder="City contains…" autocomplete="off">
+          </div>
+        </div>
+
+        <div class="filter-section">
+          <div class="filter-label">Tenant</div>
+          <input type="text" class="form-control" id="f-tenant-name"
+            placeholder="Tenant name contains…" autocomplete="off">
+        </div>
+
+        <div class="filter-section">
+          <div class="filter-label">Ownership join</div>
+          <select class="form-control" id="f-ownership">
+            <option value="recorded">Recorded owner (deed)</option>
+            <option value="manager">Property manager (stub)</option>
+          </select>
+        </div>
+
+        <button class="btn btn-primary run-btn" onclick="runQuery()">Run Query</button>
+      </div>
+
+      <!-- ── Results panel ─────────────────────────────── -->
+      <div>
+        <div class="results-card" id="results-card" style="display:none">
+          <div class="results-header">
+            <div class="results-title" id="results-title">Results</div>
+            <div class="results-actions">
+              <button class="btn btn-outline btn-sm" onclick="toggleSelectAll()">Select all</button>
+              <button class="btn btn-gold btn-sm" id="save-btn" onclick="openSavePicker()" style="display:none">
+                Save selected as list ▾
+              </button>
+            </div>
+          </div>
+          <div id="results-body"></div>
+          <div class="pagination" id="results-pagination" style="display:none"></div>
+        </div>
+        <div id="results-placeholder" style="padding:60px 20px;text-align:center;color:var(--stone);font-size:13.5px">
+          Build a query and click <strong>Run Query</strong> to see results.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/js/app.js?v=5"></script>
+<script>
+  if (!Auth.requireAuth()) throw new Error('Not authenticated');
+  renderSidebar('query');
+
+  // ── State ─────────────────────────────────────────────────────
+  let RESULTS    = { items: [], total: 0, return_type: 'contacts' };
+  let PAGE_OFFSET = 0;
+  const PAGE_LIMIT = 100;
+  let ALL_LISTS  = [];
+
+  // Wire role chip toggle for visual feedback
+  document.querySelectorAll('.role-chip input').forEach(cb => {
+    cb.addEventListener('change', () => {
+      cb.closest('.role-chip').classList.toggle('active', cb.checked);
+    });
+  });
+
+  // Allow Enter in any filter input to run
+  document.querySelectorAll('.filter-card input[type=text], .filter-card select').forEach(el => {
+    el.addEventListener('keydown', e => { if (e.key === 'Enter') runQuery(); });
+  });
+
+  // ── Build spec from form ──────────────────────────────────────
+  function buildSpec() {
+    const spec = {
+      return:    document.getElementById('f-return').value,
+      ownership: document.getElementById('f-ownership').value,
+      limit:     PAGE_LIMIT,
+      offset:    PAGE_OFFSET,
+    };
+
+    const ct = document.getElementById('f-contact-title').value.trim();
+    const cn = document.getElementById('f-contact-name').value.trim();
+    if (ct || cn) {
+      spec.contact = {};
+      if (ct) spec.contact.title = { contains: ct };
+      if (cn) spec.contact.name  = { contains: cn };
+    }
+
+    const an = document.getElementById('f-account-name').value.trim();
+    const roles = [...document.querySelectorAll('.role-chip input:checked')].map(i => i.value);
+    if (an || roles.length) {
+      spec.account = {};
+      if (an)          spec.account.name  = { contains: an };
+      if (roles.length) spec.account.roles = roles;
+    }
+
+    const pt  = document.getElementById('f-prop-type').value;
+    const pc  = document.getElementById('f-prop-county').value.trim();
+    const pci = document.getElementById('f-prop-city').value.trim();
+    if (pt || pc || pci) {
+      spec.property = {};
+      if (pt)  spec.property.property_type = pt;
+      if (pc)  spec.property.county = { contains: pc };
+      if (pci) spec.property.city   = { contains: pci };
+    }
+
+    const tn = document.getElementById('f-tenant-name').value.trim();
+    if (tn) spec.tenant = { name: { contains: tn } };
+
+    return spec;
+  }
+
+  // ── Run query ─────────────────────────────────────────────────
+  async function runQuery(reset = true) {
+    if (reset) PAGE_OFFSET = 0;
+    const spec = buildSpec();
+    const btn = document.querySelector('.run-btn');
+    btn.disabled = true;
+    btn.textContent = 'Running…';
+    try {
+      const data = await API.post('/query/', spec);
+      RESULTS = data;
+      document.getElementById('results-placeholder').style.display = 'none';
+      document.getElementById('results-card').style.display = '';
+      renderResults();
+    } catch(e) {
+      Toast.error('Query failed: ' + e.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Run Query';
+    }
+  }
+
+  // ── Render results ────────────────────────────────────────────
+  function renderResults() {
+    const { items, total, return_type, offset, limit } = RESULTS;
+    document.getElementById('results-title').textContent =
+      `${total.toLocaleString()} ${return_type} found`;
+
+    const body = document.getElementById('results-body');
+    if (!items.length) {
+      body.innerHTML = '<div class="empty-results">No results matched the query.</div>';
+      document.getElementById('save-btn').style.display = 'none';
+      document.getElementById('results-pagination').style.display = 'none';
+      return;
+    }
+
+    const cols = colsFor(return_type);
+    const canSelect = return_type !== 'properties';
+    body.innerHTML = `
+      <table class="results-table">
+        <thead><tr>
+          <th style="width:36px">
+            ${canSelect ? '<input type="checkbox" id="th-check" onchange="onThCheck(this)">' : ''}
+          </th>
+          ${cols.map(c => `<th>${c.label}</th>`).join('')}
+        </tr></thead>
+        <tbody>
+          ${items.map(row => `
+            <tr>
+              <td>
+                ${canSelect
+                  ? `<input type="checkbox" class="row-check" data-id="${row.id}" data-type="${row.type}" onchange="onRowCheck()">`
+                  : ''}
+              </td>
+              ${cols.map(c => `<td>${c.render(row)}</td>`).join('')}
+            </tr>`).join('')}
+        </tbody>
+      </table>`;
+
+    updateSaveBtn();
+    renderPagination(total, offset || 0, limit || PAGE_LIMIT);
+  }
+
+  function colsFor(rt) {
+    if (rt === 'contacts') return [
+      { label: 'Name',  render: r => `<a href="/pages/contact.html?id=${r.id}">${esc(r.display_name)}</a>` },
+      { label: 'Title', render: r => esc(r.title || '—') },
+      { label: 'Email', render: r => r.email ? `<a href="mailto:${esc(r.email)}">${esc(r.email)}</a>` : '—' },
+    ];
+    if (rt === 'accounts') return [
+      { label: 'Name',        render: r => `<a href="/pages/account.html?id=${r.id}">${esc(r.display_name)}</a>` },
+      { label: 'Entity type', render: r => esc(r.entity_type || '—') },
+      { label: 'Roles',       render: r => (r.roles || []).slice(0, 4).map(ro =>
+          `<span class="type-badge type-account" style="margin-right:2px">${esc(ro)}</span>`).join('') || '—' },
+      { label: 'City',        render: r => esc(r.city || '—') },
+    ];
+    if (rt === 'properties') return [
+      { label: 'Address',  render: r => `<a href="/pages/property.html?id=${r.id}">${esc(r.display_name)}</a>` },
+      { label: 'City',     render: r => esc(r.city || '—') },
+      { label: 'Type',     render: r => esc(r.property_type || '—') },
+      { label: 'County',   render: r => esc(r.county || '—') },
+    ];
+    return [];
+  }
+
+  function renderPagination(total, offset, limit) {
+    const pg = document.getElementById('results-pagination');
+    const start  = offset + 1;
+    const end    = Math.min(offset + limit, total);
+    const hasPrev = offset > 0;
+    const hasNext = end < total;
+    pg.style.display = (hasPrev || hasNext) ? '' : 'none';
+    pg.innerHTML = `
+      <span>Showing ${start.toLocaleString()}–${end.toLocaleString()} of ${total.toLocaleString()}</span>
+      <span>
+        <button class="btn btn-ghost btn-sm" ${hasPrev ? '' : 'disabled'} onclick="goPage(-1)">← Prev</button>
+        <button class="btn btn-ghost btn-sm" ${hasNext ? '' : 'disabled'} onclick="goPage(1)">Next →</button>
+      </span>`;
+  }
+
+  async function goPage(dir) {
+    PAGE_OFFSET = Math.max(0, PAGE_OFFSET + dir * PAGE_LIMIT);
+    await runQuery(false);
+  }
+
+  // ── Selection ─────────────────────────────────────────────────
+  function onThCheck(th) {
+    document.querySelectorAll('.row-check').forEach(cb => { cb.checked = th.checked; });
+    updateSaveBtn();
+  }
+
+  function onRowCheck() {
+    const all     = document.querySelectorAll('.row-check');
+    const checked = document.querySelectorAll('.row-check:checked');
+    const th = document.getElementById('th-check');
+    if (th) th.checked = all.length > 0 && checked.length === all.length;
+    updateSaveBtn();
+  }
+
+  function toggleSelectAll() {
+    const unchecked = document.querySelectorAll('.row-check:not(:checked)');
+    const check = unchecked.length > 0;
+    document.querySelectorAll('.row-check').forEach(cb => { cb.checked = check; });
+    const th = document.getElementById('th-check');
+    if (th) th.checked = check;
+    updateSaveBtn();
+  }
+
+  function updateSaveBtn() {
+    const n   = document.querySelectorAll('.row-check:checked').length;
+    const btn = document.getElementById('save-btn');
+    if (!btn) return;
+    btn.style.display = n ? '' : 'none';
+    btn.textContent = `Save ${n} selected as list ▾`;
+  }
+
+  function getSelected() {
+    const account_ids = [], contact_ids = [];
+    document.querySelectorAll('.row-check:checked').forEach(cb => {
+      if (cb.dataset.type === 'account')       account_ids.push(+cb.dataset.id);
+      else if (cb.dataset.type === 'contact')  contact_ids.push(+cb.dataset.id);
+    });
+    return { account_ids, contact_ids };
+  }
+
+  // ── Save as list ──────────────────────────────────────────────
+  async function openSavePicker() {
+    if (!ALL_LISTS.length) {
+      try { ALL_LISTS = await API.get('/marketing-lists/'); } catch(_) {}
+    }
+    const btn = document.getElementById('save-btn');
+    Typeahead.open(btn, [
+      ...ALL_LISTS.map(l => ({
+        label: l.name,
+        meta: String(l.member_count),
+        value: { action: 'add', id: l.id, name: l.name },
+      })),
+      { label: '+ Create new list…', meta: '', value: { action: 'create' } },
+    ], async item => {
+      if (item.value.action === 'create') promptCreateAndSave();
+      else await bulkSaveTo(item.value.id, item.value.name);
+    });
+  }
+
+  async function promptCreateAndSave() {
+    const name = window.prompt('New list name:');
+    if (!name || !name.trim()) return;
+    try {
+      const nl = await API.post('/marketing-lists/', { name: name.trim() });
+      ALL_LISTS = [];
+      await bulkSaveTo(nl.id, nl.name);
+    } catch(e) { Toast.error(e.message); }
+  }
+
+  async function bulkSaveTo(listId, listName) {
+    const { account_ids, contact_ids } = getSelected();
+    if (!account_ids.length && !contact_ids.length) return;
+    try {
+      const res = await API.post(`/marketing-lists/${listId}/members/bulk`, {
+        account_ids, contact_ids, source: 'query',
+      });
+      Toast.success(
+        `Added ${res.added} to "${listName}"` +
+        (res.skipped ? ` (${res.skipped} skipped — already in list)` : '')
+      );
+      ALL_LISTS = [];
+    } catch(e) { Toast.error(e.message); }
+  }
+
+  // ── UI helpers ────────────────────────────────────────────────
+  function onReturnChange() {
+    // Dim filters that are irrelevant for the return type (still functional, just visual hint)
+    const ret = document.getElementById('f-return').value;
+    document.getElementById('section-contact').style.opacity = ret === 'accounts' ? '0.6' : '1';
+    document.getElementById('section-account').style.opacity = ret === 'contacts' ? '0.6' : '1';
+  }
+
+  function esc(s) {
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+</script>
+</body>
+</html>
