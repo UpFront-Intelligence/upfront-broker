@@ -5,6 +5,7 @@ from models.account import Account
 from models.account_role import AccountRole
 from models.contact_account import ContactAccount
 from models.property import Property
+from models.property_party import PropertyParty
 from models.deal import Deal, DealContact
 from models.shared import Activity, Document, Portal, PortalView, Comp, EnrichmentCache
 from models.tenant import Tenant

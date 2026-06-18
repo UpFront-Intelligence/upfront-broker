@@ -10,7 +10,7 @@ class RevalidateStaticFiles(StaticFiles):
         resp.headers["Cache-Control"] = "no-cache, must-revalidate"
         return resp
 
-from routers import contacts, accounts, properties, deals, activities, documents, portal, comps, auth, imports, finder, portfolio, tenants, engagements, marketing_lists, query
+from routers import contacts, accounts, properties, deals, activities, documents, portal, comps, auth, imports, import_properties_parties, finder, portfolio, tenants, engagements, marketing_lists, query
 
 # Table creation is handled exclusively by Alembic (alembic upgrade head on startup).
 # create_all is intentionally absent — it conflicts with migration-managed schema.
@@ -37,6 +37,7 @@ app.include_router(documents.router,    prefix="/api/documents",    tags=["docum
 app.include_router(portal.router,       prefix="/api/portal",       tags=["portal"])
 app.include_router(comps.router,        prefix="/api/comps",        tags=["comps"])
 app.include_router(imports.router,      prefix="/api/import",       tags=["import"])
+app.include_router(import_properties_parties.router, prefix="/api/import", tags=["import"])
 app.include_router(finder.router,       prefix="/api/finder",       tags=["finder"])
 app.include_router(portfolio.router,    prefix="/api/portfolio",    tags=["portfolio"])
 app.include_router(tenants.router,      prefix="/api/tenants",      tags=["tenants"])
@@ -87,6 +88,9 @@ async def page_portal():     return _page("portal.html")
 
 @app.get("/pages/import.html")
 async def page_import():     return _page("import.html")
+
+@app.get("/pages/import-properties.html")
+async def page_import_properties(): return _page("import-properties.html")
 
 @app.get("/pages/finder.html")
 async def page_finder():     return _page("finder.html")
