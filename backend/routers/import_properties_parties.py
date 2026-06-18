@@ -1,6 +1,7 @@
 """
 Properties + Parties fan-out import — one spreadsheet row creates/updates a
-Property plus up to 2 Accounts (leasing company, owner) plus up to 2 Contacts,
+Property plus an Account and Contact for every detected party group
+(leasing company, owner, sale company, tenant company, sublease broker),
 all owner-scoped, in one pass.
 
 POST /api/import/properties-with-parties/preview — headers + first 3 rows
@@ -32,38 +33,47 @@ router = APIRouter()
 MAX_ROWS = 5000
 FUZZY_THRESHOLD = 88
 
-# (group key in spreadsheet, role slug, contact-link role label, property FK column)
+# Standard property-level columns, in detection-summary display order.
+PROPERTY_FIELDS = [
+    ("address",        "Address",       "Building Address"),
+    ("building_name",  "Building Name", "Building Name"),
+    ("park_name",      "Park",          "Building Park"),
+    ("property_type",  "Type",          "PropertyType"),
+    ("status",         "Status",        "Building Status"),
+    ("building_class", "Class",         "Building Class"),
+    ("city",           "City",          "City"),
+    ("state",          "State",         "State"),
+    ("zip",            "Zip",           "Zip"),
+    ("sf_rentable",    "SF",            "Rentable Building Area"),
+    ("occupancy_pct",  "% Leased",      "Percent Leased"),
+]
+
+# (group key, spreadsheet column prefix, role slug, contact-link role label,
+#  property FK column — None if there's no legacy FK slot for this role yet)
 _PARTY_GROUPS = [
-    ("leasing", "leasing_broker", "Leasing Contact", "manager_account_id"),
-    ("owner",   "owner",          "Owner Contact",   "recorded_owner_account_id"),
+    ("leasing",  "Leasing Company", "leasing_broker",  "Leasing Contact",  "manager_account_id"),
+    ("owner",    "Owner",           "owner",            "Owner Contact",    "recorded_owner_account_id"),
+    ("sale",     "Sale Company",    "sale_broker",      "Sale Contact",     None),
+    ("tenant",   "Tenant Company",  "tenant_rep",       "Tenant Contact",   None),
+    ("sublease", "Sublease Broker", "sublease_broker",  "Sublease Contact", None),
+]
+
+# group -> human label, for the UI's detection-summary cards
+PARTY_GROUP_LABELS = {key: prefix for key, prefix, *_ in _PARTY_GROUPS}
+
+_GROUP_FIELD_SUFFIXES = [
+    ("Name",            "account_name"),
+    ("Contact",         "contact_name"),
+    ("Address",         "address"),
+    ("City State Zip",  "city_state_zip"),
+    ("Phone",           "phone"),
 ]
 
 # Cleaned header (lowercased, "PROPERTY:" prefix stripped) -> (group, field)
-COLUMN_MAP = {
-    "building address":               ("property", "address"),
-    "building name":                  ("property", "building_name"),
-    "building park":                  ("property", "park_name"),
-    "propertytype":                   ("property", "property_type"),
-    "building status":                ("property", "status"),
-    "building class":                 ("property", "building_class"),
-    "city":                           ("property", "city"),
-    "state":                          ("property", "state"),
-    "zip":                            ("property", "zip"),
-    "rentable building area":         ("property", "sf_rentable"),
-    "percent leased":                 ("property", "occupancy_pct"),
-
-    "leasing company name":           ("leasing", "account_name"),
-    "leasing company contact":        ("leasing", "contact_name"),
-    "leasing company address":        ("leasing", "address"),
-    "leasing company city state zip": ("leasing", "city_state_zip"),
-    "leasing company phone":          ("leasing", "phone"),
-
-    "owner name":                     ("owner", "account_name"),
-    "owner contact":                  ("owner", "contact_name"),
-    "owner address":                  ("owner", "address"),
-    "owner city state zip":           ("owner", "city_state_zip"),
-    "owner phone":                    ("owner", "phone"),
-}
+COLUMN_MAP = {h.lower(): ("property", field) for field, _, h in PROPERTY_FIELDS}
+for _group_key, _prefix, *_ in _PARTY_GROUPS:
+    for _suffix, _field in _GROUP_FIELD_SUFFIXES:
+        COLUMN_MAP[f"{_prefix} {_suffix}".lower()] = (_group_key, _field)
 
 
 # ── Parsing helpers ───────────────────────────────────────────────────────────
@@ -120,7 +130,7 @@ def _parse_city_state_zip(raw: str):
 
 def _extract_row_fields(row, colmap):
     prop_fields = {}
-    groups = {"leasing": {}, "owner": {}}
+    groups = {key: {} for key in PARTY_GROUP_LABELS}
     for h, (group, field) in colmap.items():
         val = (row.get(h) or "").strip()
         if not val:
@@ -259,14 +269,14 @@ def _process_row(db, row, colmap, owner_id, existing_props, existing_accounts,
     prop, created = _upsert_property(db, prop_fields, owner_id, existing_props, warnings, row_num)
     counters["properties_created" if created else "properties_updated"] += 1
 
-    for group_name, role_slug, contact_role_label, fk_field in _PARTY_GROUPS:
+    for group_name, group_label, role_slug, contact_role_label, fk_field in _PARTY_GROUPS:
         gfields = groups.get(group_name, {})
         name = gfields.get("account_name")
         if not name:
             continue
 
         acct, acct_created = _find_or_create_account(
-            db, name, owner_id, existing_accounts, warnings, row_num, group_name.title())
+            db, name, owner_id, existing_accounts, warnings, row_num, group_label)
         ensure_role(acct, role_slug)
         counters["accounts_created"] += int(acct_created)
         counters["accounts_linked"] += 1
@@ -281,11 +291,12 @@ def _process_row(db, row, colmap, owner_id, existing_props, existing_accounts,
             else:
                 _fill_blank(acct, "city", raw_csz)
                 warnings.append(
-                    f"Row {row_num}: could not parse {group_name} city/state/zip '{raw_csz}'")
+                    f"Row {row_num}: could not parse {group_label} city/state/zip '{raw_csz}'")
         _fill_blank(acct, "address", gfields.get("address"))
         _fill_blank(acct, "phone", gfields.get("phone"))
 
-        setattr(prop, fk_field, acct.id)
+        if fk_field:
+            setattr(prop, fk_field, acct.id)
         if _add_property_party(db, prop.id, role_slug, account_id=acct.id):
             counters["property_parties_created"] += 1
 

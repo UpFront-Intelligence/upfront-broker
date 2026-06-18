@@ -21,8 +21,36 @@
     .preview-table th { background:var(--cream); padding:8px 10px; text-align:left; font-weight:600; color:var(--stone); border-bottom:1px solid var(--cream-dark); white-space:nowrap; }
     .preview-table td { padding:7px 10px; border-bottom:1px solid var(--cream-dark); white-space:nowrap; max-width:160px; overflow:hidden; text-overflow:ellipsis; }
     .preview-table tr:last-child td { border-bottom:none; }
-    .col-detected   { color:var(--green); font-size:10.5px; font-family:var(--font-mono); }
-    .col-undetected { color:var(--stone-light); font-size:10.5px; font-family:var(--font-mono); }
+
+    .detect-section-label {
+      font-size:11px; font-weight:600; letter-spacing:0.07em; text-transform:uppercase;
+      color:var(--stone); margin:22px 0 8px;
+    }
+    .detect-section-label:first-child { margin-top:0; }
+
+    .detect-fields { border:1px solid var(--cream-dark); border-radius:var(--radius); background:#fff; }
+    .detect-row {
+      display:flex; justify-content:space-between; align-items:center;
+      padding:8px 14px; font-size:13px; border-bottom:1px solid var(--cream-dark);
+    }
+    .detect-row:last-child { border-bottom:none; }
+    .detect-row-label { color:var(--ink); }
+    .detect-found   { color:var(--green); font-family:var(--font-mono); font-size:11.5px; }
+    .detect-missing { color:var(--stone-light); font-family:var(--font-mono); font-size:11.5px; font-style:italic; }
+
+    .party-cards { display:flex; flex-direction:column; gap:12px; }
+    .party-card { border:1px solid var(--cream-dark); border-radius:var(--radius); background:#fff; padding:14px 16px; }
+    .party-card-title { font-family:var(--font-serif); font-size:14.5px; color:var(--navy); margin-bottom:8px; }
+    .party-row { display:flex; gap:10px; font-size:12.5px; padding:3px 0; }
+    .party-row-label { width:64px; flex-shrink:0; color:var(--stone); font-weight:600; }
+    .party-row-val { color:var(--ink); font-family:var(--font-mono); font-size:11.5px; }
+
+    .unrec-chips { display:flex; flex-wrap:wrap; gap:6px; }
+    .unrec-chip {
+      background:var(--cream-dark); color:var(--stone); border-radius:10px;
+      padding:3px 10px; font-size:11.5px; font-family:var(--font-mono);
+    }
+    .empty-note { font-size:13px; color:var(--stone-light); padding:10px 0; }
 
     .progress-track { height:10px; border-radius:6px; background:var(--cream-dark); overflow:hidden; margin-top:16px; }
     .progress-fill   { height:100%; background:var(--gold); width:0%; transition:width 0.15s; }
@@ -53,8 +81,9 @@
       <div>
         <div class="page-title">One sheet, fan-out import</div>
         <div class="page-sub">
-          PROPERTY:-prefixed columns. Each row creates/updates a Property plus up to
-          2 Accounts (Leasing Company, Owner) plus up to 2 Contacts — owner-scoped, one pass.
+          PROPERTY:-prefixed columns. Each row creates/updates a Property plus an Account
+          and Contact for every detected party group (Leasing Company, Owner, Sale Company,
+          Tenant Company, Sublease Broker) — owner-scoped, one pass.
         </div>
       </div>
     </div>
@@ -73,23 +102,25 @@
       <div id="file-info" style="margin-top:12px;font-size:13px;color:var(--stone)"></div>
     </div>
 
-    <!-- Column + row preview -->
+    <!-- Step 1: Detection summary -->
     <div id="panel-preview" style="display:none;margin-top:20px">
-      <div style="font-size:11px;font-weight:600;letter-spacing:0.07em;text-transform:uppercase;color:var(--stone);margin-bottom:6px">
-        Detected columns
-      </div>
-      <div class="preview-wrap"><table class="preview-table" id="detect-table"></table></div>
+      <div class="detect-section-label">Property Fields</div>
+      <div class="detect-fields" id="property-fields"></div>
 
-      <div style="font-size:11px;font-weight:600;letter-spacing:0.07em;text-transform:uppercase;color:var(--stone);margin:20px 0 6px">
-        Preview (first 3 rows)
-      </div>
+      <div class="detect-section-label">Party Groups</div>
+      <div class="party-cards" id="party-groups"></div>
+
+      <div class="detect-section-label">Unrecognized Columns</div>
+      <div class="unrec-chips" id="unrecognized-columns"></div>
+
+      <div class="detect-section-label">Sample (first 3 rows)</div>
       <div class="preview-wrap"><table class="preview-table" id="preview-table"></table></div>
 
       <div id="row-count-note" style="margin-top:10px;font-size:13px;color:var(--stone)"></div>
 
       <div style="margin-top:20px;text-align:right;display:flex;gap:12px;justify-content:flex-end;align-items:center">
         <button class="btn btn-ghost" onclick="resetUpload()">Choose a different file</button>
-        <button class="btn btn-primary" id="btn-confirm" onclick="runImport()">Confirm &amp; Run Import</button>
+        <button class="btn btn-primary" id="btn-confirm" onclick="runImport()">Import</button>
       </div>
     </div>
 
@@ -122,6 +153,24 @@
   let previewData   = null;
   let importResult  = null;
 
+  // Mirrors backend/routers/import_properties_parties.py PROPERTY_FIELDS / _PARTY_GROUPS —
+  // display-only metadata, the backend response only carries header -> "group.field".
+  const PROPERTY_FIELDS = [
+    ['address',        'Address'],       ['building_name',  'Building Name'],
+    ['park_name',       'Park'],          ['property_type',  'Type'],
+    ['status',          'Status'],        ['building_class', 'Class'],
+    ['city',            'City'],          ['state',          'State'],
+    ['zip',             'Zip'],           ['sf_rentable',    'SF'],
+    ['occupancy_pct',   '% Leased'],
+  ];
+  const PARTY_GROUPS = [
+    { key: 'leasing',  title: 'Leasing Company', role: 'leasing_broker'  },
+    { key: 'owner',    title: 'Owner',           role: 'owner'           },
+    { key: 'sale',     title: 'Sale Company',    role: 'sale_broker'     },
+    { key: 'tenant',   title: 'Tenant Company',  role: 'tenant_rep'      },
+    { key: 'sublease', title: 'Sublease Broker', role: 'sublease_broker' },
+  ];
+
   function resetUpload() {
     uploadedFile = null; previewData = null; importResult = null;
     document.getElementById('file-input').value = '';
@@ -152,22 +201,51 @@
 
     try {
       previewData = await apiForm('/import/properties-with-parties/preview', fd);
-      renderPreview();
+      renderDetectionSummary();
       document.getElementById('panel-preview').style.display = 'block';
     } catch (e) {
       Toast.error('Preview failed: ' + e.message);
     }
   }
 
-  function renderPreview() {
+  function renderDetectionSummary() {
     const { headers, preview_rows, total_rows, detected_columns, exceeds_limit, max_rows } = previewData;
 
-    document.getElementById('detect-table').innerHTML =
-      `<thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead>` +
-      `<tbody><tr>${headers.map(h => {
-        const target = detected_columns[h];
-        return `<td>${target ? `<span class="col-detected">${target}</span>` : `<span class="col-undetected">— unmapped —</span>`}</td>`;
-      }).join('')}</tr></tbody>`;
+    // Reverse index: "group.field" -> source header
+    const byTarget = {};
+    Object.entries(detected_columns).forEach(([h, target]) => { byTarget[target] = h; });
+
+    document.getElementById('property-fields').innerHTML = PROPERTY_FIELDS.map(([field, label]) => {
+      const h = byTarget[`property.${field}`];
+      return `<div class="detect-row">
+        <span class="detect-row-label">${label}</span>
+        ${h ? `<span class="detect-found">${h}</span>` : `<span class="detect-missing">not found</span>`}
+      </div>`;
+    }).join('');
+
+    const cardsHtml = PARTY_GROUPS.map(g => {
+      const company = byTarget[`${g.key}.account_name`];
+      if (!company) return '';   // not detected in this file
+      const contact = byTarget[`${g.key}.contact_name`];
+      const phone   = byTarget[`${g.key}.phone`];
+      const address = byTarget[`${g.key}.address`];
+      const csz     = byTarget[`${g.key}.city_state_zip`];
+      const addrParts = [address, csz].filter(Boolean).map(x => `"${x}"`).join(' / ');
+      return `<div class="party-card">
+        <div class="party-card-title">${g.title}</div>
+        <div class="party-row"><span class="party-row-label">Company</span><span class="party-row-val">"${company}" → Account (role: ${g.role})</span></div>
+        ${contact ? `<div class="party-row"><span class="party-row-label">Contact</span><span class="party-row-val">"${contact}" → Contact</span></div>` : ''}
+        ${phone   ? `<div class="party-row"><span class="party-row-label">Phone</span><span class="party-row-val">"${phone}" → Account + Contact phone</span></div>` : ''}
+        ${addrParts ? `<div class="party-row"><span class="party-row-label">Address</span><span class="party-row-val">${addrParts}</span></div>` : ''}
+      </div>`;
+    }).filter(Boolean).join('');
+    document.getElementById('party-groups').innerHTML =
+      cardsHtml || `<div class="empty-note">No party columns detected in this file.</div>`;
+
+    const unrecognized = headers.filter(h => !detected_columns[h]);
+    document.getElementById('unrecognized-columns').innerHTML = unrecognized.length
+      ? unrecognized.map(h => `<span class="unrec-chip">${h}</span>`).join('')
+      : `<div class="empty-note">All columns recognized.</div>`;
 
     document.getElementById('preview-table').innerHTML =
       `<thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead>` +
@@ -176,12 +254,15 @@
       ).join('')}</tbody>`;
 
     const note = document.getElementById('row-count-note');
+    const btn  = document.getElementById('btn-confirm');
     if (exceeds_limit) {
       note.innerHTML = `<strong style="color:var(--red)">${total_rows} rows found — exceeds the ${max_rows}-row limit. Split the file before importing.</strong>`;
-      document.getElementById('btn-confirm').disabled = true;
+      btn.disabled = true;
+      btn.textContent = 'Import';
     } else {
       note.textContent = `${total_rows} rows ready to import.`;
-      document.getElementById('btn-confirm').disabled = false;
+      btn.disabled = false;
+      btn.textContent = `Import ${total_rows} row${total_rows !== 1 ? 's' : ''}`;
     }
   }
 
