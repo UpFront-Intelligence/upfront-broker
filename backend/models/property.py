@@ -34,15 +34,20 @@ class Property(Base):
     property_type   = Column(String)   # Office, Industrial, Retail, etc.
     subtype         = Column(String)   # e.g. "Flex", "Strip Center", "Garden"
     status          = Column(String, default="Active")  # Active, Off Market, Sold, Leased
+    market          = Column(String, nullable=True)
+    submarket       = Column(String, nullable=True)
 
     # Physical
     year_built      = Column(Integer)
+    year_renovated  = Column(Integer, nullable=True)
     sf_rentable     = Column(Float)
     sf_land         = Column(Float)
     units           = Column(Integer)   # multifamily
     stories         = Column(Integer)
+    construction_type = Column(String, nullable=True)
     zoning          = Column(String)
     parking_ratio   = Column(Float)
+    parking_spaces  = Column(Integer, nullable=True)
     occupancy_pct   = Column(Float)
 
     # Financial

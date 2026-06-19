@@ -17,3 +17,4 @@ class PropertyTenant(Base):
     lease_expiry    = Column(Date,    nullable=True)
     is_available    = Column(Boolean, default=False)
     notes           = Column(Text,    nullable=True)
+    source          = Column(Text,    nullable=False, default="manual")

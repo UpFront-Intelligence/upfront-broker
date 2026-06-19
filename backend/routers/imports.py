@@ -60,6 +60,14 @@ RESO_SYNONYMS = {
         "type": "both",
         "synonyms": ["CountyOrParish","County","county","county name","jurisdiction"],
     },
+    "lat": {
+        "type": "both",
+        "synonyms": ["Latitude","Lat","latitude","lat"],
+    },
+    "lng": {
+        "type": "both",
+        "synonyms": ["Longitude","Long","Lng","longitude","lng","long"],
+    },
     # ── Classification ───────────────────────────────────────────────────────
     "property_type": {
         "type": "both",
@@ -108,15 +116,39 @@ RESO_SYNONYMS = {
         "synonyms": ["YearBuilt","YearBuiltEffective","YearEstablished",
                      "year built","year","built","year constructed"],
     },
+    "year_renovated": {
+        "type": "both",
+        "synonyms": ["YearRenovated","YearRemodeled","RenovationYear",
+                     "year renovated","year remodeled","renovated","remodeled"],
+    },
     "zoning": {
         "type": "both",
         "synonyms": ["Zoning","ZoningDescription","zoning","zone","land use code"],
+    },
+    "market": {
+        "type": "both",
+        "synonyms": ["Market","MarketArea","MetroArea","market","metro","msa","metro area"],
+    },
+    "submarket": {
+        "type": "both",
+        "synonyms": ["SubMarket","SubMarketArea","submarket","sub market","sub-market"],
+    },
+    "construction_type": {
+        "type": "commercial",
+        "synonyms": ["ConstructionType","Construction","BuildingConstruction",
+                     "construction","construction type","building construction type"],
     },
     "parking_ratio": {
         "type": "commercial",
         "synonyms": ["ParkingRatio","ParkingTotal","GarageSpaces","ParkingFeatures",
                      "parking ratio","parking","parking spaces per 1000",
-                     "parking/1000","p/1000","parking rate"],
+                     "parking/1000","p/1000","parking rate",
+                     "parking ratio (spaces per 100sq ft)"],
+    },
+    "parking_spaces": {
+        "type": "commercial",
+        "synonyms": ["ParkingSpaces","ParkingTotal","ParkingCount",
+                     "parking spaces","# parking spaces","total parking spaces","parking count"],
     },
     "occupancy_pct": {
         "type": "commercial",
@@ -189,8 +221,8 @@ RESO_SYNONYMS = {
     "construction": {
         "type": "both",
         "synonyms": ["ConstructionMaterials","construction_materials","FoundationDetails",
-                     "foundation","ArchitecturalStyle","construction_type",
-                     "building construction","construction material"],
+                     "foundation","ArchitecturalStyle",
+                     "building construction material","construction material"],
     },
     # ── Commercial specialty ─────────────────────────────────────────────────
     "clear_height": {
@@ -928,9 +960,11 @@ VALID_FIELDS = {
     "property": {
         # Core
         "name","building_name","park_name","address","city","state","zip","county",
+        "lat","lng",
         "property_type","subtype",
-        "status","year_built","sf_rentable","sf_land","units","stories","zoning",
-        "parking_ratio","occupancy_pct","asking_price","asking_price_per_sf",
+        "status","market","submarket","year_built","year_renovated",
+        "sf_rentable","sf_land","units","stories","construction_type","zoning",
+        "parking_ratio","parking_spaces","occupancy_pct","asking_price","asking_price_per_sf",
         "assessed_value","tax_amount","tax_year","cap_rate","noi",
         "parcel_id","legal_desc","tenant","last_sale_price","last_sale_date","notes",
         # Industrial
@@ -992,8 +1026,9 @@ NUMERIC_FIELDS = {
         # Core
         "sf_rentable":float,"sf_land":float,"asking_price":float,
         "asking_price_per_sf":float,"assessed_value":float,"tax_amount":float,
-        "year_built":int,"units":int,"stories":int,"tax_year":int,
-        "parking_ratio":float,"occupancy_pct":float,"cap_rate":float,"noi":float,
+        "year_built":int,"year_renovated":int,"units":int,"stories":int,"tax_year":int,
+        "lat":float,"lng":float,
+        "parking_ratio":float,"parking_spaces":int,"occupancy_pct":float,"cap_rate":float,"noi":float,
         "last_sale_price":float,
         # Industrial
         "clear_height_min":float,"clear_height_max":float,
