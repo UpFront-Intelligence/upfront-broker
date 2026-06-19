@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>UpFront Broker — Property</title>
-  <link rel="stylesheet" href="/static/main.css?v=6">
+  <link rel="stylesheet" href="/static/main.css?v=7">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <style>
     #page-content { padding:24px 28px; max-width:1200px; }
@@ -36,7 +36,7 @@
     .header-city { font-size:13px; color:rgba(255,255,255,0.6); margin-bottom:10px; }
     .header-badges { display:flex; gap:8px; flex-wrap:wrap; }
     .hbadge { padding:3px 10px; border-radius:20px; font-size:11.5px; font-weight:600; background:rgba(255,255,255,0.12); color:rgba(255,255,255,0.9); }
-    .hbadge.gold { background:rgba(201,148,58,0.25); color:var(--gold-light); }
+    .hbadge.gold { background:rgba(255,255,255,0.18); color:#fff; }
     /* Tenant table */
     .t-table { width:100%; border-collapse:collapse; font-size:13px; }
     .t-table th { text-align:left; font-size:10.5px; font-weight:600; text-transform:uppercase; letter-spacing:.05em; color:var(--stone); padding:8px 10px; border-bottom:2px solid var(--cream-dark); }
@@ -152,7 +152,7 @@
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="/js/app.js?v=6"></script>
+<script src="/js/app.js?v=7"></script>
 <script>
   if (!Auth.requireAuth()) throw new Error('Not authenticated');
   renderSidebar('properties');

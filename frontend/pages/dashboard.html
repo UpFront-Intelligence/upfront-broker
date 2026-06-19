@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>UpFront Broker — Dashboard</title>
-  <link rel="stylesheet" href="/static/main.css?v=6">
+  <link rel="stylesheet" href="/static/main.css?v=7">
   <style>
     .stat-grid {
       display: grid;
@@ -116,21 +116,21 @@
       font-weight: 600;
       letter-spacing: 0.1em;
       text-transform: uppercase;
-      color: var(--stone);
+      color: rgba(255,255,255,0.6);
       margin-bottom: 8px;
     }
 
     .commission-value {
-      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
       font-size: 32px;
-      font-weight: 500;
-      color: var(--gold-light);
+      font-weight: 600;
+      color: #fff;
       letter-spacing: -1px;
     }
 
     .commission-sub {
       font-size: 12px;
-      color: var(--stone-light);
+      color: rgba(255,255,255,0.55);
       margin-top: 6px;
     }
 
@@ -257,7 +257,7 @@
     </div>
   </div>
 
-  <script src="/js/app.js?v=6"></script>
+  <script src="/js/app.js?v=7"></script>
   <script>
     if (!Auth.requireAuth()) throw new Error('Not authenticated');
     renderSidebar('dashboard');

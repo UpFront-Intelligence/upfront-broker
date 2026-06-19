@@ -1,0 +1,39 @@
+/* ── Design Tokens — single source of truth, loaded by main.css ──────────────
+   Apple-product aesthetic: one typeface, flat fills, hairline dividers,
+   shadows only on floating elements (modals/dropdowns/popups). */
+:root {
+  --ink:            #1B2235;
+  --paper:          #F3F2EE;
+  --surface:        #FFFFFF;
+  --accent:         #1F5E52;
+  --accent-hover:   #17473D;
+  --hint-gold:      #C8932A;
+  --hint-gold-soft: #F6E8CC;
+  --border:         rgba(27,34,53,0.08);
+  --text-secondary: #5C6470;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+
+  --shadow-sm: 0 1px 2px rgba(27,34,53,0.04);
+  --shadow-md: 0 2px 8px rgba(27,34,53,0.08);
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 16px;
+  --space-4: 24px;
+  --space-5: 32px;
+  --space-6: 48px;
+
+  /* Role badges — fixed mapping to account_roles.slug, do not reuse elsewhere */
+  --role-leasing:  #6B7A8F;
+  --role-owner:    #2D6B5C;
+  --role-sale:     #9C5B45;
+  --role-tenant:   #7A5C8F;
+  --role-sublease: #8C7355;
+  --role-manager:  #5C6470;
+
+  /* System font stack — no @import, no web fonts. One family everywhere;
+     hierarchy comes from weight/size only. */
+  --font-system: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}

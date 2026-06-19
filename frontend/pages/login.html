@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>UpFront Broker — Sign In</title>
-  <link rel="stylesheet" href="/static/main.css?v=6">
+  <link rel="stylesheet" href="/static/main.css?v=7">
   <style>
     body {
       background: var(--navy);
@@ -48,17 +48,17 @@
 
     .login-brand { position: relative; }
     .login-brand .wordmark { font-family: var(--font-serif); font-size: 28px; color: #fff; }
-    .login-brand .wordmark span { color: var(--gold); font-style: italic; }
-    .login-brand .tagline { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--stone); margin-top: 6px; }
+    .login-brand .wordmark span { color: rgba(255,255,255,0.92); font-style: italic; }
+    .login-brand .tagline { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(255,255,255,0.55); margin-top: 6px; }
 
     .login-headline { position: relative; }
     .login-headline h2 { font-family: var(--font-serif); font-size: 32px; color: #fff; line-height: 1.25; letter-spacing: -0.3px; }
-    .login-headline h2 em { color: var(--gold); font-style: italic; }
+    .login-headline h2 em { color: rgba(255,255,255,0.92); font-style: italic; }
     .login-headline p { color: var(--stone-light); font-size: 14px; margin-top: 12px; line-height: 1.6; }
 
     .login-features { display: flex; flex-direction: column; gap: 10px; position: relative; }
     .login-feature { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--stone-light); }
-    .login-feature::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--gold); flex-shrink: 0; }
+    .login-feature::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,0.7); flex-shrink: 0; }
 
     .login-right {
       width: 380px;
@@ -212,7 +212,7 @@
     </div>
   </div>
 
-  <script src="/js/app.js?v=6"></script>
+  <script src="/js/app.js?v=7"></script>
   <script>
     if (API.token()) window.location.href = '/pages/dashboard.html';
 
