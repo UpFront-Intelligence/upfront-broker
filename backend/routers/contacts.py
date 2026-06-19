@@ -9,6 +9,7 @@ from models.contact_account import ContactAccount
 from models.account import Account
 from models.user import User
 from auth_utils import get_current_user
+from services.accounts import geocode_contact_if_address_changed
 
 router = APIRouter()
 
@@ -24,6 +25,10 @@ class ContactCreate(BaseModel):
     contact_type: Optional[str] = None
     source: Optional[str] = None
     tags: Optional[List[str]] = []
+    address: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    zip: Optional[str] = None
     notes: Optional[str] = None
     tenant_id: Optional[int] = None
 
@@ -53,6 +58,12 @@ class ContactResponse(BaseModel):
     contact_type: Optional[str]
     source: Optional[str]
     tags: Optional[List[str]]
+    address: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    zip: Optional[str] = None
+    lat: Optional[float] = None
+    lng: Optional[float] = None
     notes: Optional[str]
     tenant_id: Optional[int] = None
     tenant_name: Optional[str] = None
@@ -187,6 +198,8 @@ def create_contact(
 ):
     contact = Contact(**data.dict(), owner_id=current_user.id)
     db.add(contact)
+    db.flush()
+    geocode_contact_if_address_changed(db, contact, current_user.id)
     db.commit()
     db.refresh(contact)
     return contact
@@ -249,8 +262,11 @@ def update_contact(
     ).first()
     if not contact:
         raise HTTPException(status_code=404, detail="Contact not found")
+    old_addr_key = (contact.address, contact.city, contact.state)
     for key, val in data.dict(exclude_unset=True).items():
         setattr(contact, key, val)
+    if (contact.address, contact.city, contact.state) != old_addr_key:
+        geocode_contact_if_address_changed(db, contact, current_user.id)
     db.commit()
     db.refresh(contact)
     return contact

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, ARRAY
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, ARRAY, Float
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
@@ -29,6 +29,11 @@ class Account(Base):
     city        = Column(String)
     state       = Column(String)
     zip         = Column(String)
+
+    # Office-location geocode (US Census geocoder) — set on create/update
+    # when address/city/state changed; propagated to inherited Contacts.
+    lat         = Column(Float, nullable=True)
+    lng         = Column(Float, nullable=True)
 
     # Notes
     notes       = Column(Text)

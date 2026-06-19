@@ -10,7 +10,7 @@ from models.contact_account import ContactAccount
 from models.contact import Contact
 from models.user import User
 from auth_utils import get_current_user
-from services.accounts import owned_accounts_query
+from services.accounts import owned_accounts_query, geocode_account_if_address_changed
 from services.naming import normalize_name
 
 router = APIRouter()
@@ -56,6 +56,8 @@ class AccountResponse(BaseModel):
     city: Optional[str]
     state: Optional[str]
     zip: Optional[str]
+    lat: Optional[float]
+    lng: Optional[float]
     notes: Optional[str]
 
     class Config:
@@ -115,6 +117,8 @@ def create_account(
 ):
     account = Account(**data.dict(), owner_id=current_user.id)
     db.add(account)
+    db.flush()
+    geocode_account_if_address_changed(db, account, current_user.id)
     db.commit()
     db.refresh(account)
     return account
@@ -165,8 +169,11 @@ def update_account(
     ).first()
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
+    old_addr_key = (account.address, account.city, account.state)
     for key, val in data.dict(exclude_unset=True).items():
         setattr(account, key, val)
+    if (account.address, account.city, account.state) != old_addr_key:
+        geocode_account_if_address_changed(db, account, current_user.id)
     db.commit()
     db.refresh(account)
     return account
