@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UpFront Broker — Search</title>
+  <link rel="stylesheet" href="/static/main.css?v=7">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <style>
+    #page-content { padding: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+    /* ── Filter bar ── */
+    #filter-bar {
+      display: flex; align-items: flex-start; gap: var(--space-3); flex-wrap: wrap;
+      padding: var(--space-3) var(--space-4); background: var(--surface);
+      border-bottom: 1px solid var(--border); flex-shrink: 0;
+    }
+    .f-group { display: flex; flex-direction: column; gap: 4px; }
+    .f-label { font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-secondary); }
+    .f-sel, .f-input { font-size: 12.5px; padding: 6px 9px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-family: var(--font-system); outline: none; background: var(--surface); color: var(--ink); }
+    .f-sel:focus, .f-input:focus { border-color: var(--accent); }
+    .f-range { display: flex; gap: 4px; align-items: center; }
+    .f-range .f-input { width: 70px; }
+
+    .geo-chips { display: flex; flex-wrap: wrap; gap: 5px; max-width: 280px; }
+    .chip {
+      display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px;
+      background: rgba(31,94,82,0.08); color: var(--accent); border-radius: var(--radius-sm);
+      font-size: 11.5px; font-weight: 500;
+    }
+    .chip .chip-x { cursor: pointer; opacity: 0.7; font-weight: 700; }
+    .chip .chip-x:hover { opacity: 1; }
+    .role-chip {
+      display: inline-flex; align-items: center; padding: 3px 9px; border-radius: var(--radius-sm);
+      font-size: 11.5px; cursor: pointer; border: 1px solid var(--border); background: var(--surface);
+      color: var(--text-secondary); user-select: none;
+    }
+    .role-chip.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .role-chips { display: flex; flex-wrap: wrap; gap: 4px; max-width: 280px; }
+
+    /* ── Map + List layout ── */
+    #browse-layout { flex: 1; display: flex; overflow: hidden; min-height: 0; }
+    #map-pane { width: 50%; position: relative; flex-shrink: 0; border-right: 1px solid var(--border); transition: width 0.2s; }
+    #browse-layout.map-collapsed #map-pane { width: 0; border-right: none; overflow: hidden; }
+    #browse-layout.map-collapsed #list-pane { flex: 1; }
+    #search-map { width: 100%; height: 100%; }
+    #map-toggle {
+      position: absolute; top: 10px; right: 10px; z-index: 500;
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
+      padding: 6px 10px; font-size: 12px; cursor: pointer; box-shadow: var(--shadow-sm);
+    }
+    #map-reopen { display: none; }
+    #browse-layout.map-collapsed #map-reopen { display: inline-flex; }
+
+    #list-pane { flex: 1; overflow-y: auto; min-width: 0; }
+    #list-count { padding: 10px var(--space-4) 4px; font-size: 12.5px; color: var(--text-secondary); }
+    table.search-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .search-table th {
+      position: sticky; top: 0; background: var(--surface); text-align: left; padding: 8px 12px;
+      font-size: 11px; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase;
+      color: var(--text-secondary); border-bottom: 1px solid var(--border); white-space: nowrap; cursor: pointer;
+    }
+    .search-table th:hover { color: var(--ink); }
+    .search-table td { padding: 8px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    .search-table tr.data-row { cursor: pointer; }
+    .search-table tr.data-row:hover td, .search-table tr.data-row.row-hover td { background: var(--paper); }
+    .data-figure { font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body>
+<div id="sidebar"></div>
+
+<div id="main">
+  <div id="topbar">
+    <div class="topbar-title">Search</div>
+    <div class="topbar-actions" id="result-summary" style="font-size:12px;color:var(--text-secondary)"></div>
+  </div>
+
+  <div id="page-content" class="fade-in">
+    <div id="filter-bar">
+      <div class="f-group">
+        <span class="f-label">Records</span>
+        <select class="f-sel" id="f-return" onchange="onReturnChange()">
+          <option value="properties">Properties</option>
+          <option value="accounts">Accounts</option>
+          <option value="contacts">Contacts</option>
+          <option value="tenants">Tenants</option>
+          <option value="deals">Deals</option>
+        </select>
+      </div>
+
+      <div class="f-group">
+        <span class="f-label">Location</span>
+        <input class="f-input" id="f-geo-input" placeholder="City, county, or state…" autocomplete="off" style="width:170px">
+        <div class="geo-chips" id="geo-chips"></div>
+      </div>
+
+      <div class="f-group" id="g-prop-type">
+        <span class="f-label">Property Type</span>
+        <select class="f-sel" id="f-prop-type" onchange="runSearch()">
+          <option value="">Any type</option>
+          <option>Office</option><option>Industrial</option><option>Retail</option>
+          <option>Land</option><option>Multifamily</option><option>STNL</option>
+          <option>Self Storage</option><option>Hospitality</option><option>Medical</option>
+        </select>
+      </div>
+
+      <div class="f-group" id="g-size">
+        <span class="f-label">Size (SF)</span>
+        <div class="f-range">
+          <input class="f-input" id="f-sf-min" placeholder="Min" inputmode="numeric" oninput="debouncedSearch()">
+          <span style="color:var(--text-secondary)">–</span>
+          <input class="f-input" id="f-sf-max" placeholder="Max" inputmode="numeric" oninput="debouncedSearch()">
+        </div>
+      </div>
+
+      <div class="f-group" id="g-price">
+        <span class="f-label">Asking Price</span>
+        <div class="f-range">
+          <input class="f-input" id="f-price-min" placeholder="Min" inputmode="numeric" oninput="debouncedSearch()">
+          <span style="color:var(--text-secondary)">–</span>
+          <input class="f-input" id="f-price-max" placeholder="Max" inputmode="numeric" oninput="debouncedSearch()">
+        </div>
+      </div>
+
+      <div class="f-group" id="g-role">
+        <span class="f-label">Role</span>
+        <div class="role-chips" id="role-chips"></div>
+      </div>
+    </div>
+
+    <div id="browse-layout">
+      <div id="map-pane">
+        <button id="map-toggle" onclick="toggleMap()">‹ Hide Map</button>
+        <div id="search-map"></div>
+      </div>
+      <div id="list-pane">
+        <div id="list-count">
+          <button id="map-reopen" class="btn btn-ghost btn-sm" onclick="toggleMap()">› Show Map</button>
+          <span id="list-count-text"></span>
+        </div>
+        <table class="search-table">
+          <thead><tr id="search-thead"></tr></thead>
+          <tbody id="search-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="/js/app.js?v=7"></script>
+<script>
+  if (!Auth.requireAuth()) throw new Error('Not authenticated');
+  renderSidebar('search');
+
+  document.getElementById('role-chips').innerHTML = [
+    'owner', 'buyer', 'seller', 'tenant', 'investor', 'developer', 'lender', 'leasing_broker',
+  ].map(r => `<label class="role-chip" data-role="${r}" onclick="toggleRoleChip(this)">${r.replace('_', ' ')}</label>`).join('');
+
+  let currentReturn = 'properties';
+  let geoChips = [];          // [{value, field}]
+  let activeRoles = new Set();
+  let currentItems = [];
+  let sortCol = null, sortDir = 'asc';
+  let leafletMap = null, markers = [];
+  let searchTimer = null;
+
+  const RETURN_FIELDS = {
+    properties: ['prop-type', 'size', 'price'],
+    accounts:   ['role'],
+    contacts:   [],
+    tenants:    ['prop-type'],
+    deals:      ['prop-type'],
+  };
+
+  function cssVar(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  }
+
+  // ── Map ────────────────────────────────────────────────────────
+  function initMap() {
+    if (leafletMap) return;
+    leafletMap = L.map('search-map', { zoomControl: true }).setView([42.6064, -83.1498], 10);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      maxZoom: 19,
+    }).addTo(leafletMap);
+  }
+  initMap();
+
+  function toggleMap() {
+    const layout = document.getElementById('browse-layout');
+    layout.classList.toggle('map-collapsed');
+    document.getElementById('map-toggle').textContent =
+      layout.classList.contains('map-collapsed') ? '› Show Map' : '‹ Hide Map';
+    if (!layout.classList.contains('map-collapsed')) setTimeout(() => leafletMap.invalidateSize(), 210);
+  }
+
+  function buildPins(items) {
+    const pins = [];
+    items.forEach((item, idx) => {
+      if (currentReturn === 'properties' || currentReturn === 'tenants') {
+        if (item.lat != null && item.lng != null) {
+          pins.push({ rowIdx: idx, lat: item.lat, lng: item.lng, label: item.display_name });
+        }
+      } else {
+        if (item.lat != null && item.lng != null) {
+          pins.push({ rowIdx: idx, lat: item.lat, lng: item.lng, label: item.display_name + ' (office)' });
+        }
+        (item.linked_properties || []).forEach(lp => {
+          if (lp.lat != null && lp.lng != null) {
+            pins.push({ rowIdx: idx, lat: lp.lat, lng: lp.lng, label: `${item.display_name} — ${lp.address || ''}` });
+          }
+        });
+      }
+    });
+    return pins;
+  }
+
+  let markersByRow = {};
+
+  function renderMap(items) {
+    markers.forEach(m => m.remove());
+    markers = [];
+    markersByRow = {};
+
+    const accent = cssVar('--accent') || '#1F5E52';
+    const pins = buildPins(items);
+    pins.forEach(p => {
+      const marker = L.circleMarker([p.lat, p.lng], {
+        radius: 7, fillColor: accent, color: '#fff', weight: 1.5, opacity: 1, fillOpacity: 0.85,
+      });
+      marker.bindTooltip(p.label, { direction: 'top', offset: [0, -4] });
+      marker.on('click', () => goToDetail(items[p.rowIdx]));
+      marker.addTo(leafletMap);
+      markers.push(marker);
+      (markersByRow[p.rowIdx] = markersByRow[p.rowIdx] || []).push(marker);
+    });
+
+    if (markers.length) {
+      try {
+        leafletMap.fitBounds(L.featureGroup(markers).getBounds(), { padding: [24, 24], maxZoom: 14 });
+      } catch (_) {}
+    }
+  }
+
+  function highlightRow(idx, on) {
+    (markersByRow[idx] || []).forEach(m => {
+      m.setStyle(on
+        ? { radius: 11, weight: 3 }
+        : { radius: 7, weight: 1.5 });
+    });
+  }
+
+  // ── Filter bar visibility per Records type ─────────────────────
+  function onReturnChange() {
+    currentReturn = document.getElementById('f-return').value;
+    const visible = RETURN_FIELDS[currentReturn] || [];
+    document.getElementById('g-prop-type').style.display = visible.includes('prop-type') ? '' : 'none';
+    document.getElementById('g-size').style.display       = visible.includes('size')      ? '' : 'none';
+    document.getElementById('g-price').style.display      = visible.includes('price')     ? '' : 'none';
+    document.getElementById('g-role').style.display       = visible.includes('role')      ? '' : 'none';
+    geoChips = [];
+    renderGeoChips();
+    runSearch();
+  }
+  onReturnChange();
+
+  // ── Geography chips (typeahead) ──────────────────────────────────
+  const geoInput = document.getElementById('f-geo-input');
+  Typeahead.attach(geoInput, async (q) => {
+    const fields = (currentReturn === 'accounts' || currentReturn === 'contacts') ? ['city', 'state'] : ['city', 'county', 'state'];
+    const results = await Promise.all(fields.map(f =>
+      API.get(`/query/geo-options?return_type=${currentReturn}&field=${f}&q=${encodeURIComponent(q)}`)
+        .then(vals => vals.map(v => ({ value: v, field: f })))
+        .catch(() => [])
+    ));
+    return results.flat().map(r => ({ label: r.value, meta: r.field, value: r }));
+  }, (item) => {
+    addGeoChip(item.value.value, item.value.field);
+    geoInput.value = '';
+  });
+
+  function addGeoChip(value, field) {
+    if (geoChips.some(c => c.value === value && c.field === field)) return;
+    geoChips.push({ value, field });
+    renderGeoChips();
+    runSearch();
+  }
+
+  function removeGeoChip(i) {
+    geoChips.splice(i, 1);
+    renderGeoChips();
+    runSearch();
+  }
+
+  function renderGeoChips() {
+    document.getElementById('geo-chips').innerHTML = geoChips.map((c, i) =>
+      `<span class="chip">${esc(c.value)} <span style="opacity:0.6">(${c.field})</span><span class="chip-x" onclick="removeGeoChip(${i})">✕</span></span>`
+    ).join('');
+  }
+
+  function toggleRoleChip(el) {
+    const role = el.dataset.role;
+    if (activeRoles.has(role)) { activeRoles.delete(role); el.classList.remove('active'); }
+    else { activeRoles.add(role); el.classList.add('active'); }
+    runSearch();
+  }
+
+  function debouncedSearch() {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(runSearch, 350);
+  }
+
+  // ── Build spec + run ────────────────────────────────────────────
+  function buildSpec() {
+    const spec = { return: currentReturn, limit: 300, offset: 0 };
+
+    const geo = {};
+    geoChips.forEach(c => { (geo[c.field] = geo[c.field] || []).push(c.value); });
+    if (Object.keys(geo).length) spec.geography = geo;
+
+    const pt = document.getElementById('f-prop-type').value;
+    const sfMin = document.getElementById('f-sf-min').value.trim();
+    const sfMax = document.getElementById('f-sf-max').value.trim();
+    const priceMin = document.getElementById('f-price-min').value.trim();
+    const priceMax = document.getElementById('f-price-max').value.trim();
+    const pf = {};
+    if (pt) pf.property_type = pt;
+    if (sfMin) pf.sf_min = +sfMin;
+    if (sfMax) pf.sf_max = +sfMax;
+    if (priceMin) pf.price_min = +priceMin;
+    if (priceMax) pf.price_max = +priceMax;
+    if (Object.keys(pf).length) spec.property = pf;
+
+    if (activeRoles.size) spec.account = { roles: [...activeRoles] };
+
+    return spec;
+  }
+
+  async function runSearch() {
+    const spec = buildSpec();
+    try {
+      const data = await API.post('/query/', spec);
+      currentItems = data.items;
+      document.getElementById('result-summary').textContent =
+        `${data.total.toLocaleString()} ${data.return_type}${data.total === 1 ? '' : ''} found`;
+      renderTable();
+      renderMap(currentItems);
+    } catch (e) {
+      Toast.error('Search failed: ' + e.message);
+    }
+  }
+
+  // ── List ──────────────────────────────────────────────────────
+  const COLS = {
+    properties: [
+      { key: 'display_name', label: 'Property', render: r => esc(r.display_name) },
+      { key: 'city',         label: 'City',     render: r => esc(r.city || '—') },
+      { key: 'state',        label: 'State',    render: r => esc(r.state || '—') },
+      { key: 'property_type',label: 'Type',     render: r => esc(r.property_type || '—') },
+      { key: 'sf_rentable',  label: 'SF',       render: r => `<span class="data-figure">${Fmt.sf(r.sf_rentable)}</span>` },
+      { key: 'asking_price', label: 'Price',    render: r => `<span class="data-figure">${Fmt.currency(r.asking_price)}</span>` },
+    ],
+    accounts: [
+      { key: 'display_name', label: 'Account',  render: r => esc(r.display_name) },
+      { key: 'roles',        label: 'Roles',    render: r => (r.roles || []).slice(0, 3).join(', ') || '—' },
+      { key: 'city',         label: 'City',     render: r => esc(r.city || '—') },
+      { key: 'state',        label: 'State',    render: r => esc(r.state || '—') },
+      { key: 'linked',       label: 'Properties', render: r => `<span class="data-figure">${(r.linked_properties||[]).length}</span>` },
+    ],
+    contacts: [
+      { key: 'display_name', label: 'Contact',  render: r => esc(r.display_name) },
+      { key: 'title',        label: 'Title',    render: r => esc(r.title || '—') },
+      { key: 'email',        label: 'Email',    render: r => esc(r.email || '—') },
+      { key: 'city',         label: 'City',     render: r => esc(r.city || '—') },
+      { key: 'linked',       label: 'Properties', render: r => `<span class="data-figure">${(r.linked_properties||[]).length}</span>` },
+    ],
+    tenants: [
+      { key: 'display_name', label: 'Tenant',   render: r => esc(r.display_name) },
+      { key: 'address',      label: 'Property', render: r => esc(r.address || '—') },
+      { key: 'city',         label: 'City',     render: r => esc(r.city || '—') },
+      { key: 'state',        label: 'State',    render: r => esc(r.state || '—') },
+      { key: 'industry',     label: 'Industry', render: r => esc(r.industry || '—') },
+    ],
+    deals: [
+      { key: 'display_name', label: 'Deal',     render: r => esc(r.display_name) },
+      { key: 'stage',        label: 'Stage',    render: r => esc(r.stage || '—') },
+      { key: 'deal_type',    label: 'Type',     render: r => esc(r.deal_type || '—') },
+      { key: 'address',      label: 'Property', render: r => esc((r.linked_properties||[])[0]?.address || '—') },
+    ],
+  };
+
+  const DETAIL_PAGE = { property: 'property', account: 'account', contact: 'contact', tenant: 'tenant', deal: 'deal' };
+
+  function goToDetail(item) {
+    const page = DETAIL_PAGE[item.type];
+    if (page) window.location.href = `/pages/${page}.html?id=${item.id}`;
+  }
+
+  function renderTable() {
+    const cols = COLS[currentReturn] || [];
+    document.getElementById('search-thead').innerHTML =
+      cols.map(c => `<th onclick="sortBy('${c.key}')">${c.label}${sortCol === c.key ? (sortDir === 'asc' ? ' ▲' : ' ▼') : ''}</th>`).join('');
+
+    let rows = currentItems.slice();
+    if (sortCol) {
+      rows.sort((a, b) => {
+        let av = sortCol === 'linked' ? (a.linked_properties || []).length : a[sortCol];
+        let bv = sortCol === 'linked' ? (b.linked_properties || []).length : b[sortCol];
+        if (Array.isArray(av)) av = av.join(',');
+        if (Array.isArray(bv)) bv = bv.join(',');
+        if (av == null) av = '';
+        if (bv == null) bv = '';
+        const cmp = (av > bv) - (av < bv);
+        return sortDir === 'asc' ? cmp : -cmp;
+      });
+    }
+
+    document.getElementById('list-count-text').textContent =
+      `${rows.length.toLocaleString()} result${rows.length !== 1 ? 's' : ''}`;
+
+    const tbody = document.getElementById('search-tbody');
+    if (!rows.length) {
+      tbody.innerHTML = `<tr><td colspan="${cols.length}"><div class="empty-state">
+        <div class="empty-icon">⊙</div><div class="empty-title">No results</div>
+        <div class="empty-sub">Try widening your filters.</div></div></td></tr>`;
+      return;
+    }
+
+    // Map row -> original index in currentItems for marker highlight lookup
+    tbody.innerHTML = rows.map(r => {
+      const idx = currentItems.indexOf(r);
+      return `<tr class="data-row" data-idx="${idx}"
+        onmouseenter="highlightRow(${idx}, true)" onmouseleave="highlightRow(${idx}, false)"
+        onclick='goToDetail(${JSON.stringify(r).replace(/'/g, "&#39;")})'>
+        ${cols.map(c => `<td>${c.render(r)}</td>`).join('')}
+      </tr>`;
+    }).join('');
+  }
+
+  function sortBy(key) {
+    if (sortCol === key) sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+    else { sortCol = key; sortDir = 'asc'; }
+    renderTable();
+  }
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  runSearch();
+</script>
+</body>
+</html>

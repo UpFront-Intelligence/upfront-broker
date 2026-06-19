@@ -81,6 +81,14 @@ def _apply_property_filters(q, spec: QuerySpec):
         q = q.filter(Property.county.ilike(f"%{_contains(pf['county'])}%"))
     if "city" in pf:
         q = q.filter(Property.city.ilike(f"%{_contains(pf['city'])}%"))
+    if "sf_min" in pf:
+        q = q.filter(Property.sf_rentable >= pf["sf_min"])
+    if "sf_max" in pf:
+        q = q.filter(Property.sf_rentable <= pf["sf_max"])
+    if "price_min" in pf:
+        q = q.filter(Property.asking_price >= pf["price_min"])
+    if "price_max" in pf:
+        q = q.filter(Property.asking_price <= pf["price_max"])
     return q
 
 
@@ -164,6 +172,8 @@ def _run_query(spec: QuerySpec, owner_id: int, db: Session) -> dict:
             Property.state,
             Property.property_type,
             Property.county,
+            Property.sf_rentable,
+            Property.asking_price,
             Property.lat,
             Property.lng,
         ).filter(Property.owner_id == owner_id)
@@ -203,6 +213,8 @@ def _run_query(spec: QuerySpec, owner_id: int, db: Session) -> dict:
                 "state": r.state,
                 "property_type": r.property_type,
                 "county": r.county,
+                "sf_rentable": r.sf_rentable,
+                "asking_price": r.asking_price,
                 "lat": r.lat,
                 "lng": r.lng,
             }
@@ -440,6 +452,46 @@ def _run_query(spec: QuerySpec, owner_id: int, db: Session) -> dict:
         "limit": spec.limit,
         "items": items,
     }
+
+
+# ── Geography typeahead — powers the chip multi-select in the Search page ──
+
+_GEO_FIELD_SOURCE = {
+    ("properties", "city"): Property.city, ("properties", "county"): Property.county,
+    ("properties", "state"): Property.state,
+    ("tenants", "city"): Property.city, ("tenants", "county"): Property.county,
+    ("tenants", "state"): Property.state,
+    ("deals", "city"): Property.city, ("deals", "county"): Property.county,
+    ("deals", "state"): Property.state,
+    ("accounts", "city"): Account.city, ("accounts", "state"): Account.state,
+    ("contacts", "city"): Contact.city, ("contacts", "state"): Contact.state,
+}
+
+
+@router.get("/geo-options")
+def geo_options(
+    return_type: str = "properties",
+    field:       str = "city",
+    q:           str = "",
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Distinct, owner-scoped values for one geography field — populates the
+    typeahead behind the Search page's city/county/state chip picker."""
+    col = _GEO_FIELD_SOURCE.get((return_type, field))
+    if col is None:
+        return []
+    owner_col = {
+        "properties": Property.owner_id, "tenants": Property.owner_id,
+        "deals": Property.owner_id, "accounts": Account.owner_id,
+        "contacts": Contact.owner_id,
+    }[return_type]
+
+    query = db.query(col).filter(owner_col == current_user.id, col.isnot(None), col != "")
+    if q.strip():
+        query = query.filter(col.ilike(f"%{q.strip()}%"))
+    rows = query.distinct().order_by(col).limit(10).all()
+    return [r[0] for r in rows]
 
 
 # ── Endpoint ──────────────────────────────────────────────────────

@@ -129,6 +129,9 @@ async def page_marketing_list_detail(): return _page("marketing-list.html")
 @app.get("/pages/query.html")
 async def page_query():                 return _page("query.html")
 
+@app.get("/pages/search.html")
+async def page_search():                return _page("search.html")
+
 @app.get("/pages/review-duplicates.html")
 async def page_review_duplicates():     return _page("review-duplicates.html")
 
