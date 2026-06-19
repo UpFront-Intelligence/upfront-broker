@@ -38,11 +38,30 @@ def _run_alembic(*args):
         raise RuntimeError(f"alembic {' '.join(args)} failed (exit {result.returncode})")
 
 
+def _ensure_parcels_table(engine):
+    # `parcels` is raw SQL, not a SQLAlchemy model (see scripts/import_parcels.py)
+    # — it's outside Base.metadata entirely, so create_all() never creates it and
+    # no Alembic migration owns it either. Without this, a from-scratch database
+    # comes up with every ORM table but silently missing parcels search/attach.
+    # DDL is imported (not duplicated) from scripts/import_parcels.py, the single
+    # source of truth; both statements are IF NOT EXISTS, so this is a no-op on
+    # any database that already has the table (fresh or not).
+    from sqlalchemy import text
+    from scripts.import_parcels import CREATE_TABLE, CREATE_INDEXES
+
+    with engine.begin() as conn:
+        conn.execute(text(CREATE_TABLE))
+        for idx_sql in CREATE_INDEXES:
+            conn.execute(text(idx_sql))
+    print("Ensured parcels table + indexes exist (no-op if already present).")
+
+
 def main():
     from sqlalchemy import inspect
     from database import Base, engine
 
     _import_all_models()
+    _ensure_parcels_table(engine)
 
     is_fresh = not inspect(engine).has_table("accounts")
 
