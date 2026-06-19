@@ -77,10 +77,15 @@ Every action the user must take is spelled out explicitly: the environment (Clau
 
 ### CONTACT
 ```
-id, owner_id, first_name, last_name, email, phone, title, company,
-account_id, tenant_id (FK → tenants),
-address, city, state, zip, notes, created_at
+id, owner_id, first_name, last_name, email, phone, mobile, title,
+photo_url, linkedin, contact_type, source, tags,
+tenant_id (FK → tenants),
+address, city, state, zip, lat, lng,
+notes, created_at, updated_at
 ```
+- `address/city/state/zip` real as of 2026-06-20 (migration `3f514cfabf0e`). Default-inherited from the linked Account at Contact-creation time when a row gives no distinct contact address — same fill-blank-from-parent pattern as everywhere else, never overwrites an explicit value.
+- `lat/lng` added same migration, ahead of need for office-location mapping — nullable, no geocoding wired up yet.
+- **Corrected drift:** this block previously listed `company` and `account_id` as columns — neither has ever existed. Company affiliation is exclusively via the `contact_accounts` junction (many-to-many, with `role`), not a direct FK on Contact. It also listed `address/city/state/zip` as existing before they actually did (now fixed by the migration above) — if this section ever describes a column, verify against `backend/models/contact.py` before trusting it for write-path work.
 
 ### CONTACT_PHONES (multi-phone child table)
 ```

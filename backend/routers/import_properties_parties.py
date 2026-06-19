@@ -603,21 +603,29 @@ def _process_party(db, role_slug, attrs, prop, owner_id, existing_accounts, coun
     _append_note_line(contact, "Other email", attrs.get("contact_other_email"))
     _append_note_line(contact, "Website", attrs.get("contact_website"))
 
+    _fill_blank(contact, "address", attrs.get("contact_address"))
+    _fill_blank(contact, "city", attrs.get("contact_city"))
+    _fill_blank(contact, "state", attrs.get("contact_state"))
+    if attrs.get("contact_zip"):
+        _fill_blank(contact, "zip", _clean_zip5(attrs["contact_zip"]))
+
     raw_ccsz = attrs.get("contact_city_state_zip")
-    addr_bits = {"address": attrs.get("contact_address"), "city": attrs.get("contact_city"),
-                 "state": attrs.get("contact_state"), "zip": attrs.get("contact_zip")}
     if raw_ccsz:
         parsed = _parse_city_state_zip(raw_ccsz)
         if parsed:
-            addr_bits["city"], addr_bits["state"], addr_bits["zip"] = (
-                addr_bits["city"] or parsed["city"], addr_bits["state"] or parsed["state"],
-                addr_bits["zip"] or parsed["zip"])
+            _fill_blank(contact, "city", parsed["city"])
+            _fill_blank(contact, "state", parsed["state"])
+            _fill_blank(contact, "zip", parsed["zip"])
         else:
             warnings.append(f"Row {row_num}: could not parse {role_label} contact city/state/zip '{raw_ccsz}'")
-    addr_line = ", ".join(v for v in (addr_bits["address"], addr_bits["city"],
-                                       " ".join(v for v in (addr_bits["state"], addr_bits["zip"]) if v))
-                          if v)
-    _append_note_line(contact, "Address", addr_line)
+
+    # Default inheritance — a contact with no distinct address of its own
+    # takes its account's, same "fill blank from parent" pattern as the
+    # account fields above. Never overwrites an explicit value.
+    _fill_blank(contact, "address", acct.address)
+    _fill_blank(contact, "city", acct.city)
+    _fill_blank(contact, "state", acct.state)
+    _fill_blank(contact, "zip", acct.zip)
 
     # company_phone mirrors onto the contact too (matches the historical
     # "PROPERTY: Leasing Company Phone" behavior — one shared switchboard

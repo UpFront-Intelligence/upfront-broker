@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, ARRAY
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, ARRAY, Float
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
@@ -18,6 +18,18 @@ class Contact(Base):
     title       = Column(String)
     photo_url   = Column(String)
     linkedin    = Column(String)
+
+    # Address (defaults from the linked Account when blank — see
+    # routers/import_properties_parties.py's account-inheritance fill)
+    address     = Column(String, nullable=True)
+    city        = Column(String, nullable=True)
+    state       = Column(String, nullable=True)
+    zip         = Column(String, nullable=True)
+
+    # Geocoordinates — ahead of need for office-location mapping, no
+    # geocoding wired up yet
+    lat         = Column(Float, nullable=True)
+    lng         = Column(Float, nullable=True)
 
     # Classification
     contact_type = Column(String)  # Owner, Buyer, Tenant, Attorney, Lender, Broker
