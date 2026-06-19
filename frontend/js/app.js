@@ -318,6 +318,9 @@ function renderSidebar(activePage) {
         <div class="nav-item ${activePage==='dashboard'?'active':''}" data-page="dashboard" onclick="navigate('dashboard')">
           <span class="nav-icon">⬡</span> Dashboard
         </div>
+        <div class="nav-item ${activePage==='search'?'active':''}" data-page="search" onclick="navigate('search')">
+          <span class="nav-icon">⌕</span> Search
+        </div>
         <div class="nav-item ${activePage==='pipeline'?'active':''}" data-page="pipeline" onclick="navigate('pipeline')">
           <span class="nav-icon">◈</span> Pipeline
         </div>
@@ -329,25 +332,6 @@ function renderSidebar(activePage) {
         </div>
         <div class="nav-item ${activePage==='review-duplicates'?'active':''}" data-page="review-duplicates" onclick="navigate('review-duplicates')">
           <span class="nav-icon">💡</span> Review Duplicates
-        </div>
-      </div>
-
-      <div class="nav-section">
-        <div class="nav-section-label">Records</div>
-        <div class="nav-item ${activePage==='properties'?'active':''}" data-page="properties" onclick="navigate('properties')">
-          <span class="nav-icon">⌂</span> Properties
-        </div>
-        <div class="nav-item ${activePage==='contacts'?'active':''}" data-page="contacts" onclick="navigate('contacts')">
-          <span class="nav-icon">◎</span> Contacts
-        </div>
-        <div class="nav-item ${activePage==='accounts'?'active':''}" data-page="accounts" onclick="navigate('accounts')">
-          <span class="nav-icon">◻</span> Accounts
-        </div>
-        <div class="nav-item ${activePage==='tenants'?'active':''}" data-page="tenants" onclick="navigate('tenants')">
-          <span class="nav-icon">⬡</span> Tenants
-        </div>
-        <div class="nav-item ${activePage==='deals'?'active':''}" data-page="deals" onclick="navigate('deals')">
-          <span class="nav-icon">◆</span> Deals
         </div>
       </div>
 
