@@ -470,10 +470,15 @@ def get_contact_full(
         t_row = db.query(Tenant.id, Tenant.name).filter(Tenant.id == c.tenant_id).first()
         if t_row:
             c_dict['tenant_name'] = t_row.name
+
+    from routers.query import _linked_properties_for_contact
+    linked_properties = _linked_properties_for_contact(db, current_user.id, contact_id)
+
     return {
         "contact":    c_dict,
         "accounts":   accounts,
         "deals":      deals,
+        "linked_properties": linked_properties,
         "activities": [{"id": a.id, "activity_type": a.activity_type, "subject": a.subject,
                         "notes": a.notes,
                         "activity_date": str(a.activity_date) if a.activity_date else None,

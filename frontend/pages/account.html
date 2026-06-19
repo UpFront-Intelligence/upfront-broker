@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>UpFront Broker — Account</title>
   <link rel="stylesheet" href="/static/main.css?v=7">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <style>
     #page-content { padding:24px 28px; max-width:1100px; }
     .detail-grid { display:grid; grid-template-columns:1fr 300px; gap:20px; }
@@ -50,6 +51,7 @@
     <div id="root"><div style="text-align:center;padding:60px"><div class="spinner"></div></div></div>
   </div>
 </div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="/js/app.js?v=7"></script>
 <script>
   if (!Auth.requireAuth()) throw new Error('Not authenticated');
@@ -57,6 +59,7 @@
 
   const ID = +new URLSearchParams(window.location.search).get('id');
   const SILO = 'accounts';
+  let MAP_DATA = null, detailMap = null, detailMapExpanded = false;
   const TC = {'LLC':'badge-navy','Corp':'badge-blue','Trust':'badge-amber','Individual':'badge-green','REIT':'badge-gold','Partnership':'badge-stone'};
   const ENG_TYPE_LABELS = {
     listing_sale:'Listing — Sale', listing_lease:'Listing — Lease',
@@ -174,11 +177,24 @@
               </a>`).join('') : '<span style="font-size:12.5px;color:var(--stone);padding:4px">No deals</span>'}
           </div></div>
 
+          <div class="dc" id="map-card">
+            <div class="dc-title" style="display:flex;justify-content:space-between;align-items:center">
+              <span>Map</span>
+              <button class="btn btn-ghost btn-sm" id="map-toggle-btn" onclick="toggleDetailMap()">Show</button>
+            </div>
+            <div class="dc-body" id="map-card-body" style="display:none;padding:0"></div>
+          </div>
+
           <div class="dc" id="lists-card"><div class="dc-title">Marketing Lists</div><div class="dc-body" style="padding:10px" id="lists-card-body">
             <div style="font-size:12.5px;color:var(--stone)">Loading…</div>
           </div></div>
         </div>
       </div>`;
+
+    MAP_DATA = {
+      ownLat: a.lat, ownLng: a.lng, ownLabel: a.name,
+      properties: d.linked_properties || [],
+    };
   }
 
   async function ef(el, field, opts) {
@@ -230,6 +246,46 @@
       if (e.key === 'Enter' && !opts?.multiline) { e.preventDefault(); input.blur(); }
       if (e.key === 'Escape') input.replaceWith(orig);
     });
+  }
+
+  // ── Map card — pins for every property linked via property_parties
+  // (zero geocoding here, that data already exists) plus the account's
+  // own office pin if geocoded. Lazy-initialized on first expand, same
+  // pattern as property.html's Map tab. ──────────────────────────────
+  function toggleDetailMap() {
+    detailMapExpanded = !detailMapExpanded;
+    document.getElementById('map-card-body').style.display = detailMapExpanded ? 'block' : 'none';
+    document.getElementById('map-toggle-btn').textContent = detailMapExpanded ? 'Hide' : 'Show';
+    if (detailMapExpanded && !detailMap) initDetailMap();
+    else if (detailMap) setTimeout(() => detailMap.invalidateSize(), 50);
+  }
+
+  function initDetailMap() {
+    const body = document.getElementById('map-card-body');
+    const pins = [];
+    if (MAP_DATA.ownLat != null && MAP_DATA.ownLng != null) {
+      pins.push({ lat: MAP_DATA.ownLat, lng: MAP_DATA.ownLng, label: MAP_DATA.ownLabel + ' (office)', own: true });
+    }
+    MAP_DATA.properties.forEach(p => {
+      if (p.lat != null && p.lng != null) pins.push({ lat: p.lat, lng: p.lng, label: p.address || 'Property' });
+    });
+
+    if (!pins.length) {
+      body.innerHTML = '<div class="no-location" style="padding:16px;font-size:12.5px;color:var(--text-secondary)">No location data yet</div>';
+      return;
+    }
+
+    body.innerHTML = '<div id="detail-map" style="height:240px"></div>';
+    const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#1F5E52';
+    detailMap = L.map('detail-map', { zoomControl: true, attributionControl: false })
+      .setView([pins[0].lat, pins[0].lng], 12);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(detailMap);
+    const markers = pins.map(p => L.circleMarker([p.lat, p.lng], {
+      radius: p.own ? 9 : 6, fillColor: accent, color: '#fff', weight: 1.5, fillOpacity: 0.9,
+    }).bindTooltip(p.label).addTo(detailMap));
+    if (markers.length > 1) {
+      try { detailMap.fitBounds(L.featureGroup(markers).getBounds(), { padding: [24, 24] }); } catch (_) {}
+    }
   }
 
   // ── Marketing Lists card ──────────────────────────────────────────

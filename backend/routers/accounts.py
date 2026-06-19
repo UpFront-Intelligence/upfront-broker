@@ -262,8 +262,10 @@ def get_account_full(
     if not a:
         raise HTTPException(404, "Account not found")
 
+    from routers.query import _linked_properties_for_account
     property_parties_count = db.query(PropertyParty).filter(
         PropertyParty.account_id == account_id).count()
+    linked_properties = _linked_properties_for_account(db, current_user.id, account_id)
 
     contacts = []
     for ca, c in (db.query(ContactAccount, Contact)
@@ -316,6 +318,7 @@ def get_account_full(
         "managed_properties":  managed_properties,
         "engagements":         engagements,
         "property_parties_count": property_parties_count,
+        "linked_properties":   linked_properties,
     }
 
 
