@@ -79,6 +79,9 @@ Tokens live in `frontend/css/tokens.css`; `frontend/css/main.css` `@import`s it 
 --accent-hover:   #17473D;
 --hint-gold:      #C8932A;   /* reserved exclusively for the suggestion/lightbulb system — never reuse */
 --hint-gold-soft: #F6E8CC;
+--dataviz-amber:      #A8702E;   /* categorical map/chart amber — deliberately distinct hex/lightness
+                                     from --hint-gold so the two are never visually confusable */
+--dataviz-amber-soft: #F2E2D0;
 --border:         rgba(27,34,53,0.08);
 --text-secondary: #5C6470;
 
@@ -93,7 +96,7 @@ Tokens live in `frontend/css/tokens.css`; `frontend/css/main.css` `@import`s it 
 ```
 
 - **Single typeface everywhere** — `--font-body`, `--font-serif`, and `--font-mono` (the legacy names old pages reference) all alias to `--font-system`. Hierarchy comes from weight/size only, not multiple families.
-- **`--hint-gold` is exclusive to the lightbulb/suggestion UI** (`main.css`'s `.hint-*` block says so explicitly in a comment). **There is currently no separate token for categorical map/chart colors** — Property Finder's parcel dots and the Search/Map page's pins both fall back to `--accent` (read live via `getComputedStyle`, with a hardcoded `#1F5E52` fallback only if that lookup fails). If a second chart/map color is ever needed, add a real token (e.g. `--dataviz-amber`) to `tokens.css` rather than reusing `--hint-gold` or hardcoding a hex value inline.
+- **`--hint-gold` is exclusive to the lightbulb/suggestion UI** (`main.css`'s `.hint-*` block says so explicitly in a comment). **`--dataviz-amber` / `--dataviz-amber-soft` are the categorical map/chart amber** — used by Property Finder's "Commercial" legend dot + matching marker color (`finder.html`, read live via `getComputedStyle` with a hardcoded `#A8702E` fallback) and Query's `.type-property` result badge (`query.html`). Before these existed, both spots hardcoded the old pre-rewrite gold hex `#c9943a` directly — not literally `--hint-gold`, but the same visual conflict (a gold tone doing unrelated categorical work); both are migrated now. The Search/Map page's pins and Property Finder's non-Commercial categories still fall back to `--accent` for their color, unrelated to this token. If a third chart/map categorical color is ever needed, add a real token to `tokens.css` rather than reusing `--hint-gold`/`--dataviz-amber` or hardcoding a hex value inline.
 
 ---
 
@@ -464,7 +467,7 @@ class RevalidateStaticFiles(StaticFiles):
 app.mount("/static", RevalidateStaticFiles(...), name="css")
 app.mount("/js",     RevalidateStaticFiles(...), name="js")
 ```
-Plus a single shared `?v=N` query bumped together across **every** page's `/js/app.js` and `/static/main.css` references whenever either shared asset changes — currently `?v=8`. Don't bump only the page you're editing; grep for the current version across `frontend/pages/*.html` and bump all of them in the same commit, or some pages will silently keep serving a stale shared asset. HTML routes themselves are served via explicit `FileResponse` with `_NO_CACHE` headers (`no-store, no-cache, must-revalidate, max-age=0`) — `StaticFiles` can't set per-response headers reliably, which is why HTML pages get dedicated routes instead of a mount.
+Plus a single shared `?v=N` query bumped together across **every** page's `/js/app.js` and `/static/main.css` references whenever either shared asset changes — currently `?v=9`. `main.css`'s own internal `@import url('tokens.css?v=N')` is a second, independent counter — bump it too whenever `tokens.css`'s *content* changes (not just whenever the page-level counter bumps for an unrelated reason). Don't bump only the page you're editing; grep for the current version across `frontend/pages/*.html` and bump all of them in the same commit, or some pages will silently keep serving a stale shared asset. HTML routes themselves are served via explicit `FileResponse` with `_NO_CACHE` headers (`no-store, no-cache, must-revalidate, max-age=0`) — `StaticFiles` can't set per-response headers reliably, which is why HTML pages get dedicated routes instead of a mount.
 
 ---
 

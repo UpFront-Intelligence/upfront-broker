@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>UpFront Broker — Query</title>
-  <link rel="stylesheet" href="/static/main.css?v=8">
+  <link rel="stylesheet" href="/static/main.css?v=9">
   <style>
     #page-content { padding: 24px 28px; max-width: 1100px; }
 
@@ -43,7 +43,7 @@
                   padding: 2px 7px; border-radius: 20px; display: inline-block; }
     .type-contact  { background: rgba(45,125,79,0.12); color: var(--green); }
     .type-account  { background: rgba(15,25,35,0.1); color: var(--navy); }
-    .type-property { background: rgba(201,148,58,0.15); color: #8a6520; }
+    .type-property { background: var(--dataviz-amber-soft); color: var(--dataviz-amber); }
     .empty-results { padding: 60px 20px; text-align: center; color: var(--stone); font-size: 13.5px; }
     .pagination { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px;
                   border-top: 1px solid var(--cream-dark); background: var(--cream); font-size: 12.5px;
@@ -164,7 +164,7 @@
   </div>
 </div>
 
-<script src="/js/app.js?v=8"></script>
+<script src="/js/app.js?v=9"></script>
 <script>
   if (!Auth.requireAuth()) throw new Error('Not authenticated');
   renderSidebar('query');

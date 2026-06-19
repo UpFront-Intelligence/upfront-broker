@@ -9,6 +9,14 @@
   --accent-hover:   #17473D;
   --hint-gold:      #C8932A;
   --hint-gold-soft: #F6E8CC;
+
+  /* Categorical map/chart color — warm tone, deliberately distinct hex/
+     lightness from --hint-gold so the two are never visually confusable.
+     Use this for any unrelated "amber/gold" categorical need (map legend
+     dots, entity-type badges); --hint-gold stays exclusive to hints. */
+  --dataviz-amber:      #A8702E;
+  --dataviz-amber-soft: #F2E2D0;
+
   --border:         rgba(27,34,53,0.08);
   --text-secondary: #5C6470;
 

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>UpFront Broker — Property Finder</title>
-  <link rel="stylesheet" href="/static/main.css?v=8">
+  <link rel="stylesheet" href="/static/main.css?v=9">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <style>
     /* Full-height map layout */
@@ -111,7 +111,7 @@
 
     <!-- Legend -->
     <div id="legend" style="display:none">
-      <span><span class="legend-dot" style="background:#c9943a"></span>Commercial</span>
+      <span><span class="legend-dot" style="background:var(--dataviz-amber)"></span>Commercial</span>
       <span><span class="legend-dot" style="background:#0f1923"></span>Industrial</span>
       <span><span class="legend-dot" style="background:#2d7d4f"></span>Agricultural</span>
       <span><span class="legend-dot" style="background:#c47c20"></span>Developmental</span>
@@ -134,20 +134,25 @@
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="/js/app.js?v=8"></script>
+<script src="/js/app.js?v=9"></script>
 <script>
   if (!Auth.requireAuth()) throw new Error('Not authenticated');
   renderSidebar('finder');
+
+  // Commercial dot color comes from the --dataviz-amber token (read live so
+  // it tracks tokens.css; --hint-gold stays exclusive to the hint system).
+  const DATAVIZ_AMBER = getComputedStyle(document.documentElement)
+    .getPropertyValue('--dataviz-amber').trim() || '#A8702E';
 
   const TYPE_COLORS = {
     'Residential':          '#8a8278',
     'Residential Condo':    '#8a8278',
     'Residential Apartment':'#8a8278',
     'Residential Vacant Land':'#8a8278',
-    'Commercial':           '#c9943a',
-    'Commercial Condo':     '#c9943a',
-    'Commercial Other':     '#c9943a',
-    'Commercial Vacant Land':'#c9943a',
+    'Commercial':           DATAVIZ_AMBER,
+    'Commercial Condo':     DATAVIZ_AMBER,
+    'Commercial Other':     DATAVIZ_AMBER,
+    'Commercial Vacant Land':DATAVIZ_AMBER,
     'Industrial':           '#0f1923',
     'Industrial Condo':     '#0f1923',
     'Industrial Other':     '#0f1923',
