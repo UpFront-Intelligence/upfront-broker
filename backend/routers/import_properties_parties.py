@@ -43,6 +43,7 @@ from auth_utils import get_current_user
 from services.naming import normalize_name
 from services.accounts import ensure_role, owned_accounts_query
 from routers.imports import SYNONYMS, VALID_FIELDS, NUMERIC_FIELDS, _best_match, _coerce
+from routers.properties import _geocode
 
 router = APIRouter()
 
@@ -430,6 +431,11 @@ def _upsert_property(db, prop_fields, owner_id, existing_props, warnings, row_nu
 
     if not prop.name:
         prop.name = prop.building_name or address
+
+    if not prop.lat and prop.address:
+        lat, lng = _geocode(prop.address, prop.city, prop.state)
+        if lat is not None:
+            prop.lat, prop.lng = lat, lng
 
     db.flush()
     existing_props[norm_addr] = prop

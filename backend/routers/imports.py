@@ -27,6 +27,7 @@ from auth_utils import get_current_user
 from services.naming import normalize_name
 from services.accounts import ensure_role, owned_accounts_query
 from routers.contacts import _resync_legacy_phone
+from routers.properties import _geocode
 
 router = APIRouter()
 
@@ -1520,6 +1521,11 @@ async def execute_import(
                                  owner_id=current_user.id)
                 db.add(prop)
                 db.flush()   # need prop.id for Account/Comp links
+
+                if not prop.lat and prop.address:
+                    lat, lng = _geocode(prop.address, prop.city, prop.state)
+                    if lat is not None:
+                        prop.lat, prop.lng = lat, lng
 
                 # ── Linked Account + Contact (role-aware) ───────────
                 acct, _contact, warns = _link_account_and_contact(
