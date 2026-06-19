@@ -2,19 +2,23 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_
 from pydantic import BaseModel, Field
-from typing import Any
+from typing import Any, Optional
 
 from database import get_db
 from models.contact import Contact
 from models.contact_account import ContactAccount
 from models.account import Account
 from models.property import Property
+from models.property_party import PropertyParty
 from models.property_tenant import PropertyTenant
 from models.tenant import Tenant
+from models.deal import Deal
 from models.user import User
 from auth_utils import get_current_user
 
 router = APIRouter()
+
+VALID_RETURN_TYPES = {"contacts", "accounts", "properties", "tenants", "deals"}
 
 
 # ── Request schema ────────────────────────────────────────────────
@@ -25,6 +29,11 @@ class QuerySpec(BaseModel):
     account:         dict[str, Any] = Field(default_factory=dict)
     property_filter: dict[str, Any] = Field(default_factory=dict, alias="property")
     tenant:          dict[str, Any] = Field(default_factory=dict)
+    # Multi-select geography — applies to the property's own location for
+    # Properties/Tenants/Deals, or the entity's own city/state for
+    # Accounts/Contacts (neither has a county column, so county is ignored
+    # for those two return types).
+    geography:       dict[str, Any] = Field(default_factory=dict)
     ownership: str = "recorded"
     limit:     int = 200
     offset:    int = 0
@@ -36,6 +45,12 @@ class QuerySpec(BaseModel):
 
 def _contains(val: Any) -> str:
     return val["contains"] if isinstance(val, dict) and "contains" in val else str(val)
+
+
+def _as_list(val: Any) -> list:
+    if val is None:
+        return []
+    return val if isinstance(val, list) else [val]
 
 
 def _apply_contact_filters(q, spec: QuerySpec):
@@ -76,11 +91,56 @@ def _apply_tenant_filters(q, spec: QuerySpec):
     return q
 
 
+def _apply_geography_filter(q, spec: QuerySpec, ret: str):
+    """Multi-select city/county/state. Properties/Tenants/Deals filter on
+    the property's own location; Accounts/Contacts filter on the entity's
+    own city/state (no county column there — silently ignored)."""
+    geo = spec.geography
+    if not geo:
+        return q
+    cities   = _as_list(geo.get("city"))
+    counties = _as_list(geo.get("county"))
+    states   = _as_list(geo.get("state"))
+
+    if ret in ("properties", "tenants", "deals"):
+        if cities:   q = q.filter(Property.city.in_(cities))
+        if counties: q = q.filter(Property.county.in_(counties))
+        if states:   q = q.filter(Property.state.in_(states))
+    elif ret == "accounts":
+        if cities: q = q.filter(Account.city.in_(cities))
+        if states: q = q.filter(Account.state.in_(states))
+    elif ret == "contacts":
+        if cities: q = q.filter(Contact.city.in_(cities))
+        if states: q = q.filter(Contact.state.in_(states))
+    return q
+
+
 def _ownership_col(ownership: str):
     """Map ownership mode to the Property FK that links to Account."""
     if ownership == "manager":
         return Property.manager_account_id   # stub: join works but no extra logic built
     return Property.recorded_owner_account_id   # default
+
+
+# ── Pin-data helpers (property_parties — separate from the legacy
+#    ownership-FK joins above, which only ever resolve one account) ──────
+
+def _linked_properties_for_account(db, owner_id: int, account_id: int) -> list[dict]:
+    rows = (db.query(Property.id, Property.lat, Property.lng, Property.address)
+              .join(PropertyParty, PropertyParty.property_id == Property.id)
+              .filter(PropertyParty.account_id == account_id, Property.owner_id == owner_id)
+              .distinct()
+              .all())
+    return [{"id": r.id, "lat": r.lat, "lng": r.lng, "address": r.address} for r in rows]
+
+
+def _linked_properties_for_contact(db, owner_id: int, contact_id: int) -> list[dict]:
+    rows = (db.query(Property.id, Property.lat, Property.lng, Property.address)
+              .join(PropertyParty, PropertyParty.property_id == Property.id)
+              .filter(PropertyParty.contact_id == contact_id, Property.owner_id == owner_id)
+              .distinct()
+              .all())
+    return [{"id": r.id, "lat": r.lat, "lng": r.lng, "address": r.address} for r in rows]
 
 
 # ── Core query builder ────────────────────────────────────────────
@@ -104,6 +164,8 @@ def _run_query(spec: QuerySpec, owner_id: int, db: Session) -> dict:
             Property.state,
             Property.property_type,
             Property.county,
+            Property.lat,
+            Property.lng,
         ).filter(Property.owner_id == owner_id)
 
         if has_af or has_cf:
@@ -127,6 +189,7 @@ def _run_query(spec: QuerySpec, owner_id: int, db: Session) -> dict:
         q = _apply_contact_filters(q, spec)
         q = _apply_property_filters(q, spec)
         q = _apply_tenant_filters(q, spec)
+        q = _apply_geography_filter(q, spec, ret)
 
         total = q.with_entities(func.count(func.distinct(Property.id))).scalar() or 0
         rows  = q.distinct().offset(spec.offset).limit(spec.limit).all()
@@ -140,6 +203,8 @@ def _run_query(spec: QuerySpec, owner_id: int, db: Session) -> dict:
                 "state": r.state,
                 "property_type": r.property_type,
                 "county": r.county,
+                "lat": r.lat,
+                "lng": r.lng,
             }
             for r in rows
         ]
@@ -153,6 +218,8 @@ def _run_query(spec: QuerySpec, owner_id: int, db: Session) -> dict:
             Account.roles,
             Account.city,
             Account.state,
+            Account.lat,
+            Account.lng,
         ).filter(Account.owner_id == owner_id)
 
         if has_cf:
@@ -176,6 +243,7 @@ def _run_query(spec: QuerySpec, owner_id: int, db: Session) -> dict:
         q = _apply_account_filters(q, spec)
         q = _apply_property_filters(q, spec)
         q = _apply_tenant_filters(q, spec)
+        q = _apply_geography_filter(q, spec, ret)
 
         total = q.with_entities(func.count(func.distinct(Account.id))).scalar() or 0
         rows  = q.distinct().offset(spec.offset).limit(spec.limit).all()
@@ -188,6 +256,9 @@ def _run_query(spec: QuerySpec, owner_id: int, db: Session) -> dict:
                 "roles": r.roles or [],
                 "city": r.city,
                 "state": r.state,
+                "lat": r.lat,
+                "lng": r.lng,
+                "linked_properties": _linked_properties_for_account(db, owner_id, r.id),
             }
             for r in rows
         ]
@@ -200,6 +271,10 @@ def _run_query(spec: QuerySpec, owner_id: int, db: Session) -> dict:
             Contact.last_name,
             Contact.email,
             Contact.title,
+            Contact.city,
+            Contact.state,
+            Contact.lat,
+            Contact.lng,
         ).filter(Contact.owner_id == owner_id)
 
         if has_af or has_pf or has_tf:
@@ -223,6 +298,7 @@ def _run_query(spec: QuerySpec, owner_id: int, db: Session) -> dict:
         q = _apply_account_filters(q, spec)
         q = _apply_property_filters(q, spec)
         q = _apply_tenant_filters(q, spec)
+        q = _apply_geography_filter(q, spec, ret)
 
         total = q.with_entities(func.count(func.distinct(Contact.id))).scalar() or 0
         rows  = q.distinct().offset(spec.offset).limit(spec.limit).all()
@@ -237,6 +313,116 @@ def _run_query(spec: QuerySpec, owner_id: int, db: Session) -> dict:
                 ),
                 "email": r.email,
                 "title": r.title,
+                "city": r.city,
+                "state": r.state,
+                "lat": r.lat,
+                "lng": r.lng,
+                "linked_properties": _linked_properties_for_contact(db, owner_id, r.id),
+            }
+            for r in rows
+        ]
+
+    # ── TENANTS ───────────────────────────────────────────────────
+    # One row per occupied space (Tenant x Property via property_tenants) —
+    # a chain tenant occupying 5 properties returns 5 rows, each with its
+    # own direct lat/lng from that specific property (same shape as
+    # Properties — no array needed since the row is already 1:1 with a
+    # location, unlike Accounts/Contacts/Deals which can span many).
+    elif ret == "tenants":
+        q = (db.query(
+                Tenant.id,
+                Tenant.name,
+                Tenant.industry,
+                PropertyTenant.id.label("space_id"),
+                Property.id.label("property_id"),
+                Property.address,
+                Property.city,
+                Property.state,
+                Property.lat,
+                Property.lng,
+            )
+            .filter(Tenant.owner_id == owner_id)
+            .join(PropertyTenant, and_(PropertyTenant.tenant_id == Tenant.id,
+                                       PropertyTenant.owner_id == owner_id))
+            .join(Property, and_(Property.id == PropertyTenant.property_id,
+                                 Property.owner_id == owner_id)))
+
+        if has_af or has_cf:
+            q = q.join(
+                Account,
+                and_(Account.id == own_col, Account.owner_id == owner_id),
+            )
+        if has_cf:
+            q = (q
+                 .join(ContactAccount, ContactAccount.account_id == Account.id)
+                 .join(Contact, and_(Contact.id == ContactAccount.contact_id,
+                                     Contact.owner_id == owner_id)))
+
+        q = _apply_account_filters(q, spec)
+        q = _apply_contact_filters(q, spec)
+        q = _apply_property_filters(q, spec)
+        q = _apply_tenant_filters(q, spec)
+        q = _apply_geography_filter(q, spec, ret)
+
+        total = q.with_entities(func.count(func.distinct(PropertyTenant.id))).scalar() or 0
+        rows  = q.distinct().offset(spec.offset).limit(spec.limit).all()
+        items = [
+            {
+                "id": r.id,
+                "type": "tenant",
+                "space_id": r.space_id,
+                "display_name": r.name,
+                "industry": r.industry,
+                "property_id": r.property_id,
+                "address": r.address,
+                "city": r.city,
+                "state": r.state,
+                "lat": r.lat,
+                "lng": r.lng,
+            }
+            for r in rows
+        ]
+
+    # ── DEALS ─────────────────────────────────────────────────────
+    # Deal links to exactly one Property via Deal.property_id (no
+    # property_parties involved) — "linked_properties" is 0-or-1 entries,
+    # kept as an array for shape-consistency with Accounts/Contacts. Deal
+    # itself has no office location, so its own lat/lng is always null.
+    elif ret == "deals":
+        q = (db.query(
+                Deal.id,
+                Deal.name,
+                Deal.stage,
+                Deal.deal_type,
+                Property.id.label("property_id"),
+                Property.address,
+                Property.city,
+                Property.state,
+                Property.county,
+                Property.lat,
+                Property.lng,
+            )
+            .filter(Deal.owner_id == owner_id)
+            .join(Property, and_(Property.id == Deal.property_id,
+                                 Property.owner_id == owner_id)))
+
+        q = _apply_property_filters(q, spec)
+        q = _apply_geography_filter(q, spec, ret)
+
+        total = q.with_entities(func.count(func.distinct(Deal.id))).scalar() or 0
+        rows  = q.distinct().offset(spec.offset).limit(spec.limit).all()
+        items = [
+            {
+                "id": r.id,
+                "type": "deal",
+                "display_name": r.name,
+                "stage": r.stage,
+                "deal_type": r.deal_type,
+                "lat": None,
+                "lng": None,
+                "linked_properties": [{
+                    "id": r.property_id, "lat": r.lat, "lng": r.lng, "address": r.address,
+                }] if r.property_id else [],
             }
             for r in rows
         ]
@@ -244,7 +430,7 @@ def _run_query(spec: QuerySpec, owner_id: int, db: Session) -> dict:
     else:
         raise HTTPException(
             status_code=422,
-            detail=f"Unknown return type '{ret}'. Valid values: contacts, accounts, properties.",
+            detail=f"Unknown return type '{ret}'. Valid values: {', '.join(sorted(VALID_RETURN_TYPES))}.",
         )
 
     return {
@@ -264,4 +450,9 @@ def run_query(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    if spec.return_type not in VALID_RETURN_TYPES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown return type '{spec.return_type}'. Valid values: {', '.join(sorted(VALID_RETURN_TYPES))}.",
+        )
     return _run_query(spec, current_user.id, db)
