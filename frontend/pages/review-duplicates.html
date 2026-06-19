@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UpFront Broker — Review Duplicates</title>
+  <link rel="stylesheet" href="/static/main.css?v=6">
+  <style>
+    .dup-row {
+      display:flex; justify-content:space-between; align-items:center; gap:16px;
+      padding:16px 18px; margin-bottom:10px;
+    }
+    .dup-names { font-size:13.5px; font-weight:500; color:var(--ink); }
+    .dup-sub   { font-size:12px; color:var(--stone); margin-top:3px; }
+  </style>
+</head>
+<body>
+<div id="sidebar"></div>
+
+<div id="main">
+  <div id="topbar">
+    <div class="topbar-title">Review Duplicates</div>
+    <div class="topbar-actions">
+      <button class="btn btn-primary btn-sm" id="btn-scan" onclick="runScan()">🔍 Scan for Duplicates</button>
+    </div>
+  </div>
+
+  <div id="page-content" class="fade-in">
+    <div class="page-header" style="margin-bottom:12px">
+      <div>
+        <div class="page-title">Open Suggestions</div>
+        <div class="page-sub" id="count-label">Loading…</div>
+      </div>
+    </div>
+    <div id="list"></div>
+  </div>
+</div>
+
+<script src="/js/app.js?v=6"></script>
+<script>
+  if (!Auth.requireAuth()) throw new Error('Not authenticated');
+  renderSidebar('review-duplicates');
+
+  async function loadList() {
+    document.getElementById('list').innerHTML =
+      `<div style="text-align:center;padding:40px"><div class="spinner"></div></div>`;
+    let rows = [];
+    try {
+      rows = await API.get('/suggestions/?status=new&suggestion_type=account_duplicate');
+    } catch (e) {
+      Toast.error('Failed to load: ' + e.message);
+    }
+    document.getElementById('count-label').textContent =
+      `${rows.length} open suggestion${rows.length !== 1 ? 's' : ''}`;
+    renderList(rows);
+  }
+
+  function renderList(rows) {
+    const el = document.getElementById('list');
+    if (!rows.length) {
+      el.innerHTML = `<div class="empty-state">
+        <div class="empty-icon">💡</div>
+        <div class="empty-title">No open duplicates</div>
+        <div class="empty-sub">Run a scan to look for possible account duplicates.</div>
+      </div>`;
+      return;
+    }
+    el.innerHTML = rows.map(s => {
+      const ev = s.evidence || {};
+      return `<div class="card dup-row">
+        <div style="flex:1;min-width:0">
+          <div class="dup-names">${ev.name_a || '—'} <span style="color:var(--stone-light)">⟷</span> ${ev.name_b || '—'}</div>
+          <div class="dup-sub">${s.reasoning || ''} · ${ev.address_a || '—'} / ${ev.address_b || '—'}</div>
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="Hints.open(${s.id})">Review →</button>
+      </div>`;
+    }).join('');
+  }
+
+  async function runScan() {
+    const btn = document.getElementById('btn-scan');
+    btn.disabled = true;
+    btn.textContent = 'Scanning…';
+    try {
+      const result = await API.post('/accounts/scan-duplicates', {});
+      Toast.success(`Scan complete — ${result.new_suggestions_created} new ` +
+        `suggestion${result.new_suggestions_created !== 1 ? 's' : ''} (${result.pairs_found} pairs found)`);
+      await Hints.load();
+      await loadList();
+    } catch (e) {
+      Toast.error('Scan failed: ' + e.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '🔍 Scan for Duplicates';
+    }
+  }
+
+  document.addEventListener('hints:resolved', loadList);
+  loadList();
+</script>
+</body>
+</html>

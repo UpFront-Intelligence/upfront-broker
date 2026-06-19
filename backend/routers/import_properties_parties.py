@@ -25,7 +25,7 @@ from models.contact_phone import ContactPhone
 from models.property_party import PropertyParty
 from auth_utils import get_current_user
 from services.naming import normalize_name
-from services.accounts import ensure_role
+from services.accounts import ensure_role, owned_accounts_query
 from routers.imports import _read_file
 
 router = APIRouter()
@@ -373,7 +373,7 @@ async def import_properties_with_parties(
                 _normalize_address(p.address): p
                 for p in db.query(Property).filter(Property.owner_id == owner_id).all()
             }
-            existing_accounts = list(db.query(Account).filter(Account.owner_id == owner_id).all())
+            existing_accounts = list(owned_accounts_query(db, owner_id).all())
 
             for i, row in enumerate(rows, start=1):
                 try:

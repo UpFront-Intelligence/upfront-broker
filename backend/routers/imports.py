@@ -25,7 +25,7 @@ from models.tenant import Tenant
 from models.shared import Comp
 from auth_utils import get_current_user
 from services.naming import normalize_name
-from services.accounts import ensure_role
+from services.accounts import ensure_role, owned_accounts_query
 from routers.contacts import _resync_legacy_phone
 
 router = APIRouter()
@@ -1251,7 +1251,7 @@ def _find_or_create_account(db, account_map, current_user, warnings):
 
     norm = normalize_name(name)
     best, best_score = None, 0
-    for cand in db.query(Account).filter(Account.owner_id == current_user.id).all():
+    for cand in owned_accounts_query(db, current_user.id).all():
         score = fuzz.partial_ratio(norm, cand.normalized_name or '')
         if score > best_score:
             best, best_score = cand, score
@@ -1557,8 +1557,7 @@ async def execute_import(
                     flagged.append({"row": row_num, "reason": "Missing account name",
                                     "data": dict(row)})
                     continue
-                existing = db.query(Account).filter(
-                    Account.owner_id == current_user.id,
+                existing = owned_accounts_query(db, current_user.id).filter(
                     Account.name.ilike(account_map.get("name", "")),
                 ).first()
                 if existing:

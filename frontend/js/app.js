@@ -154,6 +154,131 @@ const Modal = (() => {
   return { open, close, closeOnOverlay };
 })();
 
+// ── Hints (lightbulb suggestions) ────────────────────────────────
+// General hint substrate — first producer is account-duplicate detection
+// (POST /accounts/scan-duplicates). The lightbulb + popup pattern here is
+// meant to be reused by future producers against other entity types.
+const Hints = (() => {
+  let cache = [];   // open suggestions for this owner (currently: account_duplicate)
+
+  async function load() {
+    try {
+      cache = await API.get('/suggestions/?status=new&suggestion_type=account_duplicate');
+    } catch (e) { cache = []; }
+    return cache;
+  }
+
+  function forAccount(accountId) {
+    return cache.filter(s => s.entity_id_a === accountId || s.entity_id_b === accountId);
+  }
+
+  function bulb(accountId) {
+    const matches = forAccount(accountId);
+    if (!matches.length) return '';
+    return `<span class="hint-bulb" title="Possible duplicate account — click to review"
+      onclick="event.stopPropagation();Hints.open(${matches[0].id})">💡</span>`;
+  }
+
+  function _ensureModal() {
+    let el = document.getElementById('hint-modal');
+    if (el) return el;
+    el = document.createElement('div');
+    el.id = 'hint-modal';
+    el.className = 'modal-overlay';
+    el.innerHTML = `
+      <div class="modal" style="width:640px">
+        <div class="modal-header">
+          <div class="modal-title">Possible Duplicate</div>
+          <button class="modal-close" onclick="Modal.close('hint-modal')">✕</button>
+        </div>
+        <div class="modal-body" id="hint-modal-body"></div>
+      </div>`;
+    document.body.appendChild(el);
+    Modal.closeOnOverlay('hint-modal');
+    return el;
+  }
+
+  function _card(full) {
+    const a = full.account;
+    const addr = [a.address, a.city && a.state ? a.city + ', ' + a.state : null].filter(Boolean).join(', ');
+    return `<div class="hint-card">
+      <div class="hint-card-name">${a.name}</div>
+      <div class="hint-card-row">${addr || '—'}</div>
+      <div class="hint-card-row">${a.phone || '—'}</div>
+      <div class="hint-card-counts">
+        <span>${full.property_parties_count} properties</span>
+        <span>${full.contacts.length} contacts</span>
+        <span>${full.roles_resolved.length} roles</span>
+      </div>
+    </div>`;
+  }
+
+  async function open(suggestionId) {
+    let sugg = cache.find(s => s.id === suggestionId);
+    if (!sugg) {
+      cache = await API.get('/suggestions/?status=new&suggestion_type=account_duplicate');
+      sugg = cache.find(s => s.id === suggestionId);
+    }
+    if (!sugg) { Toast.error('Suggestion not found'); return; }
+
+    _ensureModal();
+    Modal.open('hint-modal');
+    const body = document.getElementById('hint-modal-body');
+    body.innerHTML = `<div style="text-align:center;padding:30px"><div class="spinner"></div></div>`;
+
+    let fullA, fullB;
+    try {
+      [fullA, fullB] = await Promise.all([
+        API.get(`/accounts/${sugg.entity_id_a}/full`),
+        API.get(`/accounts/${sugg.entity_id_b}/full`),
+      ]);
+    } catch (e) {
+      // Most likely cause: one side was already merged/dismissed elsewhere
+      // (another tab, or the batch review page) since cache was last loaded.
+      cache = cache.filter(s => s.id !== suggestionId);
+      body.innerHTML = `<div style="padding:20px;color:var(--red)">Failed to load accounts: ${e.message}</div>`;
+      return;
+    }
+
+    const nameA = fullA.account.name, nameB = fullB.account.name;
+    body.innerHTML = `
+      <div class="hint-reasoning">${sugg.reasoning || (sugg.score + '% match')}</div>
+      <div class="hint-compare">${_card(fullA)}${_card(fullB)}</div>
+      <div class="hint-actions">
+        <button class="btn btn-primary btn-sm" onclick="Hints.resolveMerge(${sugg.id}, ${fullA.account.id}, ${fullB.account.id})">Keep "${nameA}", merge "${nameB}" into it</button>
+        <button class="btn btn-primary btn-sm" onclick="Hints.resolveMerge(${sugg.id}, ${fullB.account.id}, ${fullA.account.id})">Keep "${nameB}", merge "${nameA}" into it</button>
+        <button class="btn btn-ghost btn-sm" onclick="Hints.resolveDismiss(${sugg.id})">Not a duplicate — dismiss</button>
+      </div>`;
+  }
+
+  function _resolved(detail) {
+    Modal.close('hint-modal');
+    document.dispatchEvent(new CustomEvent('hints:resolved', { detail }));
+  }
+
+  async function resolveMerge(suggestionId, survivorId, duplicateId) {
+    if (!confirm('Merge these accounts? This re-points every linked property, contact, ' +
+                 'and engagement onto the surviving account and cannot be undone from the UI.')) return;
+    try {
+      const result = await API.post('/accounts/merge', { survivor_id: survivorId, duplicate_id: duplicateId });
+      Toast.success('Accounts merged');
+      cache = cache.filter(s => s.id !== suggestionId);
+      _resolved(result);
+    } catch (e) { Toast.error(e.message); }
+  }
+
+  async function resolveDismiss(suggestionId) {
+    try {
+      await API.post(`/suggestions/${suggestionId}/dismiss`, {});
+      Toast.success('Dismissed');
+      cache = cache.filter(s => s.id !== suggestionId);
+      _resolved({ suggestionId });
+    } catch (e) { Toast.error(e.message); }
+  }
+
+  return { load, forAccount, bulb, open, resolveMerge, resolveDismiss };
+})();
+
 // ── Sidebar Active State ─────────────────────────────────────────
 function setActiveNav(page) {
   document.querySelectorAll('.nav-item').forEach(el => {
@@ -201,6 +326,9 @@ function renderSidebar(activePage) {
         </div>
         <div class="nav-item ${activePage==='query'?'active':''}" data-page="query" onclick="navigate('query')">
           <span class="nav-icon">⊗</span> Query
+        </div>
+        <div class="nav-item ${activePage==='review-duplicates'?'active':''}" data-page="review-duplicates" onclick="navigate('review-duplicates')">
+          <span class="nav-icon">💡</span> Review Duplicates
         </div>
       </div>
 

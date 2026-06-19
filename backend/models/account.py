@@ -9,6 +9,11 @@ class Account(Base):
     id          = Column(Integer, primary_key=True, index=True)
     owner_id    = Column(Integer, ForeignKey("users.id"), nullable=False)
 
+    # Soft-merge pointer — set when this account was merged away as a
+    # duplicate. Never hard-deleted (audit trail + safety net for any FK
+    # reference the merge endpoint missed).
+    merged_into_id = Column(Integer, ForeignKey("accounts.id", ondelete="SET NULL"), nullable=True)
+
     # Entity info
     name            = Column(String, nullable=False, index=True)
     normalized_name = Column(String, nullable=True)

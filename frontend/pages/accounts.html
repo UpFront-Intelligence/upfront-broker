@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>UpFront Broker — Accounts</title>
-  <link rel="stylesheet" href="/static/main.css?v=5">
+  <link rel="stylesheet" href="/static/main.css?v=6">
   <style>
     #page-content { transition: padding-right 0.25s ease; }
     #page-content.panel-open { padding-right: 448px; }
@@ -247,7 +247,7 @@
   </div>
 </div>
 
-<script src="/js/app.js?v=5"></script>
+<script src="/js/app.js?v=6"></script>
 <script>
   if (!Auth.requireAuth()) throw new Error('Not authenticated');
   renderSidebar('accounts');
@@ -299,7 +299,8 @@
   }
   function renderPagination(data){const el=document.getElementById('pagination');if(!data||data.total_pages<=1){el.innerHTML='';return;}el.innerHTML=`<div class="pagination"><button class="pb" onclick="runSearch(${data.page-1})" ${data.page<=1?'disabled':''}>← Prev</button><span style="font-size:12.5px;color:var(--stone)">Page ${data.page} of ${data.total_pages} · ${data.total.toLocaleString()} records</span><button class="pb" onclick="runSearch(${data.page+1})" ${data.page>=data.total_pages?'disabled':''}>Next →</button></div>`;}
   function clearFilters(){document.querySelectorAll('.fp input:not([type=radio])').forEach(e=>e.value='');document.querySelectorAll('.fp input[type=radio][value=""]').forEach(e=>e.checked=true);document.querySelectorAll('.fp-pc.on').forEach(e=>e.classList.remove('on'));document.getElementById('search-input').value='';runSearch();}
-  async function loadAccounts(){buildPillGroups();runSearch(1);}
+  async function loadAccounts(){buildPillGroups();await Hints.load();runSearch(1);}
+  document.addEventListener('hints:resolved', () => { Hints.load().then(() => renderTable(accounts)); });
 
   // ── Table ──────────────────────────────────────────────────────────────────
   function entityInitials(name) {
@@ -321,7 +322,7 @@
         <td><div class="acct-cell">
           <div class="acct-icon" style="background:${avatarColor(a.name)}">${entityInitials(a.name)}</div>
           <div>
-            <div class="acct-name">${a.name}</div>
+            <div class="acct-name">${a.name}${Hints.bulb(a.id)}</div>
             ${a.city?`<div class="acct-sub">${a.city}, ${a.state}</div>`:''}
           </div>
         </div></td>

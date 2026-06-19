@@ -10,7 +10,7 @@ class RevalidateStaticFiles(StaticFiles):
         resp.headers["Cache-Control"] = "no-cache, must-revalidate"
         return resp
 
-from routers import contacts, accounts, properties, deals, activities, documents, portal, comps, auth, imports, import_properties_parties, finder, portfolio, tenants, engagements, marketing_lists, query
+from routers import contacts, accounts, properties, deals, activities, documents, portal, comps, auth, imports, import_properties_parties, finder, portfolio, tenants, engagements, marketing_lists, query, suggestions
 
 # Table creation is handled exclusively by Alembic (alembic upgrade head on startup).
 # create_all is intentionally absent — it conflicts with migration-managed schema.
@@ -44,6 +44,7 @@ app.include_router(tenants.router,      prefix="/api/tenants",      tags=["tenan
 app.include_router(engagements.router,      prefix="/api/engagements",      tags=["engagements"])
 app.include_router(marketing_lists.router,  prefix="/api/marketing-lists",  tags=["marketing-lists"])
 app.include_router(query.router,            prefix="/api/query",            tags=["query"])
+app.include_router(suggestions.router,      prefix="/api/suggestions",      tags=["suggestions"])
 
 # ── Static assets (CSS + JS) — cacheable ─────────────────────────────────────
 frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend")
@@ -127,6 +128,9 @@ async def page_marketing_list_detail(): return _page("marketing-list.html")
 
 @app.get("/pages/query.html")
 async def page_query():                 return _page("query.html")
+
+@app.get("/pages/review-duplicates.html")
+async def page_review_duplicates():     return _page("review-duplicates.html")
 
 @app.get("/")
 async def serve_root():

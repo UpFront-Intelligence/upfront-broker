@@ -583,6 +583,25 @@ textarea.form-control { resize: vertical; min-height: 80px; }
   gap: 10px;
 }
 
+/* ── Hints (lightbulb suggestions) ─────────────────────────────── */
+.hint-bulb {
+  cursor: pointer; font-size: 13px; margin-left: 4px;
+  filter: grayscale(0.2); transition: transform 0.1s;
+}
+.hint-bulb:hover { transform: scale(1.2); }
+
+.hint-reasoning {
+  font-size: 13px; color: var(--stone); margin-bottom: 16px;
+  padding: 8px 12px; background: var(--amber-light); border-radius: var(--radius);
+}
+.hint-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 18px; }
+.hint-card { border: 1px solid var(--cream-dark); border-radius: var(--radius); padding: 14px 16px; }
+.hint-card-name { font-family: var(--font-serif); font-size: 14.5px; color: var(--navy); margin-bottom: 6px; }
+.hint-card-row { font-size: 12.5px; color: var(--ink); margin-bottom: 3px; }
+.hint-card-counts { display: flex; gap: 10px; margin-top: 8px; font-size: 11px; color: var(--stone); }
+.hint-actions { display: flex; flex-direction: column; gap: 8px; }
+.hint-actions .btn { width: 100%; text-align: center; }
+
 /* ── Empty State ────────────────────────────────────────────── */
 .empty-state {
   text-align: center;

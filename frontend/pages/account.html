@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>UpFront Broker — Account</title>
-  <link rel="stylesheet" href="/static/main.css?v=5">
+  <link rel="stylesheet" href="/static/main.css?v=6">
   <style>
     #page-content { padding:24px 28px; max-width:1100px; }
     .detail-grid { display:grid; grid-template-columns:1fr 300px; gap:20px; }
@@ -47,7 +47,7 @@
     <div id="root"><div style="text-align:center;padding:60px"><div class="spinner"></div></div></div>
   </div>
 </div>
-<script src="/js/app.js?v=5"></script>
+<script src="/js/app.js?v=6"></script>
 <script>
   if (!Auth.requireAuth()) throw new Error('Not authenticated');
   renderSidebar('accounts');
@@ -92,7 +92,7 @@
       <div class="header-card">
         <div class="entity-icon" style="background:${color}">${initials}</div>
         <div style="flex:1;min-width:0">
-          <div class="header-name">${a.name}</div>
+          <div class="header-name">${a.name}${Hints.bulb(a.id)}</div>
           <div class="header-sub">${[a.entity_type, a.city && a.state ? a.city+', '+a.state : null].filter(Boolean).join(' · ') || ''}</div>
           ${d.roles_resolved && d.roles_resolved.length ? `<div class="role-badges">${d.roles_resolved.map(r => `<span class="role-badge">${r.display_name}</span>`).join('')}</div>` : ''}
         </div>
@@ -295,7 +295,8 @@
     } catch(e) { Toast.error(e.message); }
   }
 
-  load().then(() => loadListsCard());
+  Hints.load().then(load).then(() => loadListsCard());
+  document.addEventListener('hints:resolved', () => { Hints.load().then(load); });
 </script>
 </body>
 </html>

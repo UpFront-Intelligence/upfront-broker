@@ -1,15 +1,21 @@
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, List
+from rapidfuzz import fuzz
 from database import get_db
 from models.account import Account
 from models.contact_account import ContactAccount
 from models.contact import Contact
 from models.user import User
 from auth_utils import get_current_user
+from services.accounts import owned_accounts_query
+from services.naming import normalize_name
 
 router = APIRouter()
+
+DUPLICATE_SCAN_THRESHOLD = 65
 
 class AccountCreate(BaseModel):
     name: str
@@ -72,7 +78,7 @@ def list_accounts(
 ):
     from models.property import Property
     from models.deal import DealContact
-    q = db.query(Account).filter(Account.owner_id == current_user.id)
+    q = owned_accounts_query(db, current_user.id)
     if search:  q = q.filter(Account.name.ilike(f"%{search}%"))
     if entity_type:
         types = [t.strip() for t in entity_type.split(",") if t.strip()]
@@ -123,8 +129,9 @@ def search_accounts(
     q = q.strip()
     if len(q) < 2:
         return []
-    rows = (db.query(Account.id, Account.name)
-              .filter(Account.owner_id == current_user.id, Account.name.ilike(f"%{q}%"))
+    rows = (owned_accounts_query(db, current_user.id)
+              .filter(Account.name.ilike(f"%{q}%"))
+              .with_entities(Account.id, Account.name)
               .order_by(Account.name)
               .limit(8)
               .all())
@@ -237,6 +244,7 @@ def get_account_full(
     current_user: User = Depends(get_current_user),
 ):
     from models.property import Property
+    from models.property_party import PropertyParty
     from models.deal import Deal, DealContact
     from models.shared import Activity
     from models.account_role import AccountRole
@@ -246,6 +254,9 @@ def get_account_full(
     ).first()
     if not a:
         raise HTTPException(404, "Account not found")
+
+    property_parties_count = db.query(PropertyParty).filter(
+        PropertyParty.account_id == account_id).count()
 
     contacts = []
     for ca, c in (db.query(ContactAccount, Contact)
@@ -297,4 +308,177 @@ def get_account_full(
         "owned_properties":    owned_properties,
         "managed_properties":  managed_properties,
         "engagements":         engagements,
+        "property_parties_count": property_parties_count,
+    }
+
+
+# ── Duplicate scanner + merge ─────────────────────────────────────────────────
+
+class MergeRequest(BaseModel):
+    survivor_id: int
+    duplicate_id: int
+
+
+@router.post("/scan-duplicates")
+def scan_duplicates(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Pairwise rapidfuzz comparison over this owner's (non-merged) accounts.
+
+    O(n^2) — fine at current sandbox scale. Will need blocking (e.g.
+    first-letter or soundex bucketing of normalized_name) before this
+    scales past a few thousand accounts. Not built now — out of scope
+    for this pass.
+    """
+    from models.suggestion import Suggestion
+
+    accounts = owned_accounts_query(db, current_user.id).all()
+    for acct in accounts:
+        if not acct.normalized_name:
+            acct.normalized_name = normalize_name(acct.name)
+
+    seen_pairs = {
+        (s.entity_id_a, s.entity_id_b)
+        for s in db.query(Suggestion.entity_id_a, Suggestion.entity_id_b).filter(
+            Suggestion.owner_id == current_user.id,
+            Suggestion.suggestion_type == "account_duplicate").all()
+    }
+
+    pairs_found, created = 0, 0
+    for i in range(len(accounts)):
+        for j in range(i + 1, len(accounts)):
+            a, b = accounts[i], accounts[j]
+            score = fuzz.token_sort_ratio(a.normalized_name or "", b.normalized_name or "")
+            if score < DUPLICATE_SCAN_THRESHOLD:
+                continue
+            pairs_found += 1
+            id_a, id_b = sorted((a.id, b.id))
+            if (id_a, id_b) in seen_pairs:
+                continue
+            acct_a, acct_b = (a, b) if a.id == id_a else (b, a)
+            db.add(Suggestion(
+                owner_id=current_user.id,
+                suggestion_type="account_duplicate",
+                entity_id_a=id_a, entity_id_b=id_b,
+                score=round(score, 2),
+                reasoning=f"{round(score)}% name match",
+                evidence={
+                    "name_a": acct_a.name, "address_a": acct_a.address,
+                    "name_b": acct_b.name, "address_b": acct_b.address,
+                },
+            ))
+            seen_pairs.add((id_a, id_b))
+            created += 1
+
+    db.commit()
+    return {"pairs_found": pairs_found, "new_suggestions_created": created}
+
+
+@router.post("/merge")
+def merge_accounts(
+    data: MergeRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Re-points every FK that references accounts.id from duplicate_id to
+    survivor_id, unions roles, fills blank scalar fields on the survivor,
+    and soft-merges the duplicate (merged_into_id) rather than deleting it —
+    audit trail, and a safety net for any reference this missed."""
+    from models.property import Property
+    from models.property_party import PropertyParty
+    from models.marketing_list import MarketingListMember
+    from models.deal import Deal, DealContact
+    from models.engagement import Engagement
+    from models.suggestion import Suggestion
+
+    if data.survivor_id == data.duplicate_id:
+        raise HTTPException(400, "survivor_id and duplicate_id must differ")
+
+    survivor = db.query(Account).filter(
+        Account.id == data.survivor_id, Account.owner_id == current_user.id).first()
+    duplicate = db.query(Account).filter(
+        Account.id == data.duplicate_id, Account.owner_id == current_user.id).first()
+    if not survivor or not duplicate:
+        raise HTTPException(404, "Account not found")
+    if survivor.merged_into_id is not None or duplicate.merged_into_id is not None:
+        raise HTTPException(400, "One of these accounts has already been merged")
+
+    links_repointed = {"properties": 0, "property_parties": 0, "contacts": 0,
+                        "marketing_lists": 0, "engagements": 0, "deal_contacts": 0}
+
+    # properties — 4 separate FK columns onto accounts
+    for col in ("account_id", "recorded_owner_account_id", "manager_account_id", "tax_bill_account_id"):
+        rows = db.query(Property).filter(
+            getattr(Property, col) == duplicate.id, Property.owner_id == current_user.id).all()
+        for p in rows:
+            setattr(p, col, survivor.id)
+        links_repointed["properties"] += len(rows)
+
+    # property_parties — duplicate-safe against the (property_id, account_id, role) unique index
+    for pp in (db.query(PropertyParty)
+                 .join(Property, PropertyParty.property_id == Property.id)
+                 .filter(PropertyParty.account_id == duplicate.id,
+                         Property.owner_id == current_user.id).all()):
+        clash = db.query(PropertyParty).filter(
+            PropertyParty.property_id == pp.property_id,
+            PropertyParty.account_id == survivor.id,
+            PropertyParty.role == pp.role).first()
+        db.delete(pp) if clash else setattr(pp, "account_id", survivor.id)
+        links_repointed["property_parties"] += 1
+
+    # contact_accounts — no owner_id column; account_id is already owner-validated above
+    for ca in db.query(ContactAccount).filter(ContactAccount.account_id == duplicate.id).all():
+        clash = db.query(ContactAccount).filter(
+            ContactAccount.account_id == survivor.id,
+            ContactAccount.contact_id == ca.contact_id).first()
+        db.delete(ca) if clash else setattr(ca, "account_id", survivor.id)
+        links_repointed["contacts"] += 1
+
+    # marketing_list_members — duplicate-safe, one row per (list, account)
+    for m in db.query(MarketingListMember).filter(MarketingListMember.account_id == duplicate.id).all():
+        clash = db.query(MarketingListMember).filter(
+            MarketingListMember.list_id == m.list_id,
+            MarketingListMember.account_id == survivor.id).first()
+        db.delete(m) if clash else setattr(m, "account_id", survivor.id)
+        links_repointed["marketing_lists"] += 1
+
+    # engagements
+    for e in db.query(Engagement).filter(
+            Engagement.client_account_id == duplicate.id, Engagement.owner_id == current_user.id).all():
+        e.client_account_id = survivor.id
+        links_repointed["engagements"] += 1
+
+    # deal_contacts — no owner_id column either; scope via the parent Deal
+    for dc in (db.query(DealContact)
+                 .join(Deal, DealContact.deal_id == Deal.id)
+                 .filter(DealContact.account_id == duplicate.id, Deal.owner_id == current_user.id).all()):
+        dc.account_id = survivor.id
+        links_repointed["deal_contacts"] += 1
+
+    survivor.roles = sorted(set(survivor.roles or []) | set(duplicate.roles or []))
+
+    fields_filled = []
+    for field in ("address", "city", "state", "zip", "phone", "email",
+                  "website", "notes", "ein", "entity_type"):
+        if not getattr(survivor, field) and getattr(duplicate, field):
+            setattr(survivor, field, getattr(duplicate, field))
+            fields_filled.append(field)
+
+    duplicate.merged_into_id = survivor.id
+
+    id_a, id_b = sorted((survivor.id, duplicate.id))
+    sugg = db.query(Suggestion).filter(
+        Suggestion.entity_id_a == id_a, Suggestion.entity_id_b == id_b).first()
+    if sugg:
+        sugg.status = "merged"
+        sugg.resolved_at = datetime.now(timezone.utc)
+
+    db.commit()
+
+    return {
+        "survivor_id":     survivor.id,
+        "duplicate_id":    duplicate.id,
+        "fields_filled":   fields_filled,
+        "links_repointed": links_repointed,
     }
