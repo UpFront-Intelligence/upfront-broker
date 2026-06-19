@@ -23,7 +23,15 @@ def verify_password(plain: str, hashed: str) -> bool:
     )
 
 
-SECRET_KEY             = os.getenv("SECRET", "upfront-broker-dev-secret-change-in-prod")
+SECRET_KEY = os.getenv("SECRET")
+if not SECRET_KEY:
+    raise RuntimeError(
+        "SECRET environment variable is not set. Refusing to start with no JWT "
+        "signing key — set SECRET (a strong random value) in the Render dashboard "
+        "for production, or in backend/.env for local dev. There is intentionally "
+        "no hardcoded fallback: a previous fallback value was committed to source "
+        "control and must be treated as permanently compromised."
+    )
 ALGORITHM              = "HS256"
 ACCESS_TOKEN_EXPIRE_DAYS = 30
 
