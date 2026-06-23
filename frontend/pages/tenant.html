@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>UpFront Broker — Tenant</title>
-  <link rel="stylesheet" href="/static/main.css?v=9">
+  <link rel="stylesheet" href="/static/main.css?v=10">
   <style>
     #page-content { padding:24px 28px; max-width:1100px; }
     .header-card { background:var(--navy); border-radius:var(--radius-lg); padding:24px 28px; color:#fff; margin-bottom:20px; display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
@@ -42,10 +42,11 @@
 <div id="main">
   <div id="topbar">
     <div style="display:flex;align-items:center;gap:12px">
-      <button class="btn btn-ghost btn-sm" onclick="navigate('tenants')">← Tenants</button>
+      <div id="record-nav" style="display:flex;align-items:center;gap:8px"></div>
       <div class="topbar-title" id="page-title">Tenant</div>
     </div>
     <div class="topbar-actions">
+      <button class="btn btn-outline btn-sm" onclick="navigate('tenants')">All Tenants</button>
       <button class="btn btn-outline btn-sm" onclick="Modal.open('edit-modal')">Edit</button>
       <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="deleteTenant()">Delete</button>
     </div>
@@ -172,12 +173,13 @@
   </div>
 </div>
 
-<script src="/js/app.js?v=9"></script>
+<script src="/js/app.js?v=10"></script>
 <script>
   if (!Auth.requireAuth()) throw new Error('Not authenticated');
   renderSidebar('tenants');
 
   const ID = +new URLSearchParams(window.location.search).get('id');
+  RecordNav.render('record-nav', 'tenant', ID);
   let REC = {}, _contactsLoaded = false, _lcTimer = null;
 
   const IND_COLORS = {

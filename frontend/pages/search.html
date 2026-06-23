@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>UpFront Broker — Search</title>
-  <link rel="stylesheet" href="/static/main.css?v=9">
+  <link rel="stylesheet" href="/static/main.css?v=10">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <style>
     #page-content { padding: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; }
@@ -98,10 +98,11 @@
       <div class="f-group" id="g-prop-type">
         <span class="f-label">Property Type</span>
         <select class="f-sel" id="f-prop-type" onchange="runSearch()">
-          <option value="">Any type</option>
-          <option>Office</option><option>Industrial</option><option>Retail</option>
-          <option>Land</option><option>Multifamily</option><option>STNL</option>
-          <option>Self Storage</option><option>Hospitality</option><option>Medical</option>
+          <option value="">Any category</option>
+          <option>Multi-Family</option><option>Office</option><option>Industrial</option>
+          <option>Retail</option><option>Health Care</option><option>Hospitality</option>
+          <option>Flex</option><option>Land</option><option>Sports &amp; Entertainment</option>
+          <option>Specialty</option><option>Uncategorized</option>
         </select>
       </div>
 
@@ -149,14 +150,19 @@
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="/js/app.js?v=9"></script>
+<script src="/js/app.js?v=10"></script>
 <script>
   if (!Auth.requireAuth()) throw new Error('Not authenticated');
   renderSidebar('search');
 
-  document.getElementById('role-chips').innerHTML = [
+  const ROLE_CHIP_VALUES = [
     'owner', 'buyer', 'seller', 'tenant', 'investor', 'developer', 'lender', 'leasing_broker',
-  ].map(r => `<label class="role-chip" data-role="${r}" onclick="toggleRoleChip(this)">${r.replace('_', ' ')}</label>`).join('');
+  ];
+  function renderRoleChips() {
+    document.getElementById('role-chips').innerHTML = ROLE_CHIP_VALUES.map(r =>
+      `<label class="role-chip ${activeRoles.has(r) ? 'active' : ''}" data-role="${r}" onclick="toggleRoleChip(this)">${r.replace('_', ' ')}</label>`
+    ).join('');
+  }
 
   let currentReturn = 'properties';
   let geoChips = [];          // [{value, field}]
@@ -254,18 +260,80 @@
   }
 
   // ── Filter bar visibility per Records type ─────────────────────
-  function onReturnChange() {
-    currentReturn = document.getElementById('f-return').value;
+  function applyReturnVisibility() {
     const visible = RETURN_FIELDS[currentReturn] || [];
     document.getElementById('g-prop-type').style.display = visible.includes('prop-type') ? '' : 'none';
     document.getElementById('g-size').style.display       = visible.includes('size')      ? '' : 'none';
     document.getElementById('g-price').style.display      = visible.includes('price')     ? '' : 'none';
     document.getElementById('g-role').style.display       = visible.includes('role')      ? '' : 'none';
+  }
+
+  // User changing the Records dropdown — geography/role filters don't carry
+  // across types, so reset them. (Restoring from a URL on load does NOT go
+  // through this — see applyUrlParams below.)
+  function onReturnChange() {
+    currentReturn = document.getElementById('f-return').value;
+    applyReturnVisibility();
     geoChips = [];
+    activeRoles = new Set();
+    renderRoleChips();
     renderGeoChips();
     runSearch();
   }
-  onReturnChange();
+
+  // ── URL state — bookmarkable/shareable search, and the "originating
+  // search URL" detail pages link back to (see RecordNav in app.js) ──
+  function buildUrlParams() {
+    const p = new URLSearchParams();
+    p.set('return', currentReturn);
+    geoChips.forEach(c => p.append(c.field, c.value));
+    const pt = document.getElementById('f-prop-type').value;
+    if (pt) p.set('property_category', pt);
+    const sfMin = document.getElementById('f-sf-min').value.trim();
+    if (sfMin) p.set('sf_min', sfMin);
+    const sfMax = document.getElementById('f-sf-max').value.trim();
+    if (sfMax) p.set('sf_max', sfMax);
+    const priceMin = document.getElementById('f-price-min').value.trim();
+    if (priceMin) p.set('price_min', priceMin);
+    const priceMax = document.getElementById('f-price-max').value.trim();
+    if (priceMax) p.set('price_max', priceMax);
+    [...activeRoles].forEach(r => p.append('role', r));
+    return p;
+  }
+
+  // Returns true if there was anything to restore.
+  function applyUrlParams() {
+    const p = new URLSearchParams(window.location.search);
+    if (![...p.keys()].length) return false;
+
+    const ret = p.get('return');
+    if (ret && RETURN_FIELDS[ret]) {
+      currentReturn = ret;
+      document.getElementById('f-return').value = ret;
+    }
+    ['city', 'county', 'state'].forEach(field => {
+      p.getAll(field).forEach(value => geoChips.push({ value, field }));
+    });
+    const pt = p.get('property_category');
+    if (pt) document.getElementById('f-prop-type').value = pt;
+    const restoreInput = (id, key) => {
+      const v = p.get(key);
+      if (v) document.getElementById(id).value = v;
+    };
+    restoreInput('f-sf-min', 'sf_min');
+    restoreInput('f-sf-max', 'sf_max');
+    restoreInput('f-price-min', 'price_min');
+    restoreInput('f-price-max', 'price_max');
+    p.getAll('role').forEach(r => activeRoles.add(r));
+    return true;
+  }
+
+  applyUrlParams();
+  document.getElementById('f-return').value = currentReturn;
+  renderRoleChips();
+  applyReturnVisibility();
+  renderGeoChips();
+  runSearch();
 
   // ── Geography chips (typeahead) ──────────────────────────────────
   const geoInput = document.getElementById('f-geo-input');
@@ -327,7 +395,7 @@
     const priceMin = document.getElementById('f-price-min').value.trim();
     const priceMax = document.getElementById('f-price-max').value.trim();
     const pf = {};
-    if (pt) pf.property_type = pt;
+    if (pt) pf.property_category = pt;
     if (sfMin) pf.sf_min = +sfMin;
     if (sfMax) pf.sf_max = +sfMax;
     if (priceMin) pf.price_min = +priceMin;
@@ -341,6 +409,10 @@
 
   async function runSearch() {
     const spec = buildSpec();
+    // replaceState, not pushState — every filter tweak shouldn't add a back-
+    // button stop; this just keeps the address bar (and therefore the URL a
+    // detail page links back to) in sync with current filters.
+    history.replaceState(null, '', '?' + buildUrlParams().toString());
     try {
       const data = await API.post('/query/', spec);
       currentItems = data.items;
@@ -393,10 +465,15 @@
   };
 
   const DETAIL_PAGE = { property: 'property', account: 'account', contact: 'contact', tenant: 'tenant', deal: 'deal' };
+  let displayedRows = [];   // currentItems, in whatever order the table is currently sorted
 
   function goToDetail(item) {
     const page = DETAIL_PAGE[item.type];
-    if (page) window.location.href = `/pages/${page}.html?id=${item.id}`;
+    if (!page) return;
+    RecordNav.captureSearchContext(
+      displayedRows.length ? displayedRows : currentItems,
+      window.location.pathname + window.location.search);
+    window.location.href = `/pages/${page}.html?id=${item.id}`;
   }
 
   function renderTable() {
@@ -420,6 +497,7 @@
 
     document.getElementById('list-count-text').textContent =
       `${rows.length.toLocaleString()} result${rows.length !== 1 ? 's' : ''}`;
+    displayedRows = rows;
 
     const tbody = document.getElementById('search-tbody');
     if (!rows.length) {
@@ -449,8 +527,6 @@
   function esc(s) {
     return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
-
-  runSearch();
 </script>
 </body>
 </html>

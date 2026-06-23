@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>UpFront Broker — Account</title>
-  <link rel="stylesheet" href="/static/main.css?v=9">
+  <link rel="stylesheet" href="/static/main.css?v=10">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <style>
     #page-content { padding:24px 28px; max-width:1100px; }
@@ -40,7 +40,7 @@
 <div id="main">
   <div id="topbar">
     <div style="display:flex;align-items:center;gap:12px">
-      <button class="btn btn-ghost btn-sm" onclick="history.back()">← Back</button>
+      <div id="record-nav" style="display:flex;align-items:center;gap:8px"></div>
       <div class="topbar-title" id="page-title">Account</div>
     </div>
     <div class="topbar-actions">
@@ -52,12 +52,13 @@
   </div>
 </div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="/js/app.js?v=9"></script>
+<script src="/js/app.js?v=10"></script>
 <script>
   if (!Auth.requireAuth()) throw new Error('Not authenticated');
   renderSidebar('accounts');
 
   const ID = +new URLSearchParams(window.location.search).get('id');
+  RecordNav.render('record-nav', 'account', ID);
   const SILO = 'accounts';
   let MAP_DATA = null, detailMap = null, detailMapExpanded = false;
   const TC = {'LLC':'badge-navy','Corp':'badge-blue','Trust':'badge-amber','Individual':'badge-green','REIT':'badge-gold','Partnership':'badge-stone'};

@@ -65,7 +65,7 @@ The unified Search/Map page (`/pages/search.html`) is the primary lens onto this
 - **`render.yaml`** exists at the repo root and is the deploy config (buildCommand/startCommand/envVars), committed alongside `db_setup.py`. It was deleted once earlier in this project's history and then deliberately restored — if you're tempted to delete it again because an older note says it shouldn't exist, don't; check `git log -- render.yaml` first.
 - **Auto-deploy quirk:** the GitHub webhook occasionally stops firing silently. If a push doesn't trigger a deploy within a few minutes, use Manual Deploy → "Deploy latest commit" from the dashboard.
 - **Auto-migrate on deploy:** the start command runs `alembic upgrade head` before `uvicorn` starts. A silent two-line `INFO` output (no "Running upgrade ... -> ..." line) means there was nothing new to apply — that's success, not failure.
-- **Current migration head:** `c7e65628672c` (`add_account_lat_lng`) — 21 migrations total, linear chain, no branches. Verify with `alembic heads` if this drifts.
+- **Current migration head:** `81816f53fdda` (`add_property_category`) — 22 migrations total, linear chain, no branches. Verify with `alembic heads` if this drifts.
 
 ## Design System
 
@@ -207,7 +207,7 @@ manager_account_id        (FK accounts, SET NULL)   -- property manager; fires e
 tax_bill_account_id       (FK accounts, SET NULL)   -- tax bill recipient, a clue only — no role fired
 
 name, building_name, park_name, address, city, state, zip, county,
-property_type, subtype, status (Active/Off Market/Sold/Leased), market, submarket,
+property_type, property_category, subtype, status (Active/Off Market/Sold/Leased), market, submarket,
 year_built, year_renovated, sf_rentable, sf_land, units, stories, construction_type,
 zoning, parking_ratio, parking_spaces, occupancy_pct,
 asking_price, asking_price_per_sf, assessed_value, tax_amount, tax_year, cap_rate, noi,
@@ -236,6 +236,14 @@ notes, created_at, updated_at
 - Four FKs to `accounts` (see above) — `Property.account` relationship pins `foreign_keys=[account_id]` explicitly.
 - Owner-isolation validation via `_validate_account_links()` in `routers/properties.py` before any of the three "linked party" FK fields can be assigned.
 - `GET /api/properties/` has a `search` query param (free-text) and a very large filter surface (type/status/location/size/price/financial ranges) — there is **no separate `/api/properties/search` endpoint**; an earlier version of this doc claimed one existed.
+
+**`property_category`** — derived from `property_type` via pattern/keyword matching in `backend/services/property_category.py`, **not client-settable** (absent from `PropertyCreate`/`PropertyUpdate`, present only on `PropertyResponse`). Recomputed at every write site that can change `property_type`: `create_property`, `update_property` (only when `property_type` is in the update payload), `attach_parcel` (classcode-derived type), and both bulk importers (`routers/imports.py`, `routers/import_properties_parties.py`).
+- **10 categories:** Multi-Family, Office, Industrial, Retail, Health Care, Hospitality, Flex, Land, Sports & Entertainment, Specialty — plus `"Uncategorized"` (matched nothing) and `NULL` (property_type itself was blank — never forced into a bucket).
+- Pattern-based on purpose: future imports bring `property_type` values this app has never seen; a literal lookup of today's exact strings would leave them all `NULL`/`Uncategorized` forever. `"General Retail"` (with or without a parenthetical subtype) matches by prefix; everything else matches by case-insensitive substring containment, first rule wins.
+- **Judgment call, deliberately flagged as revisitable:** Flex's `"tech/r&d"` pattern is checked *before* Office's bare `"r&d"` pattern, so a compound `"Tech/R&D"` property_type lands in Flex, not Office — this is the opposite of the order the two categories are normally listed in. CoStar's own glossary lists Flex under both Industrial and as its own category inconsistently; nothing in the data seen so far forces a different decision. If real Flex inventory shows up and this ordering turns out wrong, it's a one-line fix in `_CONTAINS_RULES` in `services/property_category.py` — not a sign anything else is broken.
+- Unmatched values fall back to `"Uncategorized"` and log a warning (not silently swallowed) — `routers/imports.py` and `routers/import_properties_parties.py` additionally collect the **distinct** set of unmatched `property_type` values seen during a run and return them as `uncategorized_property_types` in the import response, so what's actually falling through is visible without grepping logs.
+- One-time backfill for properties that predate this column: `scripts/backfill_property_category.py` — imports (doesn't reimplement) `categorize_property_type` from `backend/services/property_category.py` via the same `sys.path` trick `db_setup.py` uses, so a backfilled row can never categorize differently than a freshly-saved one.
+- Search page's Property Type filter (`/pages/search.html`) filters by `property_category` (exact match), not `property_type` — selecting "Retail" returns every `"General Retail*"` subtype variant in one shot, which was the point.
 
 ### ENGAGEMENT (brokerage pipeline — distinct from deals)
 ```
@@ -419,6 +427,7 @@ portal_views:  id, portal_id (FK), email, section, viewed_at
 - **Return types:** `contacts`, `accounts`, `properties`, `tenants`, `deals` (constant `VALID_RETURN_TYPES` in `routers/query.py`).
 - Every result row carries map-pin data: Properties/Tenants get their own lat/lng directly (Tenant rows are one-per-occupied-space, pinned to that specific property). Accounts/Contacts/Deals get their own geocoded lat/lng (null for Deal) **plus** a `linked_properties` array of `{id, lat, lng, address}` via the relevant junction (`property_parties` for accounts/contacts, the deal's own `property_id` for deals — 0 or 1 entries).
 - **Geography filter assumption** (stated explicitly in code comments, not silently assumed): city/county/state filtering for Properties/Tenants/Deals applies to the property's own location; for Accounts/Contacts it applies to the entity's own city/state only — **no county filter for those two**, since neither table has a county column.
+- `property` filter dict accepts both `property_type` (exact match on the raw value) and `property_category` (exact match on the 10-category taxonomy — see PROPERTY's `property_category` note above). The Search page sends `property_category`; `property_type` filtering still works for any other caller that wants the granular value.
 
 ---
 
@@ -473,6 +482,7 @@ Plus a single shared `?v=N` query bumped together across **every** page's `/js/a
 
 ## Key Learnings & Patterns
 
+- **`RecordNav` (in `frontend/js/app.js`)** — shared back/prev/next utility used identically by `property.html`/`account.html`/`contact.html`/`tenant.html`; not five per-page implementations. `search.html` encodes its filters as URL query params (`?return=...&city=...`, synced via `history.replaceState` on every search, never `pushState` — filter tweaks don't spam browser history) and, right before navigating to a detail page, calls `RecordNav.captureSearchContext(items, searchUrl)`, which stores `{searchUrl, type, ids}` in `sessionStorage` (key `ufb_nav_ctx`) — too many ids for a clean URL param. Each detail page calls `RecordNav.render('record-nav', '<type>', ID)` on load; if there's no context or the current id isn't in the stored list (direct link/bookmark), it renders nothing rather than a broken/stale control. The "Back" link is a real `<a href>` to the stored search URL, never `history.back()` — that breaks the moment there's been any intermediate navigation (e.g. Prev/Next).
 - **SQLAlchemy FK ambiguity:** `properties` has FOUR FKs to `accounts` (`account_id`, `recorded_owner_account_id`, `manager_account_id`, `tax_bill_account_id`). Any relationship between them needs explicit `foreign_keys=`. Pin defensively on every new pair, even ones with only one FK column today (junction tables already do this preemptively).
 - **`merge_accounts`'s FK list is hand-maintained, not introspected** — adding a new FK to `accounts.id` anywhere in the schema requires also adding it to that function, or merges will silently miss it.
 - **Two unrelated geocoders, two different entity sets:** Nominatim (OpenStreetMap) auto-geocodes `Property.lat/lng` on save; the US Census Bureau batch/single geocoder handles `Account.lat/lng` and `Contact.lat/lng`. Don't assume one shared geocoding path when extending either.

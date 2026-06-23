@@ -463,6 +463,74 @@ const Typeahead = (() => {
   return { open, close, attach };
 })();
 
+// ── Record Navigation (search-result context: back/prev/next) ────
+// Search pages call captureSearchContext() right before navigating to a
+// detail page; every detail page (property/account/contact/tenant — same
+// utility, no per-page copies) calls render() on load. Context lives in
+// sessionStorage, not the URL, since result lists can be hundreds of ids.
+const RecordNav = (() => {
+  const STORAGE_KEY = 'ufb_nav_ctx';
+  let ctx = null, currentId = null;
+
+  function captureSearchContext(items, searchUrl) {
+    if (!items || !items.length) return;
+    try {
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
+        searchUrl,
+        type: items[0].type,
+        ids: items.map(i => i.id),
+      }));
+    } catch (e) { /* sessionStorage unavailable (private mode etc.) — no nav context, not fatal */ }
+  }
+
+  function _load(type) {
+    let raw;
+    try { raw = sessionStorage.getItem(STORAGE_KEY); } catch (e) { return null; }
+    if (!raw) return null;
+    let parsed;
+    try { parsed = JSON.parse(raw); } catch (e) { return null; }
+    if (!parsed || parsed.type !== type || !Array.isArray(parsed.ids)) return null;
+    return parsed;
+  }
+
+  // containerId: empty div in the page's topbar. type: 'property'|'account'|
+  // 'contact'|'tenant'|'deal' (matches search.html's item.type, which is also
+  // exactly the detail page's filename). id: this page's own record id.
+  function render(containerId, type, id) {
+    const el = document.getElementById(containerId);
+    if (!el) return;
+    ctx = _load(type);
+    currentId = Number(id);
+
+    if (!ctx || !ctx.ids.includes(currentId)) {
+      el.innerHTML = '';   // no search context (direct link/bookmark) — hide, don't error
+      return;
+    }
+
+    const idx = ctx.ids.indexOf(currentId);
+    const total = ctx.ids.length;
+    const prevBtn = idx > 0
+      ? `<button class="btn btn-ghost btn-sm" onclick="RecordNav.go(-1)">‹ Prev</button>` : '';
+    const nextBtn = idx < total - 1
+      ? `<button class="btn btn-ghost btn-sm" onclick="RecordNav.go(1)">Next ›</button>` : '';
+
+    el.innerHTML = `
+      <a class="btn btn-ghost btn-sm" href="${ctx.searchUrl}">← Back to results</a>
+      ${prevBtn}
+      <span style="font-size:12px;color:var(--text-secondary);padding:0 2px;white-space:nowrap">Record ${idx + 1} of ${total}</span>
+      ${nextBtn}`;
+  }
+
+  function go(delta) {
+    if (!ctx) return;
+    const next = ctx.ids[ctx.ids.indexOf(currentId) + delta];
+    if (next == null) return;
+    window.location.href = `/pages/${ctx.type}.html?id=${next}`;
+  }
+
+  return { captureSearchContext, render, go };
+})();
+
 // ── SPA Navigation ───────────────────────────────────────────────
 function navigate(page) {
   window.location.href = `/pages/${page}.html`;
