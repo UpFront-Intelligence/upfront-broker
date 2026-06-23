@@ -44,6 +44,7 @@ from services.naming import normalize_name
 from services.accounts import ensure_role, owned_accounts_query
 from routers.imports import SYNONYMS, VALID_FIELDS, NUMERIC_FIELDS, _best_match, _coerce
 from routers.properties import _geocode
+from services.property_category import categorize_property_type
 
 router = APIRouter()
 
@@ -401,7 +402,7 @@ def _extract_row(row_values, headers, mapping):
 # already been through _coerce() (numeric/date casting) by the time this
 # runs, so values just need an allowlist check, not per-field type handling.
 
-def _upsert_property(db, prop_fields, owner_id, existing_props, warnings, row_num):
+def _upsert_property(db, prop_fields, owner_id, existing_props, warnings, row_num, uncategorized_types):
     address = prop_fields.get("address")
     norm_addr = _normalize_address(address)
     prop = existing_props.get(norm_addr)
@@ -431,6 +432,10 @@ def _upsert_property(db, prop_fields, owner_id, existing_props, warnings, row_nu
 
     if not prop.name:
         prop.name = prop.building_name or address
+
+    prop.property_category = categorize_property_type(prop.property_type)
+    if prop.property_category == "Uncategorized":
+        uncategorized_types.add(prop.property_type)
 
     if not prop.lat and prop.address:
         lat, lng = _geocode(prop.address, prop.city, prop.state)
@@ -647,13 +652,14 @@ def _process_party(db, role_slug, attrs, prop, owner_id, existing_accounts, coun
 
 
 def _process_row(db, row_values, headers, mapping, owner_id, existing_props, existing_accounts,
-                  existing_tenants, counters, warnings, row_num):
+                  existing_tenants, counters, warnings, row_num, uncategorized_types):
     prop_fields, parties, tenant_name = _extract_row(row_values, headers, mapping)
     if not prop_fields.get("address"):
         raise ValueError("missing address")
 
     prop_fields = _coerce(prop_fields, "property")
-    prop, created = _upsert_property(db, prop_fields, owner_id, existing_props, warnings, row_num)
+    prop, created = _upsert_property(db, prop_fields, owner_id, existing_props, warnings, row_num,
+                                      uncategorized_types)
     counters["properties_created" if created else "properties_updated"] += 1
 
     for role_slug, attrs in parties.items():
@@ -730,6 +736,7 @@ async def import_properties_with_parties(
             "property_parties_created", "tenants_created", "tenants_linked",
             "property_tenants_created", "rows_skipped")}
         warnings, skipped_rows = [], []
+        uncategorized_types = set()
         try:
             # Cached across rows for cross-row dedup within this run. Entries
             # stay valid after a per-row rollback — same session, so SQLAlchemy
@@ -744,7 +751,8 @@ async def import_properties_with_parties(
             for i, row in enumerate(rows, start=1):
                 try:
                     _process_row(db, row, headers, confirmed_mapping, owner_id, existing_props,
-                                 existing_accounts, existing_tenants, counters, warnings, i)
+                                 existing_accounts, existing_tenants, counters, warnings, i,
+                                 uncategorized_types)
                     db.commit()
                 except Exception as exc:
                     db.rollback()
@@ -758,6 +766,7 @@ async def import_properties_with_parties(
                 **counters,
                 "warnings": sorted(set(warnings)),
                 "skipped_rows": skipped_rows,
+                "uncategorized_property_types": sorted(uncategorized_types),
             }) + "\n"
         finally:
             db.close()

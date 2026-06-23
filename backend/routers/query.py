@@ -77,6 +77,8 @@ def _apply_property_filters(q, spec: QuerySpec):
     pf = spec.property_filter
     if "property_type" in pf:
         q = q.filter(Property.property_type == pf["property_type"])
+    if "property_category" in pf:
+        q = q.filter(Property.property_category == pf["property_category"])
     if "county" in pf:
         q = q.filter(Property.county.ilike(f"%{_contains(pf['county'])}%"))
     if "city" in pf:

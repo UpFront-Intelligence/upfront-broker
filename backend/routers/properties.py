@@ -11,6 +11,7 @@ from models.property import Property
 from models.user import User
 from auth_utils import get_current_user
 from services.accounts import ensure_role
+from services.property_category import categorize_property_type
 
 
 # Oakland County CLASSCODE -> this app's CRE property_type (PROP_TYPES on
@@ -136,6 +137,9 @@ class PropertyUpdate(PropertyCreate):
 
 class PropertyResponse(PropertyCreate):
     id: int
+    # Derived, never client-settable — absent from PropertyCreate/Update on
+    # purpose, see services/property_category.py.
+    property_category: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -284,6 +288,7 @@ def create_property(
     accounts = _validate_account_links(
         db, {f: getattr(data, f) for f in ACCOUNT_LINK_ROLES}, current_user)
     prop = Property(**data.dict(), owner_id=current_user.id)
+    prop.property_category = categorize_property_type(prop.property_type)
     db.add(prop)
     _apply_account_link_roles(accounts)
     db.commit()
@@ -328,6 +333,8 @@ def update_property(
         db, {f: updated[f] for f in ACCOUNT_LINK_ROLES if f in updated}, current_user)
     for key, val in updated.items():
         setattr(prop, key, val)
+    if 'property_type' in updated:
+        prop.property_category = categorize_property_type(prop.property_type)
     _apply_account_link_roles(accounts)
     db.commit()
     db.refresh(prop)
@@ -375,6 +382,7 @@ def attach_parcel(
         mapped_type = _parcel_classcode_to_property_type(row.classcode)
         if mapped_type:
             prop.property_type = mapped_type
+            prop.property_category = categorize_property_type(prop.property_type)
     if not prop.address and row.siteaddress:
         prop.address = row.siteaddress
     if not prop.city and row.sitecity:

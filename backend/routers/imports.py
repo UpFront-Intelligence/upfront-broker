@@ -28,6 +28,7 @@ from services.naming import normalize_name
 from services.accounts import ensure_role, owned_accounts_query
 from routers.contacts import _resync_legacy_phone
 from routers.properties import _geocode
+from services.property_category import categorize_property_type
 
 router = APIRouter()
 
@@ -1474,6 +1475,7 @@ async def execute_import(
 
     imported, skipped = 0, 0
     duplicates, flagged, errors, warnings = [], [], [], []
+    uncategorized_types = set()   # distinct property_type values that fell through categorize_property_type()
 
     for row_num, row in enumerate(rows, start=2):
         try:
@@ -1519,6 +1521,9 @@ async def execute_import(
 
                 prop = Property(**{k: v for k, v in prop_map.items() if k in VALID_FIELDS["property"]},
                                  owner_id=current_user.id)
+                prop.property_category = categorize_property_type(prop.property_type)
+                if prop.property_category == "Uncategorized":
+                    uncategorized_types.add(prop.property_type)
                 db.add(prop)
                 db.flush()   # need prop.id for Account/Comp links
 
@@ -1649,4 +1654,5 @@ async def execute_import(
         "duplicates":   duplicates,
         "errors":       errors,
         "warnings":     sorted(set(warnings)),
+        "uncategorized_property_types": sorted(uncategorized_types),
     }

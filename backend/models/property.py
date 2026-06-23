@@ -32,6 +32,9 @@ class Property(Base):
 
     # Classification
     property_type   = Column(String)   # Office, Industrial, Retail, etc.
+    # Derived from property_type via services/property_category.py — never
+    # client-settable directly, recomputed every time property_type is set.
+    property_category = Column(String, nullable=True)
     subtype         = Column(String)   # e.g. "Flex", "Strip Center", "Garden"
     status          = Column(String, default="Active")  # Active, Off Market, Sold, Leased
     market          = Column(String, nullable=True)
