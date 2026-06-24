@@ -13,3 +13,4 @@ from models.property_tenant import PropertyTenant
 from models.engagement import Engagement
 from models.marketing_list import MarketingList, MarketingListMember
 from models.suggestion import Suggestion
+from models.parcel_regrid import ParcelRegrid

@@ -401,6 +401,7 @@ def merge_accounts(
     from models.deal import Deal, DealContact
     from models.engagement import Engagement
     from models.suggestion import Suggestion
+    from models.parcel_regrid import ParcelRegrid
 
     if data.survivor_id == data.duplicate_id:
         raise HTTPException(400, "survivor_id and duplicate_id must differ")
@@ -415,7 +416,8 @@ def merge_accounts(
         raise HTTPException(400, "One of these accounts has already been merged")
 
     links_repointed = {"properties": 0, "property_parties": 0, "contacts": 0,
-                        "marketing_lists": 0, "engagements": 0, "deal_contacts": 0}
+                        "marketing_lists": 0, "engagements": 0, "deal_contacts": 0,
+                        "parcels_regrid": 0}
 
     # properties — 4 separate FK columns onto accounts
     for col in ("account_id", "recorded_owner_account_id", "manager_account_id", "tax_bill_account_id"):
@@ -465,6 +467,14 @@ def merge_accounts(
                  .filter(DealContact.account_id == duplicate.id, Deal.owner_id == current_user.id).all()):
         dc.account_id = survivor.id
         links_repointed["deal_contacts"] += 1
+
+    # parcels_regrid — no owner_id column (shared reference data, see
+    # CLAUDE.md's PARCELS_REGRID section), but matched_account_id only ever
+    # points to an account that was in this owner's scope at reconcile time,
+    # so the duplicate.id check alone is owner-safe here.
+    for pr in db.query(ParcelRegrid).filter(ParcelRegrid.matched_account_id == duplicate.id).all():
+        pr.matched_account_id = survivor.id
+        links_repointed["parcels_regrid"] += 1
 
     survivor.roles = sorted(set(survivor.roles or []) | set(duplicate.roles or []))
 

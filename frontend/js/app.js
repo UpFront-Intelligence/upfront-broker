@@ -155,17 +155,27 @@ const Modal = (() => {
 })();
 
 // ── Hints (lightbulb suggestions) ────────────────────────────────
-// General hint substrate — first producer is account-duplicate detection
-// (POST /accounts/scan-duplicates). The lightbulb + popup pattern here is
-// meant to be reused by future producers against other entity types.
+// General hint substrate. Two producers share this module:
+//   account_duplicate  — POST /accounts/scan-duplicates (original)
+//   regrid_owner_match — POST /regrid/reconcile (Regrid parcel reconciler)
+// Same modal harness (_ensureModal/Modal), open() branches on
+// suggestion_type to decide which card layout + action buttons to render.
 const Hints = (() => {
-  let cache = [];   // open suggestions for this owner (currently: account_duplicate)
+  let cache = [];         // open account_duplicate suggestions for this owner
+  let regridCache = [];   // open regrid_owner_match suggestions for this owner
 
   async function load() {
     try {
       cache = await API.get('/suggestions/?status=new&suggestion_type=account_duplicate');
     } catch (e) { cache = []; }
     return cache;
+  }
+
+  async function loadRegrid() {
+    try {
+      regridCache = await API.get('/suggestions/?status=new&suggestion_type=regrid_owner_match');
+    } catch (e) { regridCache = []; }
+    return regridCache;
   }
 
   function forAccount(accountId) {
@@ -179,22 +189,24 @@ const Hints = (() => {
       onclick="event.stopPropagation();Hints.open(${matches[0].id})">💡</span>`;
   }
 
-  function _ensureModal() {
+  function _ensureModal(title) {
     let el = document.getElementById('hint-modal');
-    if (el) return el;
-    el = document.createElement('div');
-    el.id = 'hint-modal';
-    el.className = 'modal-overlay';
-    el.innerHTML = `
-      <div class="modal" style="width:640px">
-        <div class="modal-header">
-          <div class="modal-title">Possible Duplicate</div>
-          <button class="modal-close" onclick="Modal.close('hint-modal')">✕</button>
-        </div>
-        <div class="modal-body" id="hint-modal-body"></div>
-      </div>`;
-    document.body.appendChild(el);
-    Modal.closeOnOverlay('hint-modal');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'hint-modal';
+      el.className = 'modal-overlay';
+      el.innerHTML = `
+        <div class="modal" style="width:640px">
+          <div class="modal-header">
+            <div class="modal-title" id="hint-modal-title">Possible Duplicate</div>
+            <button class="modal-close" onclick="Modal.close('hint-modal')">✕</button>
+          </div>
+          <div class="modal-body" id="hint-modal-body"></div>
+        </div>`;
+      document.body.appendChild(el);
+      Modal.closeOnOverlay('hint-modal');
+    }
+    if (title) document.getElementById('hint-modal-title').textContent = title;
     return el;
   }
 
@@ -214,14 +226,23 @@ const Hints = (() => {
   }
 
   async function open(suggestionId) {
-    let sugg = cache.find(s => s.id === suggestionId);
+    let sugg = cache.find(s => s.id === suggestionId) || regridCache.find(s => s.id === suggestionId);
     if (!sugg) {
-      cache = await API.get('/suggestions/?status=new&suggestion_type=account_duplicate');
-      sugg = cache.find(s => s.id === suggestionId);
+      // Unknown which producer this id belongs to — try both lists.
+      [cache, regridCache] = await Promise.all([
+        API.get('/suggestions/?status=new&suggestion_type=account_duplicate'),
+        API.get('/suggestions/?status=new&suggestion_type=regrid_owner_match'),
+      ]);
+      sugg = cache.find(s => s.id === suggestionId) || regridCache.find(s => s.id === suggestionId);
     }
     if (!sugg) { Toast.error('Suggestion not found'); return; }
 
-    _ensureModal();
+    if (sugg.suggestion_type === 'regrid_owner_match') return _openRegrid(sugg);
+    return _openAccountDuplicate(sugg);
+  }
+
+  async function _openAccountDuplicate(sugg) {
+    _ensureModal('Possible Duplicate');
     Modal.open('hint-modal');
     const body = document.getElementById('hint-modal-body');
     body.innerHTML = `<div style="text-align:center;padding:30px"><div class="spinner"></div></div>`;
@@ -235,7 +256,7 @@ const Hints = (() => {
     } catch (e) {
       // Most likely cause: one side was already merged/dismissed elsewhere
       // (another tab, or the batch review page) since cache was last loaded.
-      cache = cache.filter(s => s.id !== suggestionId);
+      cache = cache.filter(s => s.id !== sugg.id);
       body.innerHTML = `<div style="padding:20px;color:var(--red)">Failed to load accounts: ${e.message}</div>`;
       return;
     }
@@ -248,6 +269,44 @@ const Hints = (() => {
         <button class="btn btn-primary btn-sm" onclick="Hints.resolveMerge(${sugg.id}, ${fullA.account.id}, ${fullB.account.id})">Keep "${nameA}", merge "${nameB}" into it</button>
         <button class="btn btn-primary btn-sm" onclick="Hints.resolveMerge(${sugg.id}, ${fullB.account.id}, ${fullA.account.id})">Keep "${nameB}", merge "${nameA}" into it</button>
         <button class="btn btn-ghost btn-sm" onclick="Hints.resolveDismiss(${sugg.id})">Not a duplicate — dismiss</button>
+      </div>`;
+  }
+
+  function _parcelCard(parcel) {
+    const addr = [parcel.address, parcel.city && parcel.state ? parcel.city + ', ' + parcel.state : null]
+      .filter(Boolean).join(', ');
+    return `<div class="hint-card">
+      <div class="hint-card-name">${parcel.owner_raw || '—'}</div>
+      <div class="hint-card-row">${addr || '—'} ${parcel.zip || ''}</div>
+      <div class="hint-card-row">Parcel ${parcel.parcel_id || '—'} · ${parcel.county || '—'} County</div>
+      <div class="hint-card-counts"><span>Source: Regrid</span></div>
+    </div>`;
+  }
+
+  function _candidateAccountCard(acct) {
+    const addr = [acct.address, acct.city && acct.state ? acct.city + ', ' + acct.state : null]
+      .filter(Boolean).join(', ');
+    return `<div class="hint-card">
+      <div class="hint-card-name">${acct.name}</div>
+      <div class="hint-card-row">${addr || '—'}</div>
+      <div class="hint-card-counts"><span>Existing account #${acct.id}</span></div>
+    </div>`;
+  }
+
+  async function _openRegrid(sugg) {
+    _ensureModal('Regrid Owner Match');
+    Modal.open('hint-modal');
+    const body = document.getElementById('hint-modal-body');
+    const ev = sugg.evidence || {};
+    const parcel = ev.parcel || {};
+    const acct = ev.candidate_account || {};
+    body.innerHTML = `
+      <div class="hint-reasoning">${sugg.reasoning || (sugg.score + '% match')}</div>
+      <div class="hint-compare">${_parcelCard(parcel)}${_candidateAccountCard(acct)}</div>
+      <div class="hint-actions">
+        <button class="btn btn-primary btn-sm" onclick="Hints.resolveRegridConfirm(${sugg.id})">Confirm match — link to "${acct.name || 'this account'}"</button>
+        <button class="btn btn-outline btn-sm" onclick="Hints.resolveRegridCreateAccount(${sugg.id})">Create as new account instead</button>
+        <button class="btn btn-ghost btn-sm" onclick="Hints.resolveDismiss(${sugg.id})">Not a match — dismiss</button>
       </div>`;
   }
 
@@ -272,11 +331,34 @@ const Hints = (() => {
       await API.post(`/suggestions/${suggestionId}/dismiss`, {});
       Toast.success('Dismissed');
       cache = cache.filter(s => s.id !== suggestionId);
+      regridCache = regridCache.filter(s => s.id !== suggestionId);
       _resolved({ suggestionId });
     } catch (e) { Toast.error(e.message); }
   }
 
-  return { load, forAccount, bulb, open, resolveMerge, resolveDismiss };
+  async function resolveRegridConfirm(suggestionId) {
+    try {
+      const result = await API.post(`/regrid/suggestions/${suggestionId}/confirm`, {});
+      Toast.success('Match confirmed');
+      regridCache = regridCache.filter(s => s.id !== suggestionId);
+      _resolved(result);
+    } catch (e) { Toast.error(e.message); }
+  }
+
+  async function resolveRegridCreateAccount(suggestionId) {
+    if (!confirm('Create a new account from this parcel\'s Regrid owner data?')) return;
+    try {
+      const result = await API.post(`/regrid/suggestions/${suggestionId}/create-account`, {});
+      Toast.success('New account created and linked');
+      regridCache = regridCache.filter(s => s.id !== suggestionId);
+      _resolved(result);
+    } catch (e) { Toast.error(e.message); }
+  }
+
+  return {
+    load, loadRegrid, forAccount, bulb, open,
+    resolveMerge, resolveDismiss, resolveRegridConfirm, resolveRegridCreateAccount,
+  };
 })();
 
 // ── Sidebar Active State ─────────────────────────────────────────

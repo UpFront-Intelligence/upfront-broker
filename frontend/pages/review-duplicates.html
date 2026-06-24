@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>UpFront Broker — Review Duplicates</title>
-  <link rel="stylesheet" href="/static/main.css?v=10">
+  <link rel="stylesheet" href="/static/main.css?v=11">
   <style>
     .dup-row {
       display:flex; justify-content:space-between; align-items:center; gap:16px;
@@ -12,6 +12,7 @@
     }
     .dup-names { font-size:13.5px; font-weight:500; color:var(--ink); }
     .dup-sub   { font-size:12px; color:var(--stone); margin-top:3px; }
+    .review-tabs { display:flex; gap:8px; margin-bottom:16px; }
   </style>
 </head>
 <body>
@@ -32,27 +33,43 @@
         <div class="page-sub" id="count-label">Loading…</div>
       </div>
     </div>
+    <div class="review-tabs">
+      <button class="btn btn-primary btn-sm" id="tab-duplicates" onclick="switchTab('duplicates')">Account Duplicates</button>
+      <button class="btn btn-outline btn-sm" id="tab-regrid" onclick="switchTab('regrid')">Regrid Hints</button>
+    </div>
     <div id="list"></div>
   </div>
 </div>
 
-<script src="/js/app.js?v=10"></script>
+<script src="/js/app.js?v=11"></script>
 <script>
   if (!Auth.requireAuth()) throw new Error('Not authenticated');
   renderSidebar('review-duplicates');
+
+  let activeTab = 'duplicates';
+
+  function switchTab(tab) {
+    activeTab = tab;
+    document.getElementById('tab-duplicates').className = 'btn btn-sm ' + (tab === 'duplicates' ? 'btn-primary' : 'btn-outline');
+    document.getElementById('tab-regrid').className = 'btn btn-sm ' + (tab === 'regrid' ? 'btn-primary' : 'btn-outline');
+    document.getElementById('btn-scan').style.display = tab === 'duplicates' ? '' : 'none';
+    loadList();
+  }
 
   async function loadList() {
     document.getElementById('list').innerHTML =
       `<div style="text-align:center;padding:40px"><div class="spinner"></div></div>`;
     let rows = [];
     try {
-      rows = await API.get('/suggestions/?status=new&suggestion_type=account_duplicate');
+      rows = activeTab === 'regrid'
+        ? await API.get('/suggestions/?status=new&suggestion_type=regrid_owner_match')
+        : await API.get('/suggestions/?status=new&suggestion_type=account_duplicate');
     } catch (e) {
       Toast.error('Failed to load: ' + e.message);
     }
     document.getElementById('count-label').textContent =
       `${rows.length} open suggestion${rows.length !== 1 ? 's' : ''}`;
-    renderList(rows);
+    activeTab === 'regrid' ? renderRegridList(rows) : renderList(rows);
   }
 
   function renderList(rows) {
@@ -71,6 +88,29 @@
         <div style="flex:1;min-width:0">
           <div class="dup-names">${ev.name_a || '—'} <span style="color:var(--stone-light)">⟷</span> ${ev.name_b || '—'}</div>
           <div class="dup-sub">${s.reasoning || ''} · ${ev.address_a || '—'} / ${ev.address_b || '—'}</div>
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="Hints.open(${s.id})">Review →</button>
+      </div>`;
+    }).join('');
+  }
+
+  function renderRegridList(rows) {
+    const el = document.getElementById('list');
+    if (!rows.length) {
+      el.innerHTML = `<div class="empty-state">
+        <div class="empty-icon">💡</div>
+        <div class="empty-title">No open Regrid hints</div>
+        <div class="empty-sub">Hints appear here after running a reconcile pass against ingested Regrid parcel data.</div>
+      </div>`;
+      return;
+    }
+    el.innerHTML = rows.map(s => {
+      const parcel = (s.evidence || {}).parcel || {};
+      const acct = (s.evidence || {}).candidate_account || {};
+      return `<div class="card dup-row">
+        <div style="flex:1;min-width:0">
+          <div class="dup-names">${parcel.owner_raw || '—'} <span style="color:var(--stone-light)">⟷</span> ${acct.name || '—'}</div>
+          <div class="dup-sub">${s.reasoning || ''} · ${parcel.address || '—'}, ${parcel.county || '—'} County</div>
         </div>
         <button class="btn btn-outline btn-sm" onclick="Hints.open(${s.id})">Review →</button>
       </div>`;

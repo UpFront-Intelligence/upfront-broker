@@ -1,0 +1,4 @@
+# Test-only deps — not part of the deployed app, so kept out of
+# requirements.txt (Render's buildCommand only installs that file).
+-r requirements.txt
+pytest>=8.0.0

@@ -65,7 +65,7 @@ The unified Search/Map page (`/pages/search.html`) is the primary lens onto this
 - **`render.yaml`** exists at the repo root and is the deploy config (buildCommand/startCommand/envVars), committed alongside `db_setup.py`. It was deleted once earlier in this project's history and then deliberately restored — if you're tempted to delete it again because an older note says it shouldn't exist, don't; check `git log -- render.yaml` first.
 - **Auto-deploy quirk:** the GitHub webhook occasionally stops firing silently. If a push doesn't trigger a deploy within a few minutes, use Manual Deploy → "Deploy latest commit" from the dashboard.
 - **Auto-migrate on deploy:** the start command runs `alembic upgrade head` before `uvicorn` starts. A silent two-line `INFO` output (no "Running upgrade ... -> ..." line) means there was nothing new to apply — that's success, not failure.
-- **Current migration head:** `81816f53fdda` (`add_property_category`) — 22 migrations total, linear chain, no branches. Verify with `alembic heads` if this drifts.
+- **Current migration head:** `432360b14f75` (`add_parcels_regrid`) — 23 migrations total, linear chain, no branches. Verify with `alembic heads` if this drifts.
 
 ## Design System
 
@@ -322,11 +322,12 @@ CHECK constraint `num_nonnulls(account_id, contact_id) = 1` enforces exactly one
 ### SUGGESTIONS (general "hint" substrate — lightbulb pattern)
 ```
 id, owner_id, suggestion_type (default "account_duplicate"),
-entity_id_a, entity_id_b (both FK → accounts.id, CASCADE),
+entity_id_a (FK → accounts.id, CASCADE, required),
+entity_id_b (FK → accounts.id, CASCADE, NULLABLE),
 score (Numeric 5,2), reasoning, evidence (JSON),
 status (new | dismissed | merged), created_at, resolved_at
 ```
-First and currently only producer: the account-duplicate scanner (`POST /api/accounts/scan-duplicates`, rapidfuzz `token_sort_ratio` on `normalized_name`, threshold **65** — constant `DUPLICATE_SCAN_THRESHOLD` in `routers/accounts.py`). `entity_id_a/b` are typed to `accounts.id` specifically for this producer; a future producer comparing other entity types (e.g. Regrid-vs-local-account reconciliation) will need its own columns or its own table — this one isn't generic across entity types yet, only generic across *reasons* a suggestion might exist for two accounts. Not documented in any earlier version of this file despite having a full UI (lightbulb icon on Accounts list/detail, "Review Duplicates" nav page).
+Two producers now: the account-duplicate scanner (`POST /api/accounts/scan-duplicates`, rapidfuzz `token_sort_ratio` on `normalized_name`, threshold **65** — constant `DUPLICATE_SCAN_THRESHOLD` in `routers/accounts.py`, both `entity_id_a`/`entity_id_b` populated), and the Regrid owner-match reconciler (`POST /api/regrid/reconcile`, `suggestion_type="regrid_owner_match"`, `entity_id_a` = candidate matched account, `entity_id_b` = **NULL** — the other side of that comparison is a `parcels_regrid` row, not an `accounts.id`, so it lives in `evidence.parcel_regrid_id`/`evidence.parcel` instead — see **PARCELS_REGRID** below). `entity_id_b` was made nullable (migration `432360b14f75`) specifically to support this second producer; an earlier version of this doc predicted this exact need before building it. `routers/suggestions.py`'s `dismiss_suggestion()` has one `suggestion_type`-specific side effect: for `regrid_owner_match`, it also flips the linked `parcels_regrid` row to `reconciliation_status='no_match'`. Confirm/create-account actions for that suggestion type live in `routers/regrid.py` instead (materially different business logic, not a fit for this generic router). UI: lightbulb icon on Accounts list/detail (account_duplicate only, via `Hints.bulb()`) and the "Review Duplicates" page, which now has two tabs (Account Duplicates / Regrid Hints) — see **PARCELS_REGRID**.
 
 ### COMPS
 ```
@@ -361,6 +362,41 @@ Indexes: sitezip5, name1, classcode
 301 → Industrial           302 → Industrial Condo
 101/102 → Agricultural     001/002/006 → Exempt
 ```
+
+### PARCELS_REGRID (multi-county Regrid reconciler — distinct from PARCELS above)
+```
+id, parcel_id (text, not null), owner_raw, owner_normalized,
+address, city, state, zip, county,
+geometry_wkt (raw WKT string — no PostGIS, deferred deliberately),
+raw_data (JSON — every Regrid column not pulled into a dedicated field above),
+ingested_at, source_county (text, not null),
+reconciliation_status (default 'pending': pending | auto_linked | suggested | no_match),
+matched_account_id (FK → accounts.id, SET NULL), matched_property_id (FK → properties.id, SET NULL)
+
+Indexes: owner_normalized, parcel_id, reconciliation_status
+Unique: (parcel_id, source_county)
+```
+Built **2026-06-24, entirely against synthetic data** — Regrid hasn't delivered a real county CSV yet (expected the following week; see **Regrid Status**). Everything below, especially the exact column-name guesses, needs verification the moment a real file lands — flagged explicitly rather than buried, per this file's maintenance rule.
+
+- **Why a second parcels table:** the existing `PARCELS` table above is Oakland-County-only with a fixed raw-SQL schema (Oakland's specific assessor export shape). Regrid ships one CSV per Michigan county (83 total) on its own ~191-column standardized schema — a structurally different shape, different source, different cadence. Reusing `PARCELS` would mean cramming a different schema into Oakland-specific columns; `parcels_regrid` is a clean SQLAlchemy model instead (migration `432360b14f75`).
+- **No `owner_id`** — same reasoning as `ENRICHMENT_CACHE` below and the legacy `PARCELS` table: raw parcel facts (owner name, address, geometry) are shared public-record reference data, the same regardless of which broker looks them up, not a per-broker entity.
+- **Full-schema retention via `raw_data` JSON:** ingestion (`backend/services/regrid.py: ingest_csv()`) never enumerates or hardcodes Regrid's ~191 columns. It pulls out only the matching-critical ones (below) into dedicated columns and dumps everything else into `raw_data` untouched, so nothing is lost and future enrichment/agent use can read any column without a schema change.
+- **Matching-critical column names** — confirmed where stated against Regrid's public schema docs (support.regrid.com/parcel-data/schema); their full schema spreadsheet 404'd when fetched for this build, so the long tail of ~191 names is unconfirmed. `_first_present()` in `services/regrid.py` tries each candidate in order, case-insensitively:
+  - `parcelnumb` — **CONFIRMED** (Regrid's primary parcel-number field).
+  - `keypin` — **NOT a Regrid field.** It's this app's own legacy `PARCELS` table's primary key column name. Kept only as a fallback because the original task spec named it explicitly. If `parcelnumb` is ever blank on a real row, Regrid's actual fallbacks are reportedly `parcelnumb_no_formatting` / `state_parcelnumb` / `account_number` / `tax_id` — **unconfirmed, verify against the first real county CSV.**
+  - `owner`, `address` — **CONFIRMED.**
+  - `city`/`scity`, `state`/`state2`, `zip`/`szip`, `county`/`county_name` — first name in each pair seen directly in Regrid's docs/API examples; the second is a same-doc-sourced fallback, not independently confirmed.
+  - `geometry`/`geom`/`wkt` — Regrid confirms WKT, EPSG:4326 is the geometry format; the literal CSV column name is unconfirmed.
+- **Ingestion is a streaming UPSERT**, keyed on `(parcel_id, source_county)`: reads the upload via the raw file handle (`UploadFile.file`, not `await file.read()`) wrapped in `io.TextIOWrapper` + `csv.DictReader`, so a multi-hundred-MB county file never has to fit in memory at once; commits every 500 rows. Re-running ingestion for a county (Regrid's quarterly-ish refresh) updates the raw columns on existing `(parcel_id, source_county)` rows in place — it deliberately never touches `reconciliation_status`/`matched_*_id`, so a refreshed file can't silently undo a confirmed match. A row missing both `parcelnumb` and `keypin` is skipped (collected in the response's `errors[]`, capped at 100 entries) since `parcel_id` is `NOT NULL`.
+- **Reconciliation is a separate step**, `POST /api/regrid/reconcile`, scoped to the calling owner's accounts/properties only (never another owner's — enforced via `owned_accounts_query()` / `Property.owner_id` filters, same as everywhere else in this app) and optionally to one `county`. Moderate decision thresholds, applied per pending row:
+  - owner-name `token_sort_ratio` (reusing the duplicate scanner's exact rapidfuzz approach, not a parallel implementation) **≥ 95** *and* the parcel's address normalize-matches an existing property (reusing `normalize_address()`, promoted from the property importer into `services/naming.py` alongside `normalize_name()` specifically so this and the importer share one real function instead of two copies) → **auto_linked**: sets `matched_account_id`/`matched_property_id`, and — mirroring the Public Record tab's existing behavior — sets `properties.recorded_owner_account_id` and fires `ensure_role(account, 'owner')`.
+  - owner score **≥ 65** (and not auto-linked) → **suggested**: writes a row to the existing `SUGGESTIONS` table (`suggestion_type="regrid_owner_match"`, see above) rather than a parallel table.
+  - otherwise → **no_match**. Optional `auto_create_accounts` flag (request body, **default `false`**) creates a fresh `Account` from the Regrid owner string instead of leaving the row stranded — defaults off so the first real run against an actual county doesn't flood the accounts table with one new account per unmatched parcel before anyone's reviewed the shape of the data.
+- **Known scaling gap, accepted deliberately for this pass:** reconciliation is an O(pending_rows × owner_accounts) nested loop — the exact same tradeoff `scan_duplicates` already accepts in this codebase (see that function's docstring in `routers/accounts.py`). Wayne County alone is several hundred thousand parcels; a full-county reconcile call against an owner with many accounts will be slow. Not addressed now — scope `reconcile` calls by `county` to keep each call bounded, same as before blocking/batching gets built.
+- **Known multi-tenant gap, accepted deliberately for this pass:** `matched_account_id`/`matched_property_id`/`reconciliation_status` are single columns on `parcels_regrid`, not owner-scoped (the table has no `owner_id` — see above). If this app ever has more than one `owner_id` reconciling against the *same* county's data, the first owner to resolve a row flips it out of `'pending'` and no other owner's `reconcile()` call will ever see that row again. Fine for this app's current solo-broker-per-deployment shape; would need an owner-scoped junction table (like `property_parties`, not a single FK column) to support more than one owner sharing the same ingested county data.
+- **Suggestion UI** — "Review Duplicates" page (`frontend/pages/review-duplicates.html`) now has two tabs: "Account Duplicates" (unchanged) and "Regrid Hints" (`suggestion_type=regrid_owner_match`). `frontend/js/app.js`'s `Hints` module is extended, not duplicated — `Hints.open()` branches on `suggestion_type` to render either the original two-account comparison or a parcel-vs-candidate-account comparison, reusing the same modal harness and `.hint-card`/`.hint-compare`/`.hint-actions` CSS. Three actions: "Confirm match" (`POST /api/regrid/suggestions/{id}/confirm` — applies the same link auto-link would have), "Create as new account instead" (`POST /api/regrid/suggestions/{id}/create-account`), "Not a match — dismiss" (reuses the existing generic `POST /api/suggestions/{id}/dismiss`, extended per the SUGGESTIONS note above).
+- **`merge_accounts`** (`routers/accounts.py`) now also re-points `parcels_regrid.matched_account_id` when merging two accounts — added to that function's hand-maintained FK list in the same commit that added the column, per this file's Coding Rules note on that function.
+- **Built and tested against synthetic data only**, ahead of real Regrid CSVs (see **Regrid Status**): `tests/fixtures/regrid_sample_wayne.csv` (generated by `scripts/generate_regrid_fixture.py`, not hand-edited — re-run that script if the row design needs to change) is 191 columns × 20 rows, designed and rapidfuzz-verified to produce exactly 5 `auto_linked` / 8 `suggested` / 7 `no_match` against five seeded test accounts/properties. `scripts/test_regrid_reconciler.py` is a one-shot, no-pytest-required runner (`python scripts/test_regrid_reconciler.py`) that seeds the test data, runs ingest→reconcile, prints the expected-vs-actual split, and cleans up after itself; `tests/test_regrid_reconciler.py` (pytest — first test suite in this repo, see `pytest.ini` and `backend/requirements-dev.txt`) imports and reuses that same `run_verification()` rather than re-seeding. Both run against the real `DATABASE_URL` (same convention as the one-off `scripts/backfill_*.py` files) — there is no SQLite/mock-DB indirection, so point `DATABASE_URL` at a local/dev database before running either. **Not independently executed this session** — built and statically verified (imports cleanly, routes register, pytest collects all 7 tests with zero import errors, FastAPI request-parsing for both endpoints verified directly, rapidfuzz score bands verified directly) on a sandbox with no local Postgres available; running them for real against a live database is the next step.
 
 ### ENRICHMENT_CACHE
 ```
@@ -421,6 +457,11 @@ portal_views:  id, portal_id (FK), email, section, viewed_at
                                           GET /geo-options?return_type=&field=&q= (geography typeahead)
 /api/suggestions                       — GET / (list); POST /{id}/dismiss
 /api/portfolio                         — /search — cross-silo intelligence queries
+/api/regrid                            — POST /ingest (multipart CSV + county, streaming UPSERT into
+                                          parcels_regrid); POST /reconcile (owner-scoped fuzzy match,
+                                          optional county/auto_create_accounts body); POST
+                                          /suggestions/{id}/confirm, POST /suggestions/{id}/create-account
+                                          — see PARCELS_REGRID in Data Model
 ```
 
 ### Query engine (`/api/query`)
@@ -451,7 +492,7 @@ The old **Records** section (Properties / Contacts / Accounts / Tenants / Deals 
 | Pipeline (engagements) | ✅ | Kanban by stage, drag-to-PUT, "+ New Engagement" with account/property typeahead + inline "create new property," listing-type "Set as recorded owner" checkbox |
 | Lists (marketing lists) | ✅ | List CRUD, bulk member add (accounts/contacts) |
 | Query | ✅ | Earlier general-purpose query/export tool, predates Search — still has its own nav entry, not yet folded into Search |
-| Review Duplicates | ✅ | Lightbulb-sourced account-duplicate suggestions, compare-and-merge popup |
+| Review Duplicates | ✅ | Two tabs: Account Duplicates (lightbulb-sourced, compare-and-merge popup) and Regrid Hints (`regrid_owner_match` suggestions — see PARCELS_REGRID) |
 | Properties / Contacts / Accounts / Tenants / Deals (list pages) | ✅ | Functional, reachable by URL/in-app links, no longer in primary nav |
 | Property Finder | ✅ | ZIP → local parcels table, circleMarker dots — kept separate from Search deliberately (parcel/public-record lookup is a different job than party/deal browsing) |
 | Portfolio Intelligence | ⚠️ | Built; not independently re-verified this session (no live DB available to exercise it) |
@@ -476,7 +517,7 @@ class RevalidateStaticFiles(StaticFiles):
 app.mount("/static", RevalidateStaticFiles(...), name="css")
 app.mount("/js",     RevalidateStaticFiles(...), name="js")
 ```
-Plus a single shared `?v=N` query bumped together across **every** page's `/js/app.js` and `/static/main.css` references whenever either shared asset changes — currently `?v=9`. `main.css`'s own internal `@import url('tokens.css?v=N')` is a second, independent counter — bump it too whenever `tokens.css`'s *content* changes (not just whenever the page-level counter bumps for an unrelated reason). Don't bump only the page you're editing; grep for the current version across `frontend/pages/*.html` and bump all of them in the same commit, or some pages will silently keep serving a stale shared asset. HTML routes themselves are served via explicit `FileResponse` with `_NO_CACHE` headers (`no-store, no-cache, must-revalidate, max-age=0`) — `StaticFiles` can't set per-response headers reliably, which is why HTML pages get dedicated routes instead of a mount.
+Plus a single shared `?v=N` query bumped together across **every** page's `/js/app.js` and `/static/main.css` references whenever either shared asset changes — currently `?v=11`. `main.css`'s own internal `@import url('tokens.css?v=N')` is a second, independent counter — bump it too whenever `tokens.css`'s *content* changes (not just whenever the page-level counter bumps for an unrelated reason). Don't bump only the page you're editing; grep for the current version across `frontend/pages/*.html` and bump all of them in the same commit, or some pages will silently keep serving a stale shared asset. HTML routes themselves are served via explicit `FileResponse` with `_NO_CACHE` headers (`no-store, no-cache, must-revalidate, max-age=0`) — `StaticFiles` can't set per-response headers reliably, which is why HTML pages get dedicated routes instead of a mount.
 
 ---
 
@@ -497,6 +538,9 @@ Plus a single shared `?v=N` query bumped together across **every** page's `/js/a
 - **Owner isolation on write, not just read:** validate any FK passed from the client belongs to the current owner before assignment. Established `_validate_account_links()` pattern in `routers/properties.py`; reuse it (or an equivalent owner-scoped lookup) anywhere a client-supplied ID gets assigned to a FK column.
 - **Generic, broker-invoked, attestation-logged:** the safe pattern for any feature touching potentially-IP-bearing content (brochure parser, future Chrome extension). No source-specific detection in code; surface warnings at the moment of action; log the user's choice. Same posture as Google Drive, Dropbox.
 - **Cache-busting is at the asset-URL level, not headers alone:** hard refresh bypasses browser cache but not all edge/proxy layers; the shared `?v=N` bump is the reliable fix, see **Frontend Asset Caching**.
+- **`PARCELS_REGRID` is not `PARCELS`:** the legacy Oakland-only raw-SQL table and the new multi-county Regrid SQLAlchemy table are deliberately separate (different schemas, different sources) — don't conflate them when extending either. See **PARCELS_REGRID** in Data Model.
+- **`normalize_address()` lives in `services/naming.py`** alongside `normalize_name()` — promoted there from a private helper in `routers/import_properties_parties.py` when the Regrid reconciler needed the exact same address normalization. If a third caller needs address normalization, import from `services/naming.py`; don't add a third copy.
+- **First test suite in this repo** — `tests/` (pytest, see `pytest.ini` + `backend/requirements-dev.txt`) and `scripts/test_regrid_reconciler.py` (no-pytest-required one-shot runner) both run against the real `DATABASE_URL`, same convention as the one-off `scripts/backfill_*.py` files — there is no SQLite/mock-DB test path anywhere in this app. Point `DATABASE_URL` at a local/dev database before running either.
 
 ---
 
@@ -506,7 +550,7 @@ Plus a single shared `?v=N` query bumped together across **every** page's `/js/a
 - **Refresh cadence:** "as available" — urban counties 4-6x/year, rural 1+x/year. Effectively quarterly-or-better on Metro Detroit.
 - **Awaiting:** paperwork from Luke + Jake, then CC payment
 - **Bonus:** Regrid CRO expressed inbound demand for what UpFront is building; partnership/referral conversation open for the future
-- **On arrival:** one-time reconciliation script — fuzzy-match Regrid owner names against `accounts.normalized_name` (owner-scoped), set `property.recorded_owner_account_id`, fire `ensure_role('owner')`. Schema already in place.
+- **On arrival:** the ingestion + reconciliation infrastructure is already built (2026-06-24, against synthetic data — see **PARCELS_REGRID** in Data Model) and ready to run the moment a real county CSV lands: `POST /api/regrid/ingest` (one call per county CSV) then `POST /api/regrid/reconcile` (owner-scoped fuzzy match, sets `recorded_owner_account_id` + fires `ensure_role('owner')` on auto-link). This superseded the earlier plan for a one-off backfill script — verify the column-name guesses flagged in PARCELS_REGRID against the first real file before trusting auto-link results.
 
 *(This section is business/relationship status, not derivable from code — not independently re-verified this session; update it directly when the status changes.)*
 

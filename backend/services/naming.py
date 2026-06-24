@@ -17,3 +17,8 @@ def normalize_name(name: str) -> str:
     n = re.sub(r"[^\w\s]", ' ', n)
     words = [w for w in n.split() if w not in STRIP_WORDS]
     return ' '.join(words) if words else n.strip()
+
+
+def normalize_address(addr: str) -> str:
+    a = re.sub(r"[^\w\s]", ' ', (addr or '').lower().strip())
+    return re.sub(r"\s+", ' ', a).strip()

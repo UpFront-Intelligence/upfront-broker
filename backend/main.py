@@ -10,7 +10,7 @@ class RevalidateStaticFiles(StaticFiles):
         resp.headers["Cache-Control"] = "no-cache, must-revalidate"
         return resp
 
-from routers import contacts, accounts, properties, deals, activities, documents, portal, comps, auth, imports, import_properties_parties, finder, portfolio, tenants, engagements, marketing_lists, query, suggestions
+from routers import contacts, accounts, properties, deals, activities, documents, portal, comps, auth, imports, import_properties_parties, finder, portfolio, tenants, engagements, marketing_lists, query, suggestions, regrid
 
 # Table creation is handled exclusively by Alembic (alembic upgrade head on startup).
 # create_all is intentionally absent — it conflicts with migration-managed schema.
@@ -45,6 +45,7 @@ app.include_router(engagements.router,      prefix="/api/engagements",      tags
 app.include_router(marketing_lists.router,  prefix="/api/marketing-lists",  tags=["marketing-lists"])
 app.include_router(query.router,            prefix="/api/query",            tags=["query"])
 app.include_router(suggestions.router,      prefix="/api/suggestions",      tags=["suggestions"])
+app.include_router(regrid.router,           prefix="/api/regrid",           tags=["regrid"])
 
 # ── Static assets (CSS + JS) — cacheable ─────────────────────────────────────
 frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend")

@@ -40,7 +40,7 @@ from models.property_party import PropertyParty
 from models.tenant import Tenant
 from models.property_tenant import PropertyTenant
 from auth_utils import get_current_user
-from services.naming import normalize_name
+from services.naming import normalize_name, normalize_address
 from services.accounts import ensure_role, owned_accounts_query
 from routers.imports import SYNONYMS, VALID_FIELDS, NUMERIC_FIELDS, _best_match, _coerce
 from routers.properties import _geocode
@@ -258,11 +258,6 @@ def _clean_zip5(raw: str) -> str:
     return digits[:5]
 
 
-def _normalize_address(addr: str) -> str:
-    a = re.sub(r"[^\w\s]", " ", (addr or "").lower().strip())
-    return re.sub(r"\s+", " ", a).strip()
-
-
 def _split_name(full: str):
     parts = (full or "").strip().split(" ", 1)
     if not parts[0]:
@@ -404,7 +399,7 @@ def _extract_row(row_values, headers, mapping):
 
 def _upsert_property(db, prop_fields, owner_id, existing_props, warnings, row_num, uncategorized_types):
     address = prop_fields.get("address")
-    norm_addr = _normalize_address(address)
+    norm_addr = normalize_address(address)
     prop = existing_props.get(norm_addr)
     created = False
     city, state = prop_fields.get("city", ""), prop_fields.get("state", "")
@@ -742,7 +737,7 @@ async def import_properties_with_parties(
             # stay valid after a per-row rollback — same session, so SQLAlchemy
             # just re-fetches expired attributes on next access.
             existing_props = {
-                _normalize_address(p.address): p
+                normalize_address(p.address): p
                 for p in db.query(Property).filter(Property.owner_id == owner_id).all()
             }
             existing_accounts = list(owned_accounts_query(db, owner_id).all())
