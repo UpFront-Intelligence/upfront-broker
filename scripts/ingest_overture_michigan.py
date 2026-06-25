@@ -49,7 +49,7 @@ Overture Places has 11 top-level category prefixes. Ingestion scope below:
 NOTE: the task spec also listed "health_and_medical" as a top-level category
 (for pharmacies). This does NOT exist as a top-level in Overture 2026 —
 pharmacies are under retail.pharmacy. If future Overture releases add a
-health_and_medical top-level, add it to INCLUDE_CATEGORIES below.
+health_and_medical top-level, add it to INCLUDE_TOP_LEVELS below.
 
 ==========================================================================
 SCHEMA ASSUMPTIONS — verify against first real ingest
@@ -532,7 +532,7 @@ def main():
                 brand_primary,
                 brand_norm,
                 name_primary,
-                cat_primary,
+                category_primary,
                 category_top,
                 address,
                 normalize_address(address) if address else None,   # address_normalized
