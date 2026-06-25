@@ -14,3 +14,5 @@ from models.engagement import Engagement
 from models.marketing_list import MarketingList, MarketingListMember
 from models.suggestion import Suggestion
 from models.parcel_regrid import ParcelRegrid
+from models.national_location import NationalLocation
+from models.property_national_location_link import PropertyNationalLocationLink

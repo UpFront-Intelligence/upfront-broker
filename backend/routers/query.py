@@ -14,11 +14,13 @@ from models.property_tenant import PropertyTenant
 from models.tenant import Tenant
 from models.deal import Deal
 from models.user import User
+from models.national_location import NationalLocation
+from models.property_national_location_link import PropertyNationalLocationLink
 from auth_utils import get_current_user
 
 router = APIRouter()
 
-VALID_RETURN_TYPES = {"contacts", "accounts", "properties", "tenants", "deals"}
+VALID_RETURN_TYPES = {"contacts", "accounts", "properties", "tenants", "deals", "national_locations"}
 
 
 # ── Request schema ────────────────────────────────────────────────
@@ -29,10 +31,12 @@ class QuerySpec(BaseModel):
     account:         dict[str, Any] = Field(default_factory=dict)
     property_filter: dict[str, Any] = Field(default_factory=dict, alias="property")
     tenant:          dict[str, Any] = Field(default_factory=dict)
+    location:        dict[str, Any] = Field(default_factory=dict)
     # Multi-select geography — applies to the property's own location for
     # Properties/Tenants/Deals, or the entity's own city/state for
     # Accounts/Contacts (neither has a county column, so county is ignored
-    # for those two return types).
+    # for those two return types). For national_locations applies to the
+    # location's own city/state.
     geography:       dict[str, Any] = Field(default_factory=dict)
     ownership: str = "recorded"
     limit:     int = 200
@@ -122,6 +126,10 @@ def _apply_geography_filter(q, spec: QuerySpec, ret: str):
     elif ret == "contacts":
         if cities: q = q.filter(Contact.city.in_(cities))
         if states: q = q.filter(Contact.state.in_(states))
+    elif ret == "national_locations":
+        if cities:  q = q.filter(NationalLocation.city.in_(cities))
+        if states:  q = q.filter(NationalLocation.state.in_(states))
+        # no county column on national_locations; silently ignored if passed
     return q
 
 
@@ -441,6 +449,77 @@ def _run_query(spec: QuerySpec, owner_id: int, db: Session) -> dict:
             for r in rows
         ]
 
+    # ── NATIONAL LOCATIONS ────────────────────────────────────────
+    # Shared reference data (no owner_id). 'In your book' flag comes from
+    # the property_national_location_links junction — a subquery scoped to
+    # the calling broker's properties is cheaper than a left join on a
+    # potentially large table.
+    elif ret == "national_locations":
+        lf = spec.location
+        q = db.query(
+            NationalLocation.id,
+            NationalLocation.overture_id,
+            NationalLocation.brand_primary,
+            NationalLocation.name_primary,
+            NationalLocation.category_primary,
+            NationalLocation.category_top,
+            NationalLocation.address,
+            NationalLocation.city,
+            NationalLocation.state,
+            NationalLocation.zip,
+            NationalLocation.lat,
+            NationalLocation.lng,
+            NationalLocation.confidence,
+        )
+
+        if "brand" in lf:
+            from services.naming import normalize_name
+            norm = normalize_name(_contains(lf["brand"]))
+            q = q.filter(NationalLocation.brand_normalized.ilike(f"%{norm}%"))
+        if "category" in lf:
+            q = q.filter(NationalLocation.category_top == lf["category"])
+
+        q = _apply_geography_filter(q, spec, ret)
+
+        total = q.with_entities(func.count(func.distinct(NationalLocation.id))).scalar() or 0
+        rows  = q.distinct().offset(spec.offset).limit(spec.limit).all()
+
+        # Batch 'in your book' check: which of these location IDs have a link
+        # to any property this broker owns?
+        location_ids = [r.id for r in rows]
+        if location_ids:
+            linked_set = {
+                r[0] for r in
+                db.query(PropertyNationalLocationLink.national_location_id)
+                .join(Property, and_(Property.id == PropertyNationalLocationLink.property_id,
+                                     Property.owner_id == owner_id))
+                .filter(PropertyNationalLocationLink.national_location_id.in_(location_ids))
+                .all()
+            }
+        else:
+            linked_set = set()
+
+        items = [
+            {
+                "id":               r.id,
+                "type":             "national_location",
+                "display_name":     r.brand_primary or r.name_primary or f"Location #{r.id}",
+                "brand_primary":    r.brand_primary,
+                "name_primary":     r.name_primary,
+                "category_primary": r.category_primary,
+                "category_top":     r.category_top,
+                "address":          r.address,
+                "city":             r.city,
+                "state":            r.state,
+                "zip":              r.zip,
+                "lat":              float(r.lat)  if r.lat  is not None else None,
+                "lng":              float(r.lng)  if r.lng  is not None else None,
+                "confidence":       float(r.confidence) if r.confidence is not None else None,
+                "in_your_book":     r.id in linked_set,
+            }
+            for r in rows
+        ]
+
     else:
         raise HTTPException(
             status_code=422,
@@ -467,6 +546,10 @@ _GEO_FIELD_SOURCE = {
     ("deals", "state"): Property.state,
     ("accounts", "city"): Account.city, ("accounts", "state"): Account.state,
     ("contacts", "city"): Contact.city, ("contacts", "state"): Contact.state,
+    ("national_locations", "city"):         NationalLocation.city,
+    ("national_locations", "state"):        NationalLocation.state,
+    ("national_locations", "brand"):        NationalLocation.brand_primary,
+    ("national_locations", "category_top"): NationalLocation.category_top,
 }
 
 
@@ -483,13 +566,20 @@ def geo_options(
     col = _GEO_FIELD_SOURCE.get((return_type, field))
     if col is None:
         return []
-    owner_col = {
-        "properties": Property.owner_id, "tenants": Property.owner_id,
-        "deals": Property.owner_id, "accounts": Account.owner_id,
-        "contacts": Contact.owner_id,
-    }[return_type]
 
-    query = db.query(col).filter(owner_col == current_user.id, col.isnot(None), col != "")
+    query = db.query(col).filter(col.isnot(None), col != "")
+
+    # national_locations has no owner_id — shared reference data.
+    # All other return types filter to the calling broker's rows.
+    if return_type != "national_locations":
+        owner_col = {
+            "properties": Property.owner_id, "tenants": Property.owner_id,
+            "deals": Property.owner_id, "accounts": Account.owner_id,
+            "contacts": Contact.owner_id,
+        }.get(return_type)
+        if owner_col is not None:
+            query = query.filter(owner_col == current_user.id)
+
     if q.strip():
         query = query.filter(col.ilike(f"%{q.strip()}%"))
     rows = query.distinct().order_by(col).limit(10).all()

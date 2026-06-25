@@ -86,6 +86,7 @@
           <option value="contacts">Contacts</option>
           <option value="tenants">Tenants</option>
           <option value="deals">Deals</option>
+          <option value="national_locations">Locations</option>
         </select>
       </div>
 
@@ -127,6 +128,23 @@
       <div class="f-group" id="g-role">
         <span class="f-label">Role</span>
         <div class="role-chips" id="role-chips"></div>
+      </div>
+
+      <div class="f-group" id="g-brand" style="display:none">
+        <span class="f-label">Brand</span>
+        <input class="f-input" id="f-brand" placeholder="e.g. Starbucks…" autocomplete="off" style="width:140px" oninput="debouncedSearch()">
+      </div>
+
+      <div class="f-group" id="g-category" style="display:none">
+        <span class="f-label">Category</span>
+        <select class="f-sel" id="f-category" onchange="runSearch()">
+          <option value="">All categories</option>
+          <option value="eat_and_drink">Eat &amp; Drink</option>
+          <option value="retail">Retail</option>
+          <option value="automotive">Automotive</option>
+          <option value="beauty_and_spa">Beauty &amp; Spa</option>
+          <option value="financial_service">Financial Services</option>
+        </select>
       </div>
     </div>
 
@@ -173,11 +191,12 @@
   let searchTimer = null;
 
   const RETURN_FIELDS = {
-    properties: ['prop-type', 'size', 'price'],
-    accounts:   ['role'],
-    contacts:   [],
-    tenants:    ['prop-type'],
-    deals:      ['prop-type'],
+    properties:         ['prop-type', 'size', 'price'],
+    accounts:           ['role'],
+    contacts:           [],
+    tenants:            ['prop-type'],
+    deals:              ['prop-type'],
+    national_locations: ['brand', 'category'],
   };
 
   function cssVar(name) {
@@ -210,6 +229,12 @@
         if (item.lat != null && item.lng != null) {
           pins.push({ rowIdx: idx, lat: item.lat, lng: item.lng, label: item.display_name });
         }
+      } else if (currentReturn === 'national_locations') {
+        if (item.lat != null && item.lng != null) {
+          const label = (item.brand_primary || item.name_primary || '') +
+            (item.address ? ' — ' + item.address : '');
+          pins.push({ rowIdx: idx, lat: item.lat, lng: item.lng, label });
+        }
       } else {
         if (item.lat != null && item.lng != null) {
           pins.push({ rowIdx: idx, lat: item.lat, lng: item.lng, label: item.display_name + ' (office)' });
@@ -232,10 +257,12 @@
     markersByRow = {};
 
     const accent = cssVar('--accent') || '#1F5E52';
+    const amber  = cssVar('--dataviz-amber') || '#A8702E';
+    const pinColor = currentReturn === 'national_locations' ? amber : accent;
     const pins = buildPins(items);
     pins.forEach(p => {
       const marker = L.circleMarker([p.lat, p.lng], {
-        radius: 7, fillColor: accent, color: '#fff', weight: 1.5, opacity: 1, fillOpacity: 0.85,
+        radius: 7, fillColor: pinColor, color: '#fff', weight: 1.5, opacity: 1, fillOpacity: 0.85,
       });
       marker.bindTooltip(p.label, { direction: 'top', offset: [0, -4] });
       marker.on('click', () => goToDetail(items[p.rowIdx]));
@@ -266,6 +293,8 @@
     document.getElementById('g-size').style.display       = visible.includes('size')      ? '' : 'none';
     document.getElementById('g-price').style.display      = visible.includes('price')     ? '' : 'none';
     document.getElementById('g-role').style.display       = visible.includes('role')      ? '' : 'none';
+    document.getElementById('g-brand').style.display      = visible.includes('brand')     ? '' : 'none';
+    document.getElementById('g-category').style.display   = visible.includes('category')  ? '' : 'none';
   }
 
   // User changing the Records dropdown — geography/role filters don't carry
@@ -278,6 +307,8 @@
     activeRoles = new Set();
     renderRoleChips();
     renderGeoChips();
+    document.getElementById('f-brand').value = '';
+    document.getElementById('f-category').value = '';
     runSearch();
   }
 
@@ -298,6 +329,10 @@
     const priceMax = document.getElementById('f-price-max').value.trim();
     if (priceMax) p.set('price_max', priceMax);
     [...activeRoles].forEach(r => p.append('role', r));
+    const brand = document.getElementById('f-brand').value.trim();
+    if (brand) p.set('brand', brand);
+    const cat = document.getElementById('f-category').value;
+    if (cat) p.set('category', cat);
     return p;
   }
 
@@ -307,7 +342,7 @@
     if (![...p.keys()].length) return false;
 
     const ret = p.get('return');
-    if (ret && RETURN_FIELDS[ret]) {
+    if (ret && (RETURN_FIELDS[ret] !== undefined)) {
       currentReturn = ret;
       document.getElementById('f-return').value = ret;
     }
@@ -324,6 +359,8 @@
     restoreInput('f-sf-max', 'sf_max');
     restoreInput('f-price-min', 'price_min');
     restoreInput('f-price-max', 'price_max');
+    restoreInput('f-brand',    'brand');
+    restoreInput('f-category', 'category');
     p.getAll('role').forEach(r => activeRoles.add(r));
     return true;
   }
@@ -338,7 +375,8 @@
   // ── Geography chips (typeahead) ──────────────────────────────────
   const geoInput = document.getElementById('f-geo-input');
   Typeahead.attach(geoInput, async (q) => {
-    const fields = (currentReturn === 'accounts' || currentReturn === 'contacts') ? ['city', 'state'] : ['city', 'county', 'state'];
+    const fields = (currentReturn === 'accounts' || currentReturn === 'contacts' || currentReturn === 'national_locations')
+      ? ['city', 'state'] : ['city', 'county', 'state'];
     const results = await Promise.all(fields.map(f =>
       API.get(`/query/geo-options?return_type=${currentReturn}&field=${f}&q=${encodeURIComponent(q)}`)
         .then(vals => vals.map(v => ({ value: v, field: f })))
@@ -404,6 +442,15 @@
 
     if (activeRoles.size) spec.account = { roles: [...activeRoles] };
 
+    if (currentReturn === 'national_locations') {
+      const brand = document.getElementById('f-brand').value.trim();
+      const cat   = document.getElementById('f-category').value;
+      const lf = {};
+      if (brand) lf.brand = brand;
+      if (cat)   lf.category = cat;
+      if (Object.keys(lf).length) spec.location = lf;
+    }
+
     return spec;
   }
 
@@ -461,6 +508,15 @@
       { key: 'stage',        label: 'Stage',    render: r => esc(r.stage || '—') },
       { key: 'deal_type',    label: 'Type',     render: r => esc(r.deal_type || '—') },
       { key: 'address',      label: 'Property', render: r => esc((r.linked_properties||[])[0]?.address || '—') },
+    ],
+    national_locations: [
+      { key: 'brand_primary', label: 'Brand',    render: r => esc(r.brand_primary || r.name_primary || '—') },
+      { key: 'name_primary',  label: 'Name',     render: r => esc(r.name_primary || '—') },
+      { key: 'address',       label: 'Address',  render: r => esc(r.address || '—') },
+      { key: 'city',          label: 'City',     render: r => esc(r.city || '—') },
+      { key: 'category_top',  label: 'Category', render: r => esc((r.category_top || '—').replace(/_/g, ' ')) },
+      { key: 'in_your_book',  label: 'Your book',render: r => r.in_your_book
+          ? `<span style="color:var(--accent);font-weight:600">✓ In book</span>` : '' },
     ],
   };
 

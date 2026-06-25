@@ -2,3 +2,4 @@
 # requirements.txt (Render's buildCommand only installs that file).
 -r requirements.txt
 pytest>=8.0.0
+duckdb>=1.1.0
