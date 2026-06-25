@@ -123,6 +123,11 @@ def normalize_name(name: str) -> str:
     return _nn(name)
 
 
+def normalize_address(addr: str) -> str:
+    from services.naming import normalize_address as _na
+    return _na(addr)
+
+
 def get_db_url() -> str:
     url = os.getenv("DATABASE_URL", "")
     if not url:
@@ -228,26 +233,28 @@ def _clamp_confidence(val):
 UPSERT_SQL = """
 INSERT INTO national_locations
   (overture_id, brand_primary, brand_normalized, name_primary,
-   category_primary, category_top, address, city, state, zip,
-   lat, lng, websites, phones, confidence, raw_data, release_version)
+   category_primary, category_top, address, address_normalized,
+   city, state, zip, lat, lng, websites, phones, confidence,
+   raw_data, release_version)
 VALUES %s
 ON CONFLICT (overture_id) DO UPDATE SET
-  brand_primary    = EXCLUDED.brand_primary,
-  brand_normalized = EXCLUDED.brand_normalized,
-  name_primary     = EXCLUDED.name_primary,
-  category_primary = EXCLUDED.category_primary,
-  category_top     = EXCLUDED.category_top,
-  address          = EXCLUDED.address,
-  city             = EXCLUDED.city,
-  state            = EXCLUDED.state,
-  zip              = EXCLUDED.zip,
-  lat              = EXCLUDED.lat,
-  lng              = EXCLUDED.lng,
-  websites         = EXCLUDED.websites,
-  phones           = EXCLUDED.phones,
-  confidence       = EXCLUDED.confidence,
-  raw_data         = EXCLUDED.raw_data,
-  release_version  = EXCLUDED.release_version
+  brand_primary      = EXCLUDED.brand_primary,
+  brand_normalized   = EXCLUDED.brand_normalized,
+  name_primary       = EXCLUDED.name_primary,
+  category_primary   = EXCLUDED.category_primary,
+  category_top       = EXCLUDED.category_top,
+  address            = EXCLUDED.address,
+  address_normalized = EXCLUDED.address_normalized,
+  city               = EXCLUDED.city,
+  state              = EXCLUDED.state,
+  zip                = EXCLUDED.zip,
+  lat                = EXCLUDED.lat,
+  lng                = EXCLUDED.lng,
+  websites           = EXCLUDED.websites,
+  phones             = EXCLUDED.phones,
+  confidence         = EXCLUDED.confidence,
+  raw_data           = EXCLUDED.raw_data,
+  release_version    = EXCLUDED.release_version
 """
 
 
@@ -461,6 +468,7 @@ def main():
                 cat_primary,
                 category_top,
                 address,
+                normalize_address(address) if address else None,   # address_normalized
                 city,
                 state,
                 zip_code,

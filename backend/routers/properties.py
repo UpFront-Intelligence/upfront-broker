@@ -12,6 +12,7 @@ from models.user import User
 from auth_utils import get_current_user
 from services.accounts import ensure_role
 from services.property_category import categorize_property_type
+from services.national_locations import link_property_to_national_locations
 
 
 # Oakland County CLASSCODE -> this app's CRE property_type (PROP_TYPES on
@@ -299,6 +300,8 @@ def create_property(
             prop.lat, prop.lng = lat, lng
             db.commit()
             db.refresh(prop)
+    link_property_to_national_locations(db, prop)
+    db.commit()
     return prop
 
 @router.get("/{property_id}", response_model=PropertyResponse)
@@ -344,6 +347,8 @@ def update_property(
             prop.lat, prop.lng = lat, lng
             db.commit()
             db.refresh(prop)
+        link_property_to_national_locations(db, prop)
+        db.commit()
     return prop
 
 @router.post("/{property_id}/attach-parcel", response_model=PropertyResponse)
@@ -390,6 +395,7 @@ def attach_parcel(
     if not prop.zip and row.sitezip5:
         prop.zip = row.sitezip5
 
+    link_property_to_national_locations(db, prop)
     db.commit()
     db.refresh(prop)
     return prop

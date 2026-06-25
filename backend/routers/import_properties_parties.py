@@ -41,6 +41,7 @@ from models.tenant import Tenant
 from models.property_tenant import PropertyTenant
 from auth_utils import get_current_user
 from services.naming import normalize_name, normalize_address
+from services.national_locations import link_property_to_national_locations
 from services.accounts import ensure_role, owned_accounts_query
 from routers.imports import SYNONYMS, VALID_FIELDS, NUMERIC_FIELDS, _best_match, _coerce
 from routers.properties import _geocode
@@ -437,7 +438,8 @@ def _upsert_property(db, prop_fields, owner_id, existing_props, warnings, row_nu
         if lat is not None:
             prop.lat, prop.lng = lat, lng
 
-    db.flush()
+    db.flush()   # assigns prop.id for new rows before link_property_to_national_locations
+    link_property_to_national_locations(db, prop)
     existing_props[norm_addr] = prop
     return prop, created
 

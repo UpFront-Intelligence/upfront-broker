@@ -25,6 +25,7 @@ from models.tenant import Tenant
 from models.shared import Comp
 from auth_utils import get_current_user
 from services.naming import normalize_name
+from services.national_locations import link_property_to_national_locations
 from services.accounts import ensure_role, owned_accounts_query
 from routers.contacts import _resync_legacy_phone
 from routers.properties import _geocode
@@ -1531,6 +1532,7 @@ async def execute_import(
                     lat, lng = _geocode(prop.address, prop.city, prop.state)
                     if lat is not None:
                         prop.lat, prop.lng = lat, lng
+                link_property_to_national_locations(db, prop)
 
                 # ── Linked Account + Contact (role-aware) ───────────
                 acct, _contact, warns = _link_account_and_contact(

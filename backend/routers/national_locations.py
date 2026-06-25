@@ -78,7 +78,7 @@ def in_bbox(
 
 # ── Property linking ─────────────────────────────────────────────────────────
 
-@router.post("/link-to-my-properties")
+@router.post("/link-to-my-properties")  # admin/backfill utility — no UI button
 def link_to_my_properties(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),

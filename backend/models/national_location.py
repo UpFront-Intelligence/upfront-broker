@@ -26,10 +26,11 @@ class NationalLocation(Base):
     category_primary = Column(Text, nullable=True)
     category_top     = Column(Text, nullable=True, index=True)
 
-    address          = Column(Text, nullable=True)
-    city             = Column(Text, nullable=True)
-    state            = Column(Text, nullable=True)
-    zip              = Column(Text, nullable=True)
+    address            = Column(Text, nullable=True)
+    address_normalized = Column(Text, nullable=True, index=True)
+    city               = Column(Text, nullable=True)
+    state              = Column(Text, nullable=True)
+    zip                = Column(Text, nullable=True)
 
     lat              = Column(Numeric(9, 6), nullable=True)
     lng              = Column(Numeric(9, 6), nullable=True)
