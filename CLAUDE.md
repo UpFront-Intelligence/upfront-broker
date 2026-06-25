@@ -19,7 +19,7 @@
 
 ## What This Is
 
-B2B CRE broker intelligence platform for independent commercial real estate brokers in Metro Detroit. Solo-agent, IC-first — broker owns their data, fully portable. Live at **upfront-broker.onrender.com**.
+B2B CRE broker intelligence platform for independent commercial real estate brokers in Metro Detroit. Solo-agent, IC-first — broker owns their data, fully portable. Live at **upfront-broker-bn4d.onrender.com**.
 
 > NOT a property database. Brokers have CoStar for that.
 > This is a BROKER INTELLIGENCE PLATFORM: know who owns what, find the human behind the LLC, stay ahead of transactions, build targeted buyer outreach.
