@@ -86,22 +86,78 @@ import psycopg2
 import psycopg2.extras
 
 # ── Scope ──────────────────────────────────────────────────────────────────────
+# Filtering uses taxonomy.hierarchy[1] (the top-level Overture taxonomy node,
+# 1-based in DuckDB SQL), NOT categories.primary (which is the leaf node and
+# has no dot-path structure — confirmed from live data 2026-06-17.0).
+#
+# CONFIRMED Overture 2026 top-level taxonomy names (verified against live data):
+#   food_and_drink        — restaurants, cafes, bars, coffee shops, fast food
+#   shopping              — retail stores, pharmacies (specialty_store > pharmacy),
+#                           grocery, clothing, auto parts, discount stores
+#   travel_and_transportation — gas stations, repair shops, car washes, parking
+#   lifestyle_services    — beauty salons, hair salons, nail salons, spas, barbers
+#   services_and_business — banks, ATMs, insurance, financial services, offices;
+#                           sub-filtered by SERVICES_BUSINESS_LEAVES below because
+#                           this top-level is enormous (~70K Wayne Co. rows total)
+#                           and includes many non-CRE-relevant categories.
+#
+# NOT included (too noisy or out of scope for CRE broker use):
+#   health_care           — doctors, dentists, hospitals (pharmacies already in shopping)
+#   cultural_and_historic — museums, historic sites
+#   sports_and_recreation — gyms, parks, stadiums
+#   community_and_government — churches, community centers, government offices
+#   education             — schools, universities
+#   arts_and_entertainment — theaters, galleries
+#   lodging               — hotels, motels
+#   geographic_entities   — geographic areas, not places
 
-INCLUDE_CATEGORIES = {
-    "eat_and_drink",
-    "retail",
-    "automotive",
-    "beauty_and_spa",
-    "financial_service",
+INCLUDE_TOP_LEVELS = {
+    "food_and_drink",
+    "shopping",
+    "travel_and_transportation",
+    "lifestyle_services",
+    "services_and_business",   # sub-filtered below
 }
 
-EXCLUDE_CATEGORIES = {
-    "accommodation",
-    "arts_and_entertainment",
-    "attractions_and_activities",
-    "active_life",
-    "education",
-    "private_establishments_and_corporates",
+# services_and_business sub-filter — only leaf categories (categories.primary)
+# with clear CRE-tenant relevance (physical storefront or office presence).
+# Confirmed against live Wayne County data 2026-06-25. Excluded from this list:
+#   real_estate_agent/real_estate (4,920 + 1,387) — individual agents, not offices
+#   lawyer/legal_services — solo attorneys, not law firm storefronts
+#   professional_services — catch-all with too much noise (photographers, etc.)
+#   accountant — individual-heavy; tax_services already captures chains (H&R Block)
+#   courier_and_delivery_services — fleet/gig addresses; UPS Store/FedEx covered by shipping_center
+#   coworking_space — mislabeled in Overture data (law firms tagged as coworking)
+#   marketing/advertising/software/IT agencies — non-retail office services
+SERVICES_BUSINESS_LEAVES = {
+    # Banking & ATMs
+    "atms", "bank_credit_union", "banks", "credit_union",
+    # Finance — physical office/storefront presence
+    "money_transfer_services",   # Western Union, MoneyGram
+    "financial_service",         # generic catch-all: Edward Jones, advisors, etc.
+    "financial_advising",        # wealth management offices
+    "insurance_agency",          # Allstate, State Farm
+    "tax_services",              # H&R Block, Liberty Tax, Jackson Hewitt
+    "mortgage_broker",
+    "mortgage_lender",
+    "check_cashing_payday_loans",
+    "installment_loans",         # OneMain Financial, Advance America
+    # Shipping & Storage
+    "post_office",
+    "shipping_center",           # UPS Store, FedEx Office
+    "package_locker",
+    "self_storage_facility",
+    "storage_facility",
+    # Personal services
+    "laundromat",
+    "dry_cleaning",
+    # Vehicle rentals
+    "car_rental_agency",
+    "rental_kiosks",
+    # Office-tenant professional services
+    "employment_agencies",       # staffing firms: OfficeTeam, JVS
+    "commercial_real_estate",    # CRE firms and offices (not individual agents)
+    "property_management",
 }
 
 # Michigan bounding box (intentionally slightly larger than actual MI extent;
@@ -113,8 +169,9 @@ MICHIGAN_BBOX = {
     "ymax": 48.5,
 }
 
-BATCH_SIZE = int(os.getenv("BATCH_SIZE", "1000"))
-DRY_RUN    = os.getenv("DRY_RUN", "") == "1"
+BATCH_SIZE             = int(os.getenv("BATCH_SIZE", "1000"))
+DRY_RUN                = os.getenv("DRY_RUN", "") == "1"
+TRUNCATE_BEFORE_INGEST = os.getenv("TRUNCATE_BEFORE_INGEST", "") == "1"
 
 # ── Helpers ─────────────────────────────────────────────────────────────────────
 
@@ -269,40 +326,36 @@ SET s3_region = 'us-west-2';
 """
 
 def _build_query(release: str) -> str:
-    # bbox predicate pushes down into Parquet row-group min/max statistics,
-    # dramatically reducing S3 data scanned. addresses[1].region = 'MI' and
-    # the category ILIKE filters are evaluated post-decode but still in DuckDB
-    # before rows reach Python.
-    include_like = " OR\n      ".join(
-        f"categories.primary ILIKE '{cat}%'" for cat in sorted(INCLUDE_CATEGORIES)
-    )
     s3_path = (
         f"s3://overturemaps-us-west-2/release/{release}/"
         "theme=places/type=place/*"
     )
-    # We extract the structured scalar fields we need explicitly; raw_data is
-    # built in Python from these extracted values so we avoid DuckDB json_object()
-    # complexity with complex nested types. geometry (WKB binary) is excluded from
-    # raw_data since lat/lng are already in dedicated columns.
+    # bbox predicate pushes down into Parquet row-group min/max statistics —
+    # dramatically reduces S3 data scanned before addresses/taxonomy are decoded.
+    # taxonomy.hierarchy[1] is the actual top-level Overture category (1-based in
+    # DuckDB SQL). categories.primary is the leaf node and has no dot-path
+    # structure — the broken ILIKE 'eat_and_drink%' pattern has been removed.
+    top_levels_sql = ", ".join(f"'{t}'" for t in sorted(INCLUDE_TOP_LEVELS - {"services_and_business"}))
+    svc_leaves_sql = ", ".join(f"'{l}'" for l in sorted(SERVICES_BUSINESS_LEAVES))
     return f"""
 SELECT
-    id                              AS overture_id,
-    names.primary                   AS name_primary,
-    TRY(brand.names.primary)        AS brand_primary,
-    TRY(brand.wikidata)             AS brand_wikidata,
-    categories.primary              AS category_primary,
-    TRY(categories.alternate)       AS category_alternate,
-    TRY(addresses[1].freeform)      AS address,
-    TRY(addresses[1].locality)      AS city,
-    TRY(addresses[1].region)        AS state,
-    TRY(addresses[1].postcode)      AS zip_code,
-    TRY(addresses[1].country)       AS country,
-    TRY(CAST(ST_Y(geometry) AS DOUBLE)) AS lat,
-    TRY(CAST(ST_X(geometry) AS DOUBLE)) AS lng,
+    id                                   AS overture_id,
+    names.primary                        AS name_primary,
+    TRY(brand.names.primary)             AS brand_primary,
+    TRY(brand.wikidata)                  AS brand_wikidata,
+    categories.primary                   AS category_primary,
+    TRY(taxonomy.hierarchy[1])           AS category_top,
+    TRY(addresses[1].freeform)           AS address,
+    TRY(addresses[1].locality)           AS city,
+    TRY(addresses[1].region)             AS state,
+    TRY(addresses[1].postcode)           AS zip_code,
+    TRY(addresses[1].country)            AS country,
+    TRY(CAST(ST_Y(geometry) AS DOUBLE))  AS lat,
+    TRY(CAST(ST_X(geometry) AS DOUBLE))  AS lng,
     websites,
     phones,
     confidence,
-    TRY(operating_status)           AS operating_status,
+    TRY(operating_status)                AS operating_status,
     version
 FROM read_parquet('{s3_path}', filename=true, hive_partitioning=1)
 WHERE
@@ -311,7 +364,13 @@ WHERE
     AND bbox.ymin >= {MICHIGAN_BBOX['ymin']}
     AND bbox.ymax <= {MICHIGAN_BBOX['ymax']}
     AND TRY(addresses[1].region) = 'MI'
-    AND ({include_like})
+    AND (
+        TRY(taxonomy.hierarchy[1]) IN ({top_levels_sql})
+        OR (
+            TRY(taxonomy.hierarchy[1]) = 'services_and_business'
+            AND categories.primary IN ({svc_leaves_sql})
+        )
+    )
 """
 
 
@@ -341,7 +400,8 @@ def main():
 
     print(f"\nRelease:   {release}")
     print(f"Scope:     Michigan (bbox + addresses[1].region = 'MI')")
-    print(f"Categories: {', '.join(sorted(INCLUDE_CATEGORIES))}\n")
+    print(f"Top-levels: {', '.join(sorted(INCLUDE_TOP_LEVELS))}")
+    print(f"Truncate:   {'YES — will TRUNCATE national_locations first' if TRUNCATE_BEFORE_INGEST else 'no'}\n")
 
     try:
         import duckdb
@@ -352,6 +412,18 @@ def main():
         )
 
     query = _build_query(release)
+
+    # Open Postgres connection early so TRUNCATE (if requested) runs before
+    # DuckDB starts streaming — avoids ingesting into a partially-populated table.
+    conn = None if DRY_RUN else psycopg2.connect(db_url)
+    if conn:
+        conn.autocommit = False
+        pg = conn.cursor()
+        if TRUNCATE_BEFORE_INGEST:
+            print("TRUNCATING national_locations (TRUNCATE_BEFORE_INGEST=1)…")
+            pg.execute("TRUNCATE TABLE national_locations RESTART IDENTITY CASCADE")
+            conn.commit()
+            print("Truncated.\n")
 
     print("Connecting to DuckDB + S3…")
     duck = duckdb.connect()
@@ -371,15 +443,10 @@ def main():
     if DRY_RUN:
         print("DRY RUN — reading rows but not writing to database.\n")
 
-    conn = psycopg2.connect(db_url) if not DRY_RUN else None
-    if conn:
-        conn.autocommit = False
-        pg = conn.cursor()
-
     rows_seen = rows_ingested = rows_updated = rows_skipped = 0
     brand_counter    = Counter()
     category_counter = Counter()
-    batch = []
+    batch            = []
 
     def flush(batch, final=False):
         nonlocal rows_ingested, rows_updated
@@ -404,21 +471,18 @@ def main():
             rows_seen += 1
             (
                 overture_id, name_primary, brand_primary, brand_wikidata,
-                category_primary, category_alternate,
+                category_primary, category_top,
                 address, city, state, zip_code, country,
                 lat, lng, websites_raw, phones_raw, confidence,
                 operating_status, version,
             ) = row
 
-            # Python-side state guard (belt-and-suspenders on top of SQL filter)
+            # Belt-and-suspenders: DuckDB already filtered these; Python catches
+            # any null-evaluation edge cases.
             if (state or "").upper() != "MI":
                 rows_skipped += 1
                 continue
-
-            # Python-side category_top derivation and scope check
-            cat_primary  = category_primary or ""
-            category_top = cat_primary.split(".")[0] if cat_primary else None
-            if category_top not in INCLUDE_CATEGORIES:
+            if category_top is None:
                 rows_skipped += 1
                 continue
 
@@ -427,20 +491,23 @@ def main():
             phones     = _as_json(phones_raw)
             conf       = _clamp_confidence(confidence)
 
-            # raw_data: structured fields for future enrichment/agent use
+            # raw_data: structured fields for future enrichment/agent use.
+            # brand.names.primary is null on some known chains (Western Union,
+            # some Allstate franchise locations) — source data quality in Overture,
+            # not a bug. raw_data preserves whatever Overture sent for later use.
             raw_data = {
-                "name_primary":       name_primary,
-                "brand_primary":      brand_primary,
-                "brand_wikidata":     brand_wikidata,
-                "category_primary":   cat_primary,
-                "category_alternate": list(category_alternate) if category_alternate else None,
-                "address":            address,
-                "city":               city,
-                "state":              state,
-                "zip":                zip_code,
-                "country":            country,
-                "operating_status":   operating_status,
-                "version":            version,
+                "name_primary":     name_primary,
+                "brand_primary":    brand_primary,
+                "brand_wikidata":   brand_wikidata,
+                "category_primary": category_primary,
+                "category_top":     category_top,
+                "address":          address,
+                "city":             city,
+                "state":            state,
+                "zip":              zip_code,
+                "country":          country,
+                "operating_status": operating_status,
+                "version":          version,
             }
 
             if lat is not None:
