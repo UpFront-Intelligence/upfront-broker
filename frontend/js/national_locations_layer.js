@@ -10,18 +10,17 @@
 // The module is a singleton — fine because each page has exactly one map.
 
 const NatLocs = (() => {
-  // ── Category icons (emoji keyed by Overture top-level category_top) ──────
-  // Pinned to category_top (the first segment of categories.primary) since
-  // that's all the layer currently stores. One icon per bucket, not per
-  // subcategory (coffee shop vs restaurant are both eat_and_drink).
+  // ── Category icons (emoji keyed by Overture taxonomy.hierarchy[1] value) ──
+  // Keys are the EXACT strings written to national_locations.category_top
+  // by scripts/ingest_overture_michigan.py — do not normalise or alter case.
   const CATEGORY_EMOJI = {
-    eat_and_drink:    '🍽',
-    retail:           '🛍',
-    automotive:       '⛽',
-    beauty_and_spa:   '✂',
-    financial_service:'🏦',
+    food_and_drink:             '🍽️',
+    shopping:                   '🛍️',
+    travel_and_transportation:  '✈️',
+    lifestyle_services:         '💈',
+    services_and_business:      '🏢',
   };
-  const FALLBACK_EMOJI = '📌';
+  const FALLBACK_EMOJI = '📍';
 
   // ── State ────────────────────────────────────────────────────────────────
   let _map     = null;
