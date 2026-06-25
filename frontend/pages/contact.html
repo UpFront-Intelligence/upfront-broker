@@ -48,6 +48,7 @@
 </div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="/js/app.js?v=11"></script>
+<script src="/js/national_locations_layer.js?v=1"></script>
 <script>
   if (!Auth.requireAuth()) throw new Error('Not authenticated');
   renderSidebar('contacts');
@@ -366,6 +367,7 @@
     if (markers.length > 1) {
       try { detailMap.fitBounds(L.featureGroup(markers).getBounds(), { padding: [24, 24] }); } catch (_) {}
     }
+    NatLocs.init(detailMap);
   }
 
   // ── Marketing Lists card ──────────────────────────────────────────

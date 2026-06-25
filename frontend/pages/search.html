@@ -169,6 +169,7 @@
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="/js/app.js?v=11"></script>
+<script src="/js/national_locations_layer.js?v=1"></script>
 <script>
   if (!Auth.requireAuth()) throw new Error('Not authenticated');
   renderSidebar('search');
@@ -213,6 +214,7 @@
     }).addTo(leafletMap);
   }
   initMap();
+  NatLocs.init(leafletMap);   // retail/restaurant overlay, toggle injected into map container
 
   function toggleMap() {
     const layout = document.getElementById('browse-layout');
@@ -517,6 +519,9 @@
       { key: 'category_top',  label: 'Category', render: r => esc((r.category_top || '—').replace(/_/g, ' ')) },
       { key: 'in_your_book',  label: 'Your book',render: r => r.in_your_book
           ? `<span style="color:var(--accent);font-weight:600">✓ In book</span>` : '' },
+      { key: 'owner',        label: '',         render: r =>
+          `<button class="btn btn-ghost btn-sm" style="white-space:nowrap"
+            onclick="event.stopPropagation();NatLocs.findOwner(${r.id},this)">Find owner</button>` },
     ],
   };
 
