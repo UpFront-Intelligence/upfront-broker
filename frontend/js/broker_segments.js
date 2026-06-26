@@ -239,3 +239,11 @@ const BrokerSegments = (() => {
 
   return { SEGMENTS, LEAF_TO_SEGMENT, TOP_LABELS, segmentForLeaf };
 })();
+
+// Expose as window globals so plain (non-module) scripts on the same page
+// can access them.  top-level const/let never auto-attach to window; var
+// would, but IIFE assignment makes this explicit and safe to call twice.
+window.BrokerSegments     = BrokerSegments;      // namespace used by national_locations_layer.js
+window.SEGMENTS           = BrokerSegments.SEGMENTS;
+window.LEAF_TO_SEGMENT    = BrokerSegments.LEAF_TO_SEGMENT;
+window.segmentForLeaf     = BrokerSegments.segmentForLeaf;
