@@ -1,18 +1,19 @@
 // ── NatLocs — Overture Maps retail/restaurant map layer ──────────────────────
-// Shared across every map surface in the app (Search, Property detail,
-// Account/Contact mini-maps). Depends on Leaflet.js + API from app.js.
+// Shared across every map surface (Search, Property detail, Account/Contact).
+// Depends on: Leaflet.js, API from app.js, BrokerSegments from broker_segments.js.
 //
-// Usage (any page with a Leaflet map):
-//   1. <script src="/js/national_locations_layer.js?v=1">
+// Usage:
+//   1. Load broker_segments.js, then national_locations_layer.js.
 //   2. After L.map(...) is ready: NatLocs.init(leafletMapInstance)
-//      → auto-injects a toggle button into the map container
+//      → injects a two-level filter panel into the map container.
 //
-// The module is a singleton — fine because each page has exactly one map.
+// Singleton — one map per page.
 
 const NatLocs = (() => {
-  // ── Category icons (emoji keyed by Overture taxonomy.hierarchy[1] value) ──
-  // Keys are the EXACT strings written to national_locations.category_top
-  // by scripts/ingest_overture_michigan.py — do not normalise or alter case.
+
+  // ── Category emoji fallback (keyed on category_top) ─────────────────────
+  // Used when a location has no website (and therefore no logo).
+  // Keys are the EXACT strings written to national_locations.category_top.
   const CATEGORY_EMOJI = {
     food_and_drink:             '🍽️',
     shopping:                   '🛍️',
@@ -22,101 +23,269 @@ const NatLocs = (() => {
   };
   const FALLBACK_EMOJI = '📍';
 
-  // ── State ────────────────────────────────────────────────────────────────
-  let _map     = null;
-  let _markers = [];
-  let _visible = false;
-  let _toggleBtn = null;
-  let _boundsKey = null;   // debounce: skip refresh when bounds unchanged
+  // ── State ─────────────────────────────────────────────────────────────────
+  let _map        = null;
+  let _markerData = [];      // [{marker, loc}] — ALL fetched; only some on map
+  let _visible    = false;   // master layer on/off
+  let _panel      = null;
+  let _panelOpen  = true;
+
+  // Filter state — persisted across viewport pans so user choices stick.
+  // _disabledTops: Set of category_top strings the user has turned OFF (tier-1).
+  // _segFilter:    Map<category_top, Set<segId> | null>
+  //   null (or absent key) = no segment filter for that top → show all.
+  //   Non-null Set = only show these segment ids under that top.
+  let _disabledTops = new Set();
+  let _segFilter    = {};   // key: category_top → null | Set<segId>
+
+  let _boundsKey     = null;
   let _styleInjected = false;
 
-  // ── CSS (injected once into <head> on first init) ────────────────────────
+  // ── CSS ───────────────────────────────────────────────────────────────────
   function _injectStyles() {
     if (_styleInjected) return;
     _styleInjected = true;
-    const style = document.createElement('style');
-    style.textContent = `
-.natloc-toggle-btn {
-  position: absolute; bottom: 30px; left: 10px; z-index: 500;
-  background: var(--surface, #fff); border: 1px solid var(--border, rgba(27,34,53,0.08));
-  border-radius: var(--radius-sm, 8px); padding: 5px 9px;
-  font-size: 11.5px; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.15);
-  font-family: var(--font-system, -apple-system, sans-serif);
-  color: var(--text-secondary, #5C6470); user-select: none;
-  transition: background 0.15s;
+    const s = document.createElement('style');
+    s.textContent = `
+/* ── Panel ── */
+.natloc-panel {
+  position:absolute; bottom:30px; left:10px; z-index:500;
+  background:var(--surface,#fff); border:1px solid var(--border,rgba(27,34,53,0.08));
+  border-radius:var(--radius-md,12px); box-shadow:0 2px 8px rgba(0,0,0,0.14);
+  width:210px; font-family:var(--font-system,-apple-system,sans-serif);
+  font-size:12px; color:var(--ink,#1B2235); overflow:hidden;
 }
-.natloc-toggle-btn.active {
-  background: var(--dataviz-amber-soft, #F2E2D0);
-  color: var(--dataviz-amber, #A8702E); border-color: var(--dataviz-amber, #A8702E);
+.natloc-panel-header {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:8px 10px; background:var(--paper,#F3F2EE);
+  border-bottom:1px solid var(--border,rgba(27,34,53,0.08)); cursor:pointer;
 }
-.natloc-toggle-btn:hover { background: var(--paper, #F3F2EE); }
-.natloc-toggle-btn.active:hover { background: var(--dataviz-amber-soft, #F2E2D0); }
+.natloc-panel-title {
+  display:flex; align-items:center; gap:6px; font-weight:600; font-size:12.5px;
+}
+.natloc-panel-collapse {
+  background:none; border:none; cursor:pointer; font-size:11px;
+  color:var(--text-secondary,#5C6470); padding:0 2px; line-height:1;
+}
+.natloc-panel-body {
+  max-height:55vh; overflow-y:auto; padding:6px 0;
+}
+.natloc-panel-body.hidden { display:none; }
 
+/* Master toggle */
+.natloc-master-row {
+  display:flex; align-items:center; gap:7px;
+  padding:6px 10px 5px;
+  border-bottom:1px solid var(--border,rgba(27,34,53,0.08));
+}
+.natloc-master-row label {
+  display:flex; align-items:center; gap:6px; cursor:pointer; user-select:none;
+  font-size:12px; font-weight:500;
+}
+
+/* Tier-1 group */
+.natloc-group { border-bottom:1px solid var(--border,rgba(27,34,53,0.08)); }
+.natloc-group:last-of-type { border-bottom:none; }
+.natloc-group-header {
+  display:flex; align-items:center; gap:6px;
+  padding:5px 10px; cursor:pointer; user-select:none;
+  font-weight:600; font-size:11.5px;
+}
+.natloc-group-header input[type=checkbox] { margin:0; }
+.natloc-group-header:hover { background:var(--paper,#F3F2EE); }
+
+/* Tier-2 segments */
+.natloc-segs { padding:0 6px 4px 24px; }
+.natloc-seg-row {
+  display:flex; align-items:center; gap:6px;
+  padding:2px 4px; border-radius:4px;
+}
+.natloc-seg-row label {
+  display:flex; align-items:center; gap:5px;
+  cursor:pointer; user-select:none; font-size:11px;
+}
+.natloc-seg-row:hover { background:var(--paper,#F3F2EE); }
+.natloc-seg-row.disabled label { opacity:0.38; pointer-events:none; }
+
+/* Legend */
+.natloc-legend {
+  padding:6px 10px 8px; border-top:1px solid var(--border,rgba(27,34,53,0.08));
+  font-size:10.5px; color:var(--text-secondary,#5C6470);
+}
+.natloc-legend-note { margin-top:3px; font-style:italic; }
+
+/* ── Markers ── */
 .natloc-dot {
-  width: 22px; height: 22px; border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 12px; border: 2px solid #fff;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.25); cursor: pointer;
+  width:38px; height:38px; border-radius:50%;
+  display:flex; align-items:center; justify-content:center;
+  font-size:17px; border:2px solid #fff;
+  box-shadow:0 2px 5px rgba(0,0,0,0.3); cursor:pointer; flex-shrink:0;
 }
-.leaflet-div-icon { background: none; border: none; }
+.natloc-logo-chip {
+  width:38px; height:38px; border-radius:10px;
+  background:#fff; border:1px solid rgba(27,34,53,0.12);
+  box-shadow:0 2px 5px rgba(0,0,0,0.18); cursor:pointer;
+  display:flex; align-items:center; justify-content:center; flex-shrink:0;
+  overflow:hidden;
+}
+.natloc-logo-chip img { width:30px; height:30px; object-fit:contain; }
+.leaflet-div-icon { background:none; border:none; }
 
-.natloc-popup { min-width: 180px; font-family: var(--font-system, -apple-system, sans-serif); }
-.natloc-popup-brand { font-size: 13.5px; font-weight: 600; color: var(--ink, #1B2235); margin-bottom: 3px; }
-.natloc-popup-name  { font-size: 12px; color: var(--text-secondary, #5C6470); margin-bottom: 2px; }
-.natloc-popup-addr  { font-size: 12px; color: var(--ink, #1B2235); margin-bottom: 2px; }
-.natloc-popup-cat   { font-size: 11px; color: var(--text-secondary, #5C6470); text-transform: capitalize; }
-.natloc-owner-result { margin-top: 8px; }
-.natloc-owner-name  { font-size: 12.5px; font-weight: 600; color: var(--ink, #1B2235); margin-bottom: 2px; }
-.natloc-owner-sub   { font-size: 11px; color: var(--text-secondary, #5C6470); margin-bottom: 4px; }
-.natloc-empty       { font-size: 11.5px; color: var(--text-secondary, #5C6470); }
+/* ── Popup ── */
+.natloc-popup { min-width:180px; font-family:var(--font-system,-apple-system,sans-serif); }
+.natloc-popup-brand { font-size:13.5px; font-weight:600; color:var(--ink,#1B2235); margin-bottom:3px; }
+.natloc-popup-name  { font-size:12px; color:var(--text-secondary,#5C6470); margin-bottom:2px; }
+.natloc-popup-addr  { font-size:12px; color:var(--ink,#1B2235); margin-bottom:2px; }
+.natloc-popup-cat   { font-size:11px; color:var(--text-secondary,#5C6470); text-transform:capitalize; }
+.natloc-owner-result { margin-top:8px; }
+.natloc-owner-name  { font-size:12.5px; font-weight:600; color:var(--ink,#1B2235); margin-bottom:2px; }
+.natloc-owner-sub   { font-size:11px; color:var(--text-secondary,#5C6470); margin-bottom:4px; }
+.natloc-empty       { font-size:11.5px; color:var(--text-secondary,#5C6470); }
     `;
-    document.head.appendChild(style);
+    document.head.appendChild(s);
   }
 
   // ── Init ─────────────────────────────────────────────────────────────────
   function init(map) {
     _injectStyles();
-
-    // Detach from any previous map instance (in case the same page
-    // reconstructs its map, e.g. account/contact detail lazy init)
     if (_map && _map !== map) {
       _map.off('moveend', _onMoveEnd);
       _clear();
-      _toggleBtn && _toggleBtn.remove();
-      _toggleBtn = null;
-      _visible = false;
-      _boundsKey = null;
+      if (_panel) { _panel.remove(); _panel = null; }
+      _visible = false; _boundsKey = null;
     }
-
     _map = map;
-
-    // Inject toggle button directly into the Leaflet map container
-    // (same technique Leaflet's own controls use — position: absolute
-    // inside the map container which is position: relative).
-    const btn = document.createElement('button');
-    btn.className = 'natloc-toggle-btn';
-    btn.title = 'Toggle retail / restaurant overlay';
-    btn.textContent = '🛍 Nearby';
-    btn.onclick = toggle;
-    map.getContainer().appendChild(btn);
-    _toggleBtn = btn;
-
+    _buildPanel();
     map.on('moveend', _onMoveEnd);
   }
 
-  function _onMoveEnd() {
-    if (_visible) _refresh();
+  function _onMoveEnd() { if (_visible) _refresh(); }
+
+  // ── Panel ─────────────────────────────────────────────────────────────────
+  function _buildPanel() {
+    const segs = BrokerSegments.SEGMENTS;
+    const tops = BrokerSegments.TOP_LABELS;
+
+    // Group segments by top
+    const byTop = {};
+    segs.forEach(s => {
+      (byTop[s.top] = byTop[s.top] || []).push(s);
+    });
+
+    const panel = document.createElement('div');
+    panel.className = 'natloc-panel';
+    panel.innerHTML = `
+      <div class="natloc-panel-header" onclick="NatLocs._togglePanel()">
+        <div class="natloc-panel-title">🛍 Nearby Retailers</div>
+        <button class="natloc-panel-collapse" id="natloc-collapse-arrow">▾</button>
+      </div>
+      <div class="natloc-panel-body" id="natloc-panel-body">
+        <div class="natloc-master-row">
+          <label>
+            <input type="checkbox" id="natloc-master">
+            <span>Show retail layer</span>
+          </label>
+        </div>
+        ${Object.entries(tops).map(([topId, meta]) => {
+          const groupSegs = byTop[topId] || [];
+          return `
+          <div class="natloc-group" data-top="${topId}">
+            <div class="natloc-group-header">
+              <input type="checkbox" class="natloc-top-cb" data-top="${topId}" checked>
+              <span>${meta.icon} ${meta.label}</span>
+            </div>
+            <div class="natloc-segs" id="natloc-segs-${topId}">
+              ${groupSegs.map(seg => `
+              <div class="natloc-seg-row">
+                <label>
+                  <input type="checkbox" class="natloc-seg-cb" data-seg="${seg.id}" data-top="${topId}">
+                  <span>${seg.icon} ${seg.label}</span>
+                </label>
+              </div>`).join('')}
+              <div class="natloc-seg-row">
+                <label>
+                  <input type="checkbox" class="natloc-seg-cb" data-seg="other_${topId}" data-top="${topId}">
+                  <span>📍 Other</span>
+                </label>
+              </div>
+            </div>
+          </div>`;
+        }).join('')}
+        <div class="natloc-legend" id="natloc-legend">
+          <div>Active: all categories</div>
+          <div class="natloc-legend-note">Recognized brands show logos</div>
+        </div>
+      </div>`;
+
+    _map.getContainer().appendChild(panel);
+    _panel = panel;
+
+    // Master toggle
+    panel.querySelector('#natloc-master').addEventListener('change', e => {
+      _visible = e.target.checked;
+      if (_visible) { _boundsKey = null; _refresh(); }
+      else _clear();
+    });
+
+    // Tier-1 (top) toggles — clicking the row label area
+    panel.querySelectorAll('.natloc-top-cb').forEach(cb => {
+      cb.addEventListener('change', e => {
+        const top = e.target.dataset.top;
+        if (e.target.checked) _disabledTops.delete(top);
+        else                   _disabledTops.add(top);
+        // Dim tier-2 rows when top is disabled
+        panel.querySelectorAll(`.natloc-seg-row`).forEach(row => {
+          const rowCb = row.querySelector('input');
+          if (rowCb && rowCb.dataset.top === top)
+            row.classList.toggle('disabled', !e.target.checked);
+        });
+        _applyFilter();
+        _updateLegend();
+      });
+    });
+
+    // Tier-2 (segment) checkboxes — delegate via querySelectorAll
+    panel.querySelectorAll('.natloc-seg-cb').forEach(cb => {
+      cb.addEventListener('change', e => {
+        const { seg, top } = e.target.dataset;
+        if (!_segFilter[top]) _segFilter[top] = new Set();
+        if (e.target.checked)
+          _segFilter[top].add(seg);
+        else
+          _segFilter[top].delete(seg);
+        // Empty set = selecting nothing = show all for this top
+        if (_segFilter[top].size === 0) _segFilter[top] = null;
+        _applyFilter();
+        _updateLegend();
+      });
+    });
   }
 
-  function toggle() {
-    _visible = !_visible;
-    _toggleBtn && _toggleBtn.classList.toggle('active', _visible);
-    if (_visible) {
-      _boundsKey = null;   // force a fresh load on show
-      _refresh();
-    } else {
-      _clear();
-    }
+  function _togglePanel() {
+    _panelOpen = !_panelOpen;
+    const body = document.getElementById('natloc-panel-body');
+    const arrow = document.getElementById('natloc-collapse-arrow');
+    if (body) body.classList.toggle('hidden', !_panelOpen);
+    if (arrow) arrow.textContent = _panelOpen ? '▾' : '▸';
+  }
+
+  function _updateLegend() {
+    const el = document.getElementById('natloc-legend');
+    if (!el) return;
+    const activeCount = BrokerSegments.SEGMENTS.filter(s =>
+      !_disabledTops.has(s.top)).length;
+    el.querySelector('div').textContent =
+      _visible ? `Active: ${activeCount} segments` : 'Layer off';
+  }
+
+  // ── Visibility logic ──────────────────────────────────────────────────────
+  function _isVisible(loc) {
+    const top = loc.category_top;
+    if (!top || _disabledTops.has(top)) return false;
+    const filter = _segFilter[top];
+    if (!filter || filter.size === 0) return true;   // no filter = show all
+    const seg = BrokerSegments.segmentForLeaf(loc.category_primary, top);
+    return filter.has(seg);
   }
 
   // ── Fetch + render ────────────────────────────────────────────────────────
@@ -138,28 +307,56 @@ const NatLocs = (() => {
 
     try {
       const data = await API.get(`/national-locations/in-bbox?${params}`);
-      _clear(false);  // clear markers but keep boundsKey
+      _clear(false);
       const amber = getComputedStyle(document.documentElement)
                       .getPropertyValue('--dataviz-amber').trim() || '#A8702E';
       (data.items || []).forEach(loc => {
         if (loc.lat == null || loc.lng == null) return;
-        const emoji = CATEGORY_EMOJI[loc.category_top] || FALLBACK_EMOJI;
-        const icon = L.divIcon({
-          className: 'leaflet-div-icon',
-          html: `<div class="natloc-dot" style="background:${amber}" data-cat="${loc.category_top || ''}">${emoji}</div>`,
-          iconSize: [22, 22], iconAnchor: [11, 11],
+        const marker = L.marker([loc.lat, loc.lng], {
+          icon: _buildIcon(loc, amber),
+          zIndexOffset: -100,
         });
-        const marker = L.marker([loc.lat, loc.lng], { icon, zIndexOffset: -100 });
         marker.bindPopup(() => _makePopup(loc), { maxWidth: 280, minWidth: 180 });
-        marker.addTo(_map);
-        _markers.push(marker);
+        if (_isVisible(loc)) marker.addTo(_map);
+        _markerData.push({ marker, loc });
       });
-    } catch (e) {
-      // Non-fatal — silently suppress; the main map view still works.
-      // Likely causes: auth expired, DB unreachable, network issue.
+    } catch (_e) {
+      // Non-fatal — main map still works.
     }
   }
 
+  // ── Icon builder ──────────────────────────────────────────────────────────
+  function _buildIcon(loc, amber) {
+    const emoji = CATEGORY_EMOJI[loc.category_top] || FALLBACK_EMOJI;
+    if (loc.website) {
+      // Logo marker — rounded white chip; emoji on img load error
+      const logoUrl = `https://img.logo.dev/${_esc(loc.website)}?size=40`;
+      return L.divIcon({
+        className: 'leaflet-div-icon',
+        html: `<div class="natloc-logo-chip">
+                 <img src="${logoUrl}"
+                      alt=""
+                      onerror="this.parentElement.innerHTML='<span style=\\'font-size:17px\\'>${emoji}</span>';this.onerror=null">
+               </div>`,
+        iconSize: [40, 40], iconAnchor: [20, 20],
+      });
+    }
+    return L.divIcon({
+      className: 'leaflet-div-icon',
+      html: `<div class="natloc-dot" style="background:${amber}">${emoji}</div>`,
+      iconSize: [40, 40], iconAnchor: [20, 20],
+    });
+  }
+
+  // ── Client-side filter (no refetch) ──────────────────────────────────────
+  function _applyFilter() {
+    _markerData.forEach(({ marker, loc }) => {
+      if (_isVisible(loc)) marker.addTo(_map);
+      else marker.remove();
+    });
+  }
+
+  // ── Popup ─────────────────────────────────────────────────────────────────
   function _makePopup(loc) {
     const container = document.createElement('div');
     container.className = 'natloc-popup';
@@ -188,13 +385,14 @@ const NatLocs = (() => {
     return container;
   }
 
+  // ── Clear ─────────────────────────────────────────────────────────────────
   function _clear(resetBoundsKey = true) {
-    _markers.forEach(m => m.remove());
-    _markers = [];
+    _markerData.forEach(({ marker }) => marker.remove());
+    _markerData = [];
     if (resetBoundsKey) _boundsKey = null;
   }
 
-  // ── Owner lookup (shared between popup and search table) ─────────────────
+  // ── Owner lookup ──────────────────────────────────────────────────────────
   async function findOwner(locationId, btnEl) {
     if (btnEl._loading) return;
     btnEl._loading = true;
@@ -202,8 +400,6 @@ const NatLocs = (() => {
     btnEl.disabled = true;
     btnEl.textContent = 'Looking up…';
 
-    // Result container: use the pre-linked _resultEl (set by _makePopup for
-    // popups) or create one adjacent to the button (for search table cells).
     let resultEl = btnEl._resultEl;
     if (!resultEl) {
       resultEl = document.createElement('div');
@@ -211,7 +407,6 @@ const NatLocs = (() => {
       btnEl.parentNode.insertBefore(resultEl, btnEl.nextSibling);
       btnEl._resultEl = resultEl;
     }
-
     try {
       const r = await API.post(`/national-locations/${locationId}/lookup-owner`, {});
       btnEl.style.display = 'none';
@@ -241,7 +436,6 @@ const NatLocs = (() => {
            onclick="event.stopPropagation()">View account →</a>
       </div>`;
     }
-    // Parcel found, no matched account — offer "Add as account"
     return `<div>
       <div class="natloc-owner-name">${_esc(result.owner_raw || '—')}</div>
       <div class="natloc-owner-sub">${_esc(result.parcel_address || '')}</div>
@@ -272,10 +466,8 @@ const NatLocs = (() => {
     } catch (e) {
       btnEl.disabled = false;
       btnEl.textContent = 'Add as account';
-      resultEl.insertAdjacentHTML(
-        'beforeend',
-        `<div style="color:var(--red,#c0392b);font-size:12px;margin-top:4px">${_esc(e.message)}</div>`,
-      );
+      resultEl.insertAdjacentHTML('beforeend',
+        `<div style="color:var(--red,#c0392b);font-size:12px;margin-top:4px">${_esc(e.message)}</div>`);
     }
   }
 
@@ -284,5 +476,5 @@ const NatLocs = (() => {
     return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
-  return { init, toggle, findOwner, createAccount };
+  return { init, _togglePanel, findOwner, createAccount };
 })();

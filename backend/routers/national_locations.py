@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 from collections import defaultdict
+from urllib.parse import urlparse
 
 from database import get_db
 from models.user import User
@@ -22,6 +23,29 @@ from auth_utils import get_current_user
 from services.naming import normalize_address, normalize_name
 
 router = APIRouter()
+
+
+def _first_domain(websites) -> Optional[str]:
+    """Return the bare hostname of the first URL in the websites JSON array.
+
+    Strips protocol and www. prefix; returns None if no usable URL exists.
+    Overture stores websites as a Python list (SQLAlchemy auto-deserialises
+    the JSON column); handles the empty-list case.
+    """
+    if not websites:
+        return None
+    url = websites[0] if isinstance(websites, list) else None
+    if not url:
+        return None
+    try:
+        if "://" not in url:
+            url = "https://" + url
+        netloc = urlparse(url).netloc
+        if netloc.startswith("www."):
+            netloc = netloc[4:]
+        return netloc or None
+    except Exception:
+        return None
 
 
 # ── Shared viewport query — called on every map moveend ──────────────────────
@@ -45,10 +69,12 @@ def in_bbox(
             NationalLocation.brand_primary,
             NationalLocation.name_primary,
             NationalLocation.category_top,
+            NationalLocation.category_primary,
             NationalLocation.address,
             NationalLocation.city,
             NationalLocation.lat,
             NationalLocation.lng,
+            NationalLocation.websites,
         )
         .filter(
             NationalLocation.lat >= south,
@@ -62,14 +88,16 @@ def in_bbox(
     return {
         "items": [
             {
-                "id":            r.id,
-                "brand_primary": r.brand_primary,
-                "name_primary":  r.name_primary,
-                "category_top":  r.category_top,
-                "address":       r.address,
-                "city":          r.city,
-                "lat":           float(r.lat) if r.lat is not None else None,
-                "lng":           float(r.lng) if r.lng is not None else None,
+                "id":               r.id,
+                "brand_primary":    r.brand_primary,
+                "name_primary":     r.name_primary,
+                "category_top":     r.category_top,
+                "category_primary": r.category_primary,
+                "address":          r.address,
+                "city":             r.city,
+                "lat":              float(r.lat) if r.lat is not None else None,
+                "lng":              float(r.lng) if r.lng is not None else None,
+                "website":          _first_domain(r.websites),
             }
             for r in rows
         ]
