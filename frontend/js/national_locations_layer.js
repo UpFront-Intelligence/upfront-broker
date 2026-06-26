@@ -150,16 +150,44 @@ const NatLocs = (() => {
     _injectStyles();
     if (_map && _map !== map) {
       _map.off('moveend', _onMoveEnd);
+      _map.off('zoomend', _onMoveEnd);
       _clear();
       if (_panel) { _panel.remove(); _panel = null; }
       _visible = false; _boundsKey = null;
     }
     _map = map;
-    _buildPanel();
+
+    // Bind map events BEFORE building the panel — if _buildPanel() throws for
+    // any reason (BrokerSegments not ready, template error, etc.) the fetch
+    // loop still works once the master toggle is checked via the fallback toggle().
     map.on('moveend', _onMoveEnd);
+    map.on('zoomend', _onMoveEnd);
+
+    try {
+      _buildPanel();
+    } catch (e) {
+      // Panel failed; inject a minimal fallback toggle button so the layer is
+      // still usable without the full segment UI.
+      const btn = document.createElement('button');
+      btn.className = 'natloc-toggle-btn';
+      btn.textContent = '🛍 Nearby';
+      btn.onclick = toggle;
+      map.getContainer().appendChild(btn);
+      _panel = btn;
+    }
   }
 
   function _onMoveEnd() { if (_visible) _refresh(); }
+
+  // Exposed so the fallback button (and external callers) can toggle the layer.
+  function toggle() {
+    _visible = !_visible;
+    const master = document.getElementById('natloc-master');
+    if (master) master.checked = _visible;
+    if (_visible) { _boundsKey = null; _refresh(); }
+    else _clear();
+    _updateLegend();
+  }
 
   // ── Panel ─────────────────────────────────────────────────────────────────
   function _buildPanel() {
@@ -220,12 +248,9 @@ const NatLocs = (() => {
     _map.getContainer().appendChild(panel);
     _panel = panel;
 
-    // Master toggle
-    panel.querySelector('#natloc-master').addEventListener('change', e => {
-      _visible = e.target.checked;
-      if (_visible) { _boundsKey = null; _refresh(); }
-      else _clear();
-    });
+    // Master toggle — delegate to toggle() so the fallback button and the
+    // panel checkbox always stay in sync.
+    panel.querySelector('#natloc-master').addEventListener('change', () => toggle());
 
     // Tier-1 (top) toggles — clicking the row label area
     panel.querySelectorAll('.natloc-top-cb').forEach(cb => {
@@ -476,5 +501,5 @@ const NatLocs = (() => {
     return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
-  return { init, _togglePanel, findOwner, createAccount };
+  return { init, toggle, _togglePanel, findOwner, createAccount };
 })();
