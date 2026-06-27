@@ -1,5 +1,11 @@
 # UpFront Broker — CLAUDE.md
 
+## Guiding Principle (AI Strategy)
+
+"Within the next six months, I will pursue two concrete commitments. First, I will create a simple AI review checklist for any tool I build or use professionally, including business purpose, data sources, assumptions, human review points, risk level, and stop/pivot criteria. Second, I will add an assumption audit to my AI-enabled sales workflow. Before using AI output in outreach, strategy, or leadership decisions, I will identify which claims are evidence-based, which are inferred, and which require verification."
+
+---
+
 > Read this before every prompt. Surgical edits. Don't rewrite what works.
 > This file is the ONLY context a brand-new session has — there is no
 > memory of past sessions beyond what's written here and in the code itself.
