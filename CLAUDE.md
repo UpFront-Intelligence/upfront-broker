@@ -459,6 +459,14 @@ Indexes: overture_id (unique), brand_normalized, category_top,
   - `bbox.xmin`/`bbox.ymin`/`bbox.xmax`/`bbox.ymax` — confirmed current 2026 names (older alpha releases used `minx`/`miny`).
   - `websites`/`phones` — may be JSON strings or native arrays; script handles both.
 
+### REGRID OAKLAND PILOT — findings 2026-06-29
+
+- **Ingest pipeline VALIDATED:** streamed 245k Oakland rows cleanly (zero parse errors, ~350 rows/s, schema mapping correct: parcelnumb/owner/address/szip5/wkt all landed). The ingest code works.
+- **STORAGE DOES NOT SCALE IN-DB:** 245k rows = 602MB. Full Oakland ~1.2GB; national_locations is 191MB; all broker business data combined is <4MB. The production Postgres (small tier) ran OUT OF DISK at ~245k rows — DiskFull, mid-Oakland. Statewide (83 counties) parcel data is tens of GB and will NOT fit this tier.
+- **`parcels_regrid` was DROPPED to recover the full disk** (recreates empty via `db_setup.py` on deploy).
+- **OPEN DECISION (next session): where parcel data should live.** Options: (1) upgrade Postgres tier [treats design Q as billing Q], (2) keep parcels OUT of hot DB, query on-demand by parcelnumb [business DB stays lean; mirrors current live-ArcGIS fallback], (3) ingest only core Metro Detroit counties brokers actually work (~Oakland/Wayne/Macomb/Washtenaw/Livingston, ~5 not 83), (4) hybrid: core counties local + rest on-demand. Leaning 3 or 4. Tied to the Regrid freshness/payment conversation (Oakland data is 2024-06; not yet paid).
+- **Also pending:** rotate the production DB password (exposed during this session's debugging).
+
 ### PROPERTY_NATIONAL_LOCATION_LINKS (junction — owner-scoped match)
 ```
 id, property_id (FK → properties.id, CASCADE), national_location_id (FK → national_locations.id, CASCADE),
