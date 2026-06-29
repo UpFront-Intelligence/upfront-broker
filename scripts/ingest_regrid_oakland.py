@@ -68,7 +68,6 @@ ON CONFLICT (parcel_id, source_county) DO UPDATE SET
   county            = EXCLUDED.county,
   geometry_wkt      = EXCLUDED.geometry_wkt,
   raw_data          = EXCLUDED.raw_data
-RETURNING (xmax = 0) AS was_insert
 """
 
 
@@ -107,7 +106,7 @@ def step1_ingest(db_url: str) -> dict:
     conn.autocommit = False
     pg   = conn.cursor()
 
-    rows_seen = rows_inserted = rows_updated = rows_skipped = 0
+    rows_seen = rows_upserted = rows_skipped = 0
     errors = []
     batch  = []
     t0     = time.time()
@@ -151,19 +150,19 @@ def step1_ingest(db_url: str) -> dict:
             ))
 
             if len(batch) >= BATCH_SIZE:
-                rows_inserted, rows_updated = _flush(pg, batch, rows_inserted, rows_updated)
+                rows_upserted += _flush(pg, batch)
                 conn.commit()
                 batch.clear()
                 now = time.time()
                 if now - last_print >= 10:
                     elapsed = now - t0
                     rate = rows_seen / elapsed
-                    print(f"  …{rows_seen:,} read  {rows_inserted:,} new  {rows_updated:,} updated"
+                    print(f"  …{rows_seen:,} read  {rows_upserted:,} upserted  {rows_skipped:,} skipped"
                           f"  {elapsed:.0f}s  ({rate:.0f} rows/s)")
                     last_print = now
 
         if batch:
-            rows_inserted, rows_updated = _flush(pg, batch, rows_inserted, rows_updated)
+            rows_upserted += _flush(pg, batch)
             conn.commit()
 
     elapsed = time.time() - t0
@@ -183,12 +182,11 @@ def step1_ingest(db_url: str) -> dict:
 
     conn.close()
 
-    print(f"\n  Rows read:     {rows_seen:,}")
-    print(f"  Inserted new:  {rows_inserted:,}")
-    print(f"  Updated:       {rows_updated:,}")
-    print(f"  Skipped/err:   {rows_skipped:,}")
-    print(f"  Errors ({len(errors)}):  " + ('; '.join(errors[:3]) if errors else 'none'))
-    print(f"  Elapsed:       {elapsed:.1f}s  ({rows_seen/elapsed:.0f} rows/s)")
+    print(f"\n  Rows read:          {rows_seen:,}")
+    print(f"  Upserted (new+upd): {rows_upserted:,}")
+    print(f"  Skipped/err:        {rows_skipped:,}")
+    print(f"  Errors ({len(errors)}):       " + ('; '.join(errors[:3]) if errors else 'none'))
+    print(f"  Elapsed:            {elapsed:.1f}s  ({rows_seen/elapsed:.0f} rows/s)")
     print(f"  DB count (mi_oakland): {count_in_db:,}")
     print("\n  --- 3 sample rows ---")
     for s in samples:
@@ -197,18 +195,14 @@ def step1_ingest(db_url: str) -> dict:
         if s[5]:
             print(f"    wkt: {s[6]}…")
 
-    return {"seen": rows_seen, "inserted": rows_inserted, "updated": rows_updated,
+    return {"seen": rows_seen, "upserted": rows_upserted,
             "skipped": rows_skipped, "count_in_db": count_in_db, "elapsed": elapsed}
 
 
-def _flush(pg, batch, inserted, updated):
-    psycopg2.extras.execute_values(
-        pg, UPSERT_SQL.rstrip() + "\nRETURNING (xmax = 0) AS was_insert", batch, page_size=len(batch)
-    )
-    results = pg.fetchall()
-    inserted += sum(1 for r in results if r[0])
-    updated  += sum(1 for r in results if not r[0])
-    return inserted, updated
+def _flush(pg, batch):
+    """UPSERT a batch; returns the number of rows processed (insert+update combined)."""
+    psycopg2.extras.execute_values(pg, UPSERT_SQL, batch, page_size=len(batch))
+    return len(batch)
 
 
 # ── STEP 2: DATA QUALITY vs OLD parcels TABLE ─────────────────────────────────
