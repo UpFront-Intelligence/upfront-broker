@@ -34,22 +34,32 @@ logger = logging.getLogger(__name__)
 # public schema docs (support.regrid.com/parcel-data/schema) where noted;
 # everything else is a best-effort guess pending the real county CSVs.
 #
-#   parcelnumb  — CONFIRMED (Regrid's primary parcel-number field).
-#   keypin      — NOT a Regrid field. It's this app's own legacy Oakland
-#                 `parcels` table's primary key column. Kept as a fallback
-#                 only because the task spec named it explicitly; if
-#                 parcelnumb is ever blank on a real row, Regrid's actual
-#                 fallback fields are parcelnumb_no_formatting /
-#                 state_parcelnumb / account_number / tax_id (unconfirmed
-#                 against real data — verify on arrival).
-_PARCEL_ID_KEYS = ('parcelnumb', 'keypin')
-_OWNER_KEYS     = ('owner',)                # CONFIRMED
-_ADDRESS_KEYS   = ('address',)              # CONFIRMED
-_CITY_KEYS      = ('city', 'scity')         # 'city' CONFIRMED, 'scity' guessed
-_STATE_KEYS     = ('state', 'state2')       # both seen in Regrid API examples
-_ZIP_KEYS       = ('zip', 'szip')           # 'szip' seen in Regrid API examples
-_COUNTY_KEYS    = ('county', 'county_name') # 'county_name' seen in Regrid API examples
-_GEOMETRY_KEYS  = ('geometry', 'geom', 'wkt')  # WKT/EPSG:4326 per Regrid docs; exact column name unconfirmed
+# ALL COLUMN NAMES CONFIRMED against mi_oakland.csv.gz (2026-06-29 audit).
+# Keys are in priority order for _first_present(); confirmed-real names first.
+#
+#   parcelnumb     — CONFIRMED col 2. Value in ll_stable_id="parcelnumb" confirms
+#                    this is the county's stable parcel identifier for Oakland.
+#   parcelnumb_no_formatting, state_parcelnumb, account_number, tax_id — real
+#                    fallback columns confirmed present (cols 3-6), used when
+#                    parcelnumb itself is blank.
+#   keypin         — ABSENT from real file entirely. Removed as a candidate.
+#                    Was this app's own legacy `parcels` table PK name.
+#   city / scity   — BOTH confirmed present (cols 74, 72). 'city' is lowercase;
+#                    'scity' is uppercase. Prefer 'city'.
+#   state2         — CONFIRMED col 76. No bare 'state' column exists.
+#   szip5 / szip   — BOTH confirmed present (cols 78, 77). szip5 = clean 5-digit
+#                    ("48009"); szip = ZIP+4 with hyphen ("48009-0902"). Prefer szip5.
+#   county         — CONFIRMED col 75. 'county_name' is absent.
+#   wkt            — CONFIRMED col 169 (last column). 'geometry'/'geom' absent.
+_PARCEL_ID_KEYS = ('parcelnumb', 'parcelnumb_no_formatting', 'state_parcelnumb',
+                   'account_number', 'tax_id')
+_OWNER_KEYS     = ('owner',)
+_ADDRESS_KEYS   = ('address',)
+_CITY_KEYS      = ('city', 'scity')
+_STATE_KEYS     = ('state2', 'state')
+_ZIP_KEYS       = ('szip5', 'szip', 'zip')
+_COUNTY_KEYS    = ('county', 'county_name')
+_GEOMETRY_KEYS  = ('wkt', 'geometry', 'geom')
 
 _ALL_CRITICAL_KEYS = frozenset(
     _PARCEL_ID_KEYS + _OWNER_KEYS + _ADDRESS_KEYS + _CITY_KEYS
