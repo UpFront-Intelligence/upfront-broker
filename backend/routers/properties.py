@@ -5,7 +5,10 @@ from pydantic import BaseModel
 from typing import Optional, List, Tuple
 from datetime import date
 import urllib.request, urllib.parse, json
+import re, logging
 from database import get_db
+
+logger = logging.getLogger(__name__)
 from models.account import Account
 from models.property import Property
 from models.user import User
@@ -39,8 +42,12 @@ def _parcel_classcode_to_property_type(code) -> Optional[str]:
 
 
 def _geocode(address: str, city: str, state: str) -> Tuple[Optional[float], Optional[float]]:
+    # Normalize range house-numbers before querying Nominatim.
+    # "29551-29583 5 Mile Rd" → "29551 5 Mile Rd" — Nominatim can't resolve a
+    # number range but CAN resolve the first number. DB address is unchanged.
+    geocode_addr = re.sub(r'^(\d+)-\d+(\s)', r'\1\2', address)
     try:
-        q = ', '.join(filter(None, [address, city, state, 'USA']))
+        q = ', '.join(filter(None, [geocode_addr, city, state, 'USA']))
         params = urllib.parse.urlencode({'q': q, 'format': 'json', 'limit': 1, 'countrycodes': 'us'})
         req = urllib.request.Request(
             f'https://nominatim.openstreetmap.org/search?{params}',
@@ -50,8 +57,8 @@ def _geocode(address: str, city: str, state: str) -> Tuple[Optional[float], Opti
             results = json.loads(resp.read())
         if results:
             return float(results[0]['lat']), float(results[0]['lon'])
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning('Nominatim geocode failed for %r (%s, %s): %s', address, city, state, exc)
     return None, None
 
 router = APIRouter()
@@ -395,6 +402,10 @@ def attach_parcel(
     if not prop.zip and row.sitezip5:
         prop.zip = row.sitezip5
 
+    if not prop.lat and prop.address:
+        lat, lng = _geocode(prop.address, prop.city, prop.state)
+        if lat is not None:
+            prop.lat, prop.lng = lat, lng
     link_property_to_national_locations(db, prop)
     db.commit()
     db.refresh(prop)

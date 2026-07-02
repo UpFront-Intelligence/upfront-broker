@@ -22,6 +22,7 @@ DATABASE_URL is read from the environment (Render sets it automatically).
 For local dev it falls back to backend/.env.
 """
 import os
+import re
 import sys
 import time
 from datetime import datetime
@@ -56,9 +57,12 @@ def get_db_url() -> str:
 
 def geocode_one(address, city, state):
     """Mirrors routers/properties.py's _geocode() exactly — same endpoint,
-    params, and User-Agent — so backfilled rows behave identically to ones
-    geocoded live. Returns (lat, lng) or None on no-match/failure."""
-    q = ', '.join(filter(None, [address, city, state, 'USA']))
+    params, User-Agent, and range-address normalization — so backfilled rows
+    behave identically to ones geocoded live. Returns (lat, lng) or None."""
+    # Normalize range house-numbers: "29551-29583 5 Mile Rd" → "29551 5 Mile Rd"
+    # Same regex as _geocode() in routers/properties.py.
+    geocode_addr = re.sub(r'^(\d+)-\d+(\s)', r'\1\2', address or '')
+    q = ', '.join(filter(None, [geocode_addr, city, state, 'USA']))
     try:
         resp = requests.get(
             NOMINATIM_URL,

@@ -51,7 +51,7 @@ The unified Search/Map page (`/pages/search.html`) is the primary lens onto this
 - **Maps:** Leaflet.js v1.9.4, loaded via the unpkg CDN, OpenStreetMap tiles — the *only* mapping library in the app (Property detail's Map tab, Account/Contact detail mini-maps, and the Search/Map page all reuse it; don't introduce a second one)
 - **Geocoding (three independent sources, don't conflate them):**
   - **Oakland County ArcGIS** — parcel geometry/boundaries only (Property Finder)
-  - **Nominatim (OpenStreetMap)** — `Property.lat/lng`, auto-geocoded on save via a direct `urllib` call in `routers/properties.py` (no API key, best-effort, swallows errors)
+  - **Nominatim (OpenStreetMap)** — `Property.lat/lng`, auto-geocoded on save via a direct `urllib` call in `routers/properties.py` (no API key). Range house-number addresses (e.g. `"29551-29583 5 Mile Rd"`) are normalized inline — the first number is extracted (`"29551 5 Mile Rd"`) before the Nominatim query; the DB address is unchanged. Failures are logged as warnings (not swallowed silently). Returns `(None, None)` on any failure; property is still saved without coordinates. There is **no `geo_address` column** — normalization is purely in the `_geocode()` function at query time. Geocoding runs at all five property write sites including `attach_parcel` (added 2026-07-02). Backfill script: `scripts/backfill_property_geocoding.py` (same normalization, 1 req/s Nominatim rate-limit delay).
   - **US Census Bureau geocoder** — `Account.lat/lng` and `Contact.lat/lng`, via `backend/services/geocoding.py` (no API key, US-only); see **Data Model → ACCOUNT/CONTACT** below
 
 ## Repo & Local
