@@ -37,6 +37,7 @@ const NatLocs = (() => {
   //   Non-null Set = only show these segment ids under that top.
   let _disabledTops = new Set();
   let _segFilter    = {};   // key: category_top → null | Set<segId>
+  let _nameFilter   = '';   // text search — empty = no constraint
 
   let _boundsKey     = null;
   let _styleInjected = false;
@@ -71,6 +72,19 @@ const NatLocs = (() => {
   max-height:55vh; overflow-y:auto; padding:6px 0;
 }
 .natloc-panel-body.hidden { display:none; }
+
+/* Search box */
+.natloc-search-row {
+  padding:7px 10px 5px;
+  border-bottom:1px solid var(--border,rgba(27,34,53,0.08));
+}
+.natloc-search-input {
+  width:100%; box-sizing:border-box; padding:5px 8px;
+  font-size:12px; font-family:var(--font-system,-apple-system,sans-serif);
+  border:1px solid var(--border,rgba(27,34,53,0.08)); border-radius:var(--radius-sm,8px);
+  background:var(--paper,#F3F2EE); color:var(--ink,#1B2235); outline:none;
+}
+.natloc-search-input:focus { border-color:var(--accent,#1F5E52); background:#fff; }
 
 /* Master toggle */
 .natloc-master-row {
@@ -185,7 +199,12 @@ const NatLocs = (() => {
     const master = document.getElementById('natloc-master');
     if (master) master.checked = _visible;
     if (_visible) { _boundsKey = null; _refresh(); }
-    else _clear();
+    else {
+      _clear();
+      _nameFilter = '';
+      const si = document.getElementById('natloc-search');
+      if (si) si.value = '';
+    }
     _updateLegend();
   }
 
@@ -208,6 +227,10 @@ const NatLocs = (() => {
         <button class="natloc-panel-collapse" id="natloc-collapse-arrow">▾</button>
       </div>
       <div class="natloc-panel-body" id="natloc-panel-body">
+        <div class="natloc-search-row">
+          <input type="text" id="natloc-search" class="natloc-search-input"
+                 placeholder="Search brand or category…" autocomplete="off">
+        </div>
         <div class="natloc-master-row">
           <label>
             <input type="checkbox" id="natloc-master">
@@ -247,6 +270,17 @@ const NatLocs = (() => {
 
     _map.getContainer().appendChild(panel);
     _panel = panel;
+
+    // Search box — debounced 200ms, client-side only (no refetch)
+    let _searchTimer = null;
+    panel.querySelector('#natloc-search').addEventListener('input', e => {
+      clearTimeout(_searchTimer);
+      _searchTimer = setTimeout(() => {
+        _nameFilter = e.target.value.trim();
+        _applyFilter();
+        _updateLegend();
+      }, 200);
+    });
 
     // Master toggle — delegate to toggle() so the fallback button and the
     // panel checkbox always stay in sync.
@@ -307,10 +341,25 @@ const NatLocs = (() => {
   function _isVisible(loc) {
     const top = loc.category_top;
     if (!top || _disabledTops.has(top)) return false;
-    const filter = _segFilter[top];
-    if (!filter || filter.size === 0) return true;   // no filter = show all
+
     const seg = BrokerSegments.segmentForLeaf(loc.category_primary, top);
-    return filter.has(seg);
+    const filter = _segFilter[top];
+    if (filter && filter.size > 0 && !filter.has(seg)) return false;
+
+    if (_nameFilter) {
+      const q = _nameFilter.toLowerCase();
+      const segObj = BrokerSegments.SEGMENTS.find(s => s.id === seg);
+      const matches =
+        (loc.name_primary     || '').toLowerCase().includes(q) ||
+        (loc.brand_primary    || '').toLowerCase().includes(q) ||
+        (top).replace(/_/g, ' ').includes(q) ||
+        (loc.category_primary || '').replace(/_/g, ' ').includes(q) ||
+        (segObj ? segObj.label.toLowerCase().includes(q) : false) ||
+        seg.replace(/_/g, ' ').includes(q);
+      if (!matches) return false;
+    }
+
+    return true;
   }
 
   // ── Fetch + render ────────────────────────────────────────────────────────
