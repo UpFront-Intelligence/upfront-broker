@@ -26,7 +26,6 @@ const NatLocs = (() => {
   // ── State ─────────────────────────────────────────────────────────────────
   let _map        = null;
   let _markerData = [];      // [{marker, loc}] — ALL fetched; only some on map
-  let _visible    = false;   // master layer on/off
   let _panel      = null;
   let _panelOpen  = true;
 
@@ -209,48 +208,32 @@ const NatLocs = (() => {
       _map.off('zoomend', _onMoveEnd);
       _clear();
       if (_panel) { _panel.remove(); _panel = null; }
-      _visible = false; _boundsKey = null;
+      _boundsKey = null;
     }
     _map = map;
 
-    // Bind map events BEFORE building the panel — if _buildPanel() throws for
-    // any reason (BrokerSegments not ready, template error, etc.) the fetch
-    // loop still works once the master toggle is checked via the fallback toggle().
+    // Events bound before _buildPanel so fetch always runs regardless of
+    // whether the panel builds successfully.
     map.on('moveend', _onMoveEnd);
     map.on('zoomend', _onMoveEnd);
 
     try {
       _buildPanel();
     } catch (e) {
-      // Panel failed; inject a minimal fallback toggle button so the layer is
-      // still usable without the full segment UI.
-      const btn = document.createElement('button');
-      btn.className = 'natloc-toggle-btn';
-      btn.textContent = '🛍 Nearby';
-      btn.onclick = toggle;
-      map.getContainer().appendChild(btn);
-      _panel = btn;
+      // Panel failed — data still fetches on pan/zoom; no fallback UI needed.
     }
+
+    // Kick off initial fetch so _markerData is populated as soon as the map
+    // is ready, even before the user selects anything.
+    _refresh();
   }
 
-  function _onMoveEnd() { if (_visible) _refresh(); }
+  function _onMoveEnd() { _refresh(); }
 
   // Exposed so the fallback button (and external callers) can toggle the layer.
-  function toggle() {
-    _visible = !_visible;
-    const master = document.getElementById('natloc-master');
-    if (master) master.checked = _visible;
-    if (_visible) { _boundsKey = null; _refresh(); }
-    else {
-      _clear();
-      _brandChips = [];
-      const si    = document.getElementById('natloc-search');
-      const chips = document.getElementById('natloc-chips');
-      if (si)    si.value = '';
-      if (chips) chips.innerHTML = '';
-    }
-    _updateLegend();
-  }
+  // toggle() kept as a no-op stub — master on/off is removed; chips and
+  // category checkboxes are now the sole control.
+  function toggle() {}
 
   // ── Panel ─────────────────────────────────────────────────────────────────
   function _buildPanel() {
@@ -271,12 +254,6 @@ const NatLocs = (() => {
         <button class="natloc-panel-collapse" id="natloc-collapse-arrow">▾</button>
       </div>
       <div class="natloc-panel-body" id="natloc-panel-body">
-        <div class="natloc-master-row">
-          <label>
-            <input type="checkbox" id="natloc-master">
-            <span>Show retail layer</span>
-          </label>
-        </div>
         <div class="natloc-chips-row" id="natloc-chips"></div>
         <div class="natloc-search-row">
           <div class="natloc-search-row-inner">
@@ -295,7 +272,7 @@ const NatLocs = (() => {
               return `
             <div class="natloc-group" data-top="${topId}">
               <div class="natloc-group-header">
-                <input type="checkbox" class="natloc-top-cb" data-top="${topId}" checked>
+                <input type="checkbox" class="natloc-top-cb" data-top="${topId}">
                 <span>${meta.icon} ${meta.label}</span>
               </div>
               <div class="natloc-segs" id="natloc-segs-${topId}">
@@ -325,6 +302,14 @@ const NatLocs = (() => {
 
     _map.getContainer().appendChild(panel);
     _panel = panel;
+
+    // Stop Leaflet intercepting clicks/scrolls inside the panel so suggestion
+    // list, chips, and checkboxes all receive events normally.
+    L.DomEvent.disableClickPropagation(panel);
+    L.DomEvent.disableScrollPropagation(panel);
+
+    // All category tops start DISABLED — nothing shown until user selects.
+    Object.keys(tops).forEach(topId => _disabledTops.add(topId));
 
     // ── Brand chip multi-select + autocomplete ────────────────────────────────
     const searchInput = panel.querySelector('#natloc-search');
@@ -405,10 +390,6 @@ const NatLocs = (() => {
       if (e.target.value.trim()) _showSuggestions(e.target.value.trim());
     });
 
-    // Master toggle — delegate to toggle() so the fallback button and the
-    // panel checkbox always stay in sync.
-    panel.querySelector('#natloc-master').addEventListener('change', () => toggle());
-
     // Tier-1 (top) toggles — clicking the row label area
     panel.querySelectorAll('.natloc-top-cb').forEach(cb => {
       cb.addEventListener('change', e => {
@@ -464,8 +445,9 @@ const NatLocs = (() => {
     if (!el) return;
     const activeCount = BrokerSegments.SEGMENTS.filter(s =>
       !_disabledTops.has(s.top)).length;
+    const chips = _brandChips.length;
     el.querySelector('div').textContent =
-      _visible ? `Active: ${activeCount} segments` : 'Layer off';
+      chips > 0 ? `Filter: ${chips} brand${chips > 1 ? 's' : ''}` : `Active: ${activeCount} segments`;
   }
 
   // ── Visibility logic ──────────────────────────────────────────────────────
@@ -495,7 +477,7 @@ const NatLocs = (() => {
 
   // ── Fetch + render ────────────────────────────────────────────────────────
   async function _refresh() {
-    if (!_map || !_visible) return;
+    if (!_map) return;
     const b = _map.getBounds();
     const key = [
       b.getSouth().toFixed(4), b.getWest().toFixed(4),

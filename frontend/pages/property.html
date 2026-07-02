@@ -165,7 +165,7 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="/js/app.js?v=11"></script>
 <script src="/js/broker_segments.js?v=2"></script>
-<script src="/js/national_locations_layer.js?v=8"></script>
+<script src="/js/national_locations_layer.js?v=9"></script>
 <script>
   if (!Auth.requireAuth()) throw new Error('Not authenticated');
   renderSidebar('properties');
@@ -498,6 +498,8 @@
       `<label class="ring-label"><input type="checkbox" class="ring-cb" data-id="${r.id}"> ${r.label}</label>`
     ).join('');
     tabMap.getContainer().appendChild(ringCtrl);
+    L.DomEvent.disableClickPropagation(ringCtrl);
+    L.DomEvent.disableScrollPropagation(ringCtrl);
 
     ringCtrl.querySelectorAll('.ring-cb').forEach(cb => {
       cb.addEventListener('change', () => {
