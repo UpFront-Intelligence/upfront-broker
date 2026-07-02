@@ -191,6 +191,7 @@
       render(d);
       renderRecordedOwner();
       loadTenants();
+      loadPublicRecord();
     } catch(e) { Toast.error('Failed to load: ' + e.message); }
   }
 
@@ -461,7 +462,7 @@
           </div>
           <div id="attach-status"></div>
         </div></div>
-        <div id="assessor-section">${publicRecordCard(p)}</div>
+        <div id="assessor-section"><div class="spinner" style="margin:20px auto;display:block"></div></div>
       </div>
 
       <!-- TAB 5: MAP -->
@@ -840,22 +841,52 @@
       render(d);
       renderRecordedOwner();
       renderTenants();
+      loadPublicRecord();
       switchTab(activeTab);
     } catch(e) { Toast.error('Failed to refresh: ' + e.message); }
   }
 
-  // ── Public record card (sourced from the property's own fields) ──────────
-  function publicRecordCard(p) {
-    if (!p.parcel_id) {
-      return '<div style="padding:20px;font-size:13px;color:var(--stone)">No public record found for this property.</div>';
+  // ── Public record card (parcels_regrid first, live ArcGIS/local-parcels
+  // fallback — see backend/routers/finder.py's get_public_record) ──────────
+  async function loadPublicRecord() {
+    const el = document.getElementById('assessor-section');
+    if (!el) return;
+    let rec = null;
+    try { rec = await API.get(`/finder/public-record/${ID}`); } catch(e) { rec = null; }
+    el.innerHTML = publicRecordCard(rec, REC);
+  }
+
+  function publicRecordCard(rec, p) {
+    const hasLive = rec && rec.source;
+    if (!hasLive && !p.parcel_id) {
+      return `<div class="dc"><div class="dc-title">🏛 Public Record</div><div class="dc-body">
+        <div style="padding:20px;font-size:13px;color:var(--stone)">No public record found for this property.</div>
+      </div></div>`;
     }
-    const fmtSF = v => v ? Number(v).toLocaleString() + ' SF' : '—';
+
+    const owner    = hasLive && rec.owner ? rec.owner : null;
+    const parcelId = (hasLive && rec.parcel_id) || p.parcel_id || '—';
+    const address  = (hasLive && rec.address) || [p.address,p.city,p.zip].filter(Boolean).join(', ') || '—';
+    const county   = (hasLive && rec.county) || p.county || '—';
+    const fmtSF    = v => v ? Number(v).toLocaleString() + ' SF' : '—';
+
+    let sourceLabel = null;
+    if (rec && rec.source === 'parcels_regrid') {
+      const vintage = rec.ingested_at ? ` · ingested ${new Date(rec.ingested_at).toLocaleDateString()}` : '';
+      sourceLabel = `Regrid — ${rec.source_county || '—'}${vintage}`;
+    } else if (rec && rec.source === 'arcgis_legacy') {
+      sourceLabel = 'Oakland County ArcGIS (live)';
+    }
+
     return `<div class="dc"><div class="dc-title">🏛 Public Record</div><div class="dc-body">
-      <div class="fr"><span class="fl">Parcel ID</span><span class="fv" style="cursor:default">${p.parcel_id}</span></div>
-      <div class="fr"><span class="fl">Site Address</span><span class="fv" style="cursor:default">${[p.address,p.city,p.zip].filter(Boolean).join(', ')||'—'}</span></div>
+      ${owner ? `<div class="fr"><span class="fl">Owner</span><span class="fv" style="cursor:default;font-weight:600">${owner}</span></div>` : ''}
+      <div class="fr"><span class="fl">Parcel ID</span><span class="fv" style="cursor:default">${parcelId}</span></div>
+      <div class="fr"><span class="fl">Site Address</span><span class="fv" style="cursor:default">${address}</span></div>
+      <div class="fr"><span class="fl">County</span><span class="fv" style="cursor:default">${county}</span></div>
       <div class="fr"><span class="fl">Assessed Value</span><span class="fv" style="cursor:default">${p.assessed_value?Fmt.currency(p.assessed_value):'—'}</span></div>
       <div class="fr"><span class="fl">Living Area</span><span class="fv" style="cursor:default">${fmtSF(p.sf_rentable)}</span></div>
       <div class="fr"><span class="fl">Class / Type</span><span class="fv" style="cursor:default">${p.property_type||'—'}</span></div>
+      ${sourceLabel ? `<div style="margin-top:10px;font-size:11px;color:var(--stone)">Source: ${sourceLabel}</div>` : ''}
     </div></div>`;
   }
 

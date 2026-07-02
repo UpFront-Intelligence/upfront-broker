@@ -3,6 +3,9 @@ Property Finder — Oakland County ArcGIS parcel lookup.
 
 GET  /api/finder/debug     → probe base URLs (diagnostic)
 GET  /api/finder/parcels?zip= → CRE parcels for a zip, with exists_in_db flag
+GET  /api/finder/public-record/{property_id} → parcels_regrid first, live
+                                  ArcGIS/local-parcels fallback for counties
+                                  not yet ingested (see get_public_record)
 POST /api/finder/add          → create Property (+ optional Deal) from parcel data
 """
 import json
@@ -19,7 +22,9 @@ from database import get_db
 from models.user import User
 from models.property import Property
 from models.deal import Deal
+from models.parcel_regrid import ParcelRegrid
 from models.shared import EnrichmentCache
+from services.naming import normalize_address
 from auth_utils import get_current_user
 
 router = APIRouter()
@@ -556,6 +561,103 @@ def get_parcel_by_keypin(
         return {}   # parcels table not available yet
 
     raise HTTPException(status_code=404, detail="Parcel not found")
+
+
+@router.get("/public-record/{property_id}")
+def get_public_record(
+    property_id:  int,
+    db:           Session = Depends(get_db),
+    current_user: User    = Depends(get_current_user),
+):
+    """Public Record tab data source. parcels_regrid first (it has the
+    owner name — Oakland ArcGIS strips NAME1/NAME2 from its public feed,
+    Regrid doesn't), live ArcGIS/local-parcels as fallback for counties
+    parcels_regrid doesn't cover yet (e.g. Macomb, not ingested — see
+    CLAUDE.md's PARCELS_REGRID / REGRID OAKLAND PILOT sections).
+    Read-only against parcels_regrid — no writes here.
+
+    Match order:
+      1. property.parcel_id == parcels_regrid.parcel_id, opportunistic.
+         Oakland ArcGIS's "keypin" and Regrid's "parcelnumb" are different
+         source ID schemes, not assumed equivalent — free to try first,
+         not relied on.
+      2. zip-scoped normalize_address() exact match — the same function
+         services/regrid.py's reconcile() already uses in production to
+         link parcels_regrid rows to properties, run here in the opposite
+         direction (property → parcel instead of parcel → property).
+      3. legacy local-parcels/ArcGIS 3-step lookup (get_parcel_by_keypin,
+         above), only possible if property.parcel_id is already set from
+         a prior manual attach — unchanged behavior for counties not yet
+         in parcels_regrid.
+    """
+    prop = db.query(Property).filter(
+        Property.id == property_id, Property.owner_id == current_user.id
+    ).first()
+    if not prop:
+        raise HTTPException(status_code=404, detail="Property not found")
+
+    match, matched_via = None, None
+
+    if prop.parcel_id:
+        match = db.query(ParcelRegrid).filter(
+            ParcelRegrid.parcel_id == prop.parcel_id
+        ).first()
+        if match:
+            matched_via = "parcel_id"
+
+    if match is None and prop.zip and prop.address:
+        target_norm = normalize_address(prop.address)
+        candidates = db.query(ParcelRegrid).filter(ParcelRegrid.zip == prop.zip).all()
+        for cand in candidates:
+            if cand.address and normalize_address(cand.address) == target_norm:
+                match, matched_via = cand, "address"
+                break
+
+    if match is not None:
+        return {
+            "source":        "parcels_regrid",
+            "matched_via":   matched_via,
+            "owner":         match.owner_raw,
+            "parcel_id":     match.parcel_id,
+            "address":       match.address,
+            "city":          match.city,
+            "state":         match.state,
+            "zip":           match.zip,
+            "county":        match.county,
+            "source_county": match.source_county,
+            "ingested_at":   match.ingested_at.isoformat() if match.ingested_at else None,
+        }
+
+    # ── Fallback: legacy local-parcels/ArcGIS path — only reachable if the
+    # property already has a keypin from a prior manual attach; parcels_regrid
+    # has no coverage for this county yet (e.g. Macomb).
+    if prop.parcel_id:
+        try:
+            legacy = get_parcel_by_keypin(
+                keypin=prop.parcel_id, property_id=property_id,
+                db=db, current_user=current_user,
+            )
+        except HTTPException:
+            legacy = None
+        if legacy:
+            owner = (legacy.get("name1") or "").strip()
+            if legacy.get("name2"):
+                owner = f"{owner} / {legacy['name2']}".strip(" /")
+            return {
+                "source":        "arcgis_legacy",
+                "matched_via":   "parcel_id",
+                "owner":         owner or None,
+                "parcel_id":     prop.parcel_id,
+                "address":       prop.address,
+                "city":          prop.city,
+                "state":         prop.state,
+                "zip":           prop.zip,
+                "county":        legacy.get("cvttaxdescription"),
+                "source_county": None,
+                "ingested_at":   None,
+            }
+
+    return {"source": None, "matched_via": None}
 
 
 @router.post("/add")
