@@ -51,7 +51,7 @@
     #prop-map-tab { height:520px; }
     /* Distance ring control */
     .ring-ctrl {
-      position:absolute; top:10px; right:44px; z-index:500;
+      position:absolute; top:10px; right:10px; z-index:501;
       background:var(--surface,#fff); border:1px solid var(--border,rgba(27,34,53,0.08));
       border-radius:var(--radius-sm,8px); padding:5px 8px;
       font-size:11.5px; box-shadow:0 1px 3px rgba(0,0,0,0.12);
@@ -165,7 +165,7 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="/js/app.js?v=11"></script>
 <script src="/js/broker_segments.js?v=2"></script>
-<script src="/js/national_locations_layer.js?v=6"></script>
+<script src="/js/national_locations_layer.js?v=7"></script>
 <script>
   if (!Auth.requireAuth()) throw new Error('Not authenticated');
   renderSidebar('properties');

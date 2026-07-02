@@ -39,6 +39,7 @@ const NatLocs = (() => {
   let _segFilter    = {};   // key: category_top → null | Set<segId>
   let _nameFilter   = '';   // text search — empty = no constraint
 
+  let _catOpen       = false;  // disclosure: category tree starts collapsed
   let _boundsKey     = null;
   let _styleInjected = false;
 
@@ -50,7 +51,7 @@ const NatLocs = (() => {
     s.textContent = `
 /* ── Panel ── */
 .natloc-panel {
-  position:absolute; bottom:30px; left:10px; z-index:500;
+  position:absolute; top:50px; right:10px; z-index:500;
   background:var(--surface,#fff); border:1px solid var(--border,rgba(27,34,53,0.08));
   border-radius:var(--radius-md,12px); box-shadow:0 2px 8px rgba(0,0,0,0.14);
   width:210px; font-family:var(--font-system,-apple-system,sans-serif);
@@ -69,12 +70,24 @@ const NatLocs = (() => {
   color:var(--text-secondary,#5C6470); padding:0 2px; line-height:1;
 }
 .natloc-panel-body {
-  max-height:55vh; overflow-y:auto; padding:6px 0;
+  max-height:calc(100vh - 140px); overflow-y:auto; padding:6px 0;
 }
 .natloc-panel-body.hidden { display:none; }
 
+/* Category disclosure */
+.natloc-cat-disclosure { border-bottom:1px solid var(--border,rgba(27,34,53,0.08)); }
+.natloc-cat-header {
+  display:flex; align-items:center; gap:5px;
+  padding:6px 10px; cursor:pointer; user-select:none;
+  font-size:11.5px; font-weight:600; color:var(--text-secondary,#5C6470);
+}
+.natloc-cat-header:hover { background:var(--paper,#F3F2EE); }
+.natloc-cat-body { }
+.natloc-cat-body.hidden { display:none; }
+
 /* Search box */
-.natloc-search-row {
+.natloc-search-row { position:relative; }
+.natloc-search-row-inner {
   padding:7px 10px 5px;
   border-bottom:1px solid var(--border,rgba(27,34,53,0.08));
 }
@@ -85,6 +98,17 @@ const NatLocs = (() => {
   background:var(--paper,#F3F2EE); color:var(--ink,#1B2235); outline:none;
 }
 .natloc-search-input:focus { border-color:var(--accent,#1F5E52); background:#fff; }
+.natloc-suggest {
+  position:absolute; top:calc(100% - 5px); left:10px; right:10px; z-index:600;
+  background:#fff; border:1px solid var(--border,rgba(27,34,53,0.08));
+  border-radius:var(--radius-sm,8px); box-shadow:0 4px 12px rgba(0,0,0,0.15);
+  list-style:none; margin:0; padding:3px 0; max-height:180px; overflow-y:auto;
+}
+.natloc-suggest li {
+  padding:5px 10px; font-size:11.5px; cursor:pointer; white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis; color:var(--ink,#1B2235);
+}
+.natloc-suggest li:hover { background:var(--paper,#F3F2EE); }
 
 /* Master toggle */
 .natloc-master-row {
@@ -227,41 +251,51 @@ const NatLocs = (() => {
         <button class="natloc-panel-collapse" id="natloc-collapse-arrow">▾</button>
       </div>
       <div class="natloc-panel-body" id="natloc-panel-body">
-        <div class="natloc-search-row">
-          <input type="text" id="natloc-search" class="natloc-search-input"
-                 placeholder="Search brand or category…" autocomplete="off">
-        </div>
         <div class="natloc-master-row">
           <label>
             <input type="checkbox" id="natloc-master">
             <span>Show retail layer</span>
           </label>
         </div>
-        ${Object.entries(tops).map(([topId, meta]) => {
-          const groupSegs = byTop[topId] || [];
-          return `
-          <div class="natloc-group" data-top="${topId}">
-            <div class="natloc-group-header">
-              <input type="checkbox" class="natloc-top-cb" data-top="${topId}" checked>
-              <span>${meta.icon} ${meta.label}</span>
-            </div>
-            <div class="natloc-segs" id="natloc-segs-${topId}">
-              ${groupSegs.map(seg => `
-              <div class="natloc-seg-row">
-                <label>
-                  <input type="checkbox" class="natloc-seg-cb" data-seg="${seg.id}" data-top="${topId}">
-                  <span>${seg.icon} ${seg.label}</span>
-                </label>
-              </div>`).join('')}
-              <div class="natloc-seg-row">
-                <label>
-                  <input type="checkbox" class="natloc-seg-cb" data-seg="other_${topId}" data-top="${topId}">
-                  <span>📍 Other</span>
-                </label>
+        <div class="natloc-search-row">
+          <div class="natloc-search-row-inner">
+            <input type="text" id="natloc-search" class="natloc-search-input"
+                   placeholder="Search brand or category…" autocomplete="off">
+          </div>
+          <ul class="natloc-suggest" id="natloc-suggest" style="display:none"></ul>
+        </div>
+        <div class="natloc-cat-disclosure">
+          <div class="natloc-cat-header" id="natloc-cat-header" onclick="NatLocs._toggleCat()">
+            <span id="natloc-cat-arrow">▸</span> Filter by category
+          </div>
+          <div class="natloc-cat-body hidden" id="natloc-cat-body">
+            ${Object.entries(tops).map(([topId, meta]) => {
+              const groupSegs = byTop[topId] || [];
+              return `
+            <div class="natloc-group" data-top="${topId}">
+              <div class="natloc-group-header">
+                <input type="checkbox" class="natloc-top-cb" data-top="${topId}" checked>
+                <span>${meta.icon} ${meta.label}</span>
               </div>
-            </div>
-          </div>`;
-        }).join('')}
+              <div class="natloc-segs" id="natloc-segs-${topId}">
+                ${groupSegs.map(seg => `
+                <div class="natloc-seg-row">
+                  <label>
+                    <input type="checkbox" class="natloc-seg-cb" data-seg="${seg.id}" data-top="${topId}">
+                    <span>${seg.icon} ${seg.label}</span>
+                  </label>
+                </div>`).join('')}
+                <div class="natloc-seg-row">
+                  <label>
+                    <input type="checkbox" class="natloc-seg-cb" data-seg="other_${topId}" data-top="${topId}">
+                    <span>📍 Other</span>
+                  </label>
+                </div>
+              </div>
+            </div>`;
+            }).join('')}
+          </div>
+        </div>
         <div class="natloc-legend" id="natloc-legend">
           <div>Active: all categories</div>
           <div class="natloc-legend-note">Recognized brands show logos</div>
@@ -271,15 +305,58 @@ const NatLocs = (() => {
     _map.getContainer().appendChild(panel);
     _panel = panel;
 
-    // Search box — debounced 200ms, client-side only (no refetch)
-    let _searchTimer = null;
-    panel.querySelector('#natloc-search').addEventListener('input', e => {
+    // Search box — debounced filter + client-side autocomplete
+    const searchInput  = panel.querySelector('#natloc-search');
+    const suggestList  = panel.querySelector('#natloc-suggest');
+    let _searchTimer   = null;
+
+    function _hideSuggest() { suggestList.style.display = 'none'; }
+
+    function _showSuggestions(raw) {
+      if (!raw) { _hideSuggest(); return; }
+      const q = raw.toLowerCase();
+      const seen = new Set();
+      const hits = [];
+      for (const { loc } of _markerData) {
+        const label = (loc.brand_primary || loc.name_primary || '').trim();
+        if (!label || seen.has(label)) continue;
+        if (label.toLowerCase().includes(q)) {
+          seen.add(label);
+          hits.push(label);
+          if (hits.length >= 8) break;
+        }
+      }
+      if (!hits.length) { _hideSuggest(); return; }
+      suggestList.innerHTML = hits.map(h =>
+        `<li data-val="${_esc(h)}">${_esc(h)}</li>`
+      ).join('');
+      suggestList.style.display = '';
+      suggestList.querySelectorAll('li').forEach(li => {
+        li.addEventListener('mousedown', e => {
+          e.preventDefault();   // prevent blur firing before mousedown
+          searchInput.value = li.dataset.val;
+          _nameFilter = li.dataset.val;
+          _applyFilter();
+          _updateLegend();
+          _hideSuggest();
+        });
+      });
+    }
+
+    searchInput.addEventListener('input', e => {
+      const raw = e.target.value.trim();
+      _showSuggestions(raw);
       clearTimeout(_searchTimer);
       _searchTimer = setTimeout(() => {
-        _nameFilter = e.target.value.trim();
+        _nameFilter = raw;
         _applyFilter();
         _updateLegend();
       }, 200);
+    });
+
+    searchInput.addEventListener('blur', () => setTimeout(_hideSuggest, 150));
+    searchInput.addEventListener('focus', e => {
+      if (e.target.value.trim()) _showSuggestions(e.target.value.trim());
     });
 
     // Master toggle — delegate to toggle() so the fallback button and the
@@ -326,6 +403,14 @@ const NatLocs = (() => {
     const arrow = document.getElementById('natloc-collapse-arrow');
     if (body) body.classList.toggle('hidden', !_panelOpen);
     if (arrow) arrow.textContent = _panelOpen ? '▾' : '▸';
+  }
+
+  function _toggleCat() {
+    _catOpen = !_catOpen;
+    const catBody  = document.getElementById('natloc-cat-body');
+    const catArrow = document.getElementById('natloc-cat-arrow');
+    if (catBody)  catBody.classList.toggle('hidden', !_catOpen);
+    if (catArrow) catArrow.textContent = _catOpen ? '▾' : '▸';
   }
 
   function _updateLegend() {
@@ -550,5 +635,5 @@ const NatLocs = (() => {
     return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
-  return { init, toggle, _togglePanel, findOwner, createAccount };
+  return { init, toggle, _togglePanel, _toggleCat, findOwner, createAccount };
 })();
