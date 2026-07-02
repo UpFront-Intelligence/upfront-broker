@@ -37,7 +37,7 @@ const NatLocs = (() => {
   //   Non-null Set = only show these segment ids under that top.
   let _disabledTops = new Set();
   let _segFilter    = {};   // key: category_top → null | Set<segId>
-  let _nameFilter   = '';   // text search — empty = no constraint
+  let _brandChips   = [];   // active brand/name chips (multi-select, OR filter)
 
   let _catOpen       = false;  // disclosure: category tree starts collapsed
   let _boundsKey     = null;
@@ -109,6 +109,24 @@ const NatLocs = (() => {
   overflow:hidden; text-overflow:ellipsis; color:var(--ink,#1B2235);
 }
 .natloc-suggest li:hover { background:var(--paper,#F3F2EE); }
+
+/* Brand chips */
+.natloc-chips-row {
+  padding:5px 10px 0; display:flex; flex-wrap:wrap; gap:4px;
+  border-bottom:1px solid var(--border,rgba(27,34,53,0.08));
+}
+.natloc-chips-row:empty { display:none; }
+.natloc-chip {
+  display:inline-flex; align-items:center; gap:3px;
+  background:rgba(31,94,82,0.1); color:var(--accent,#1F5E52);
+  border-radius:10px; padding:2px 6px 2px 8px;
+  font-size:11px; font-weight:500; white-space:nowrap;
+}
+.natloc-chip-x {
+  cursor:pointer; font-weight:700; opacity:0.7; line-height:1;
+  padding:0 1px;
+}
+.natloc-chip-x:hover { opacity:1; }
 
 /* Master toggle */
 .natloc-master-row {
@@ -225,9 +243,11 @@ const NatLocs = (() => {
     if (_visible) { _boundsKey = null; _refresh(); }
     else {
       _clear();
-      _nameFilter = '';
-      const si = document.getElementById('natloc-search');
-      if (si) si.value = '';
+      _brandChips = [];
+      const si    = document.getElementById('natloc-search');
+      const chips = document.getElementById('natloc-chips');
+      if (si)    si.value = '';
+      if (chips) chips.innerHTML = '';
     }
     _updateLegend();
   }
@@ -257,10 +277,11 @@ const NatLocs = (() => {
             <span>Show retail layer</span>
           </label>
         </div>
+        <div class="natloc-chips-row" id="natloc-chips"></div>
         <div class="natloc-search-row">
           <div class="natloc-search-row-inner">
             <input type="text" id="natloc-search" class="natloc-search-input"
-                   placeholder="Search brand or category…" autocomplete="off">
+                   placeholder="Search brand or name…" autocomplete="off">
           </div>
           <ul class="natloc-suggest" id="natloc-suggest" style="display:none"></ul>
         </div>
@@ -305,56 +326,81 @@ const NatLocs = (() => {
     _map.getContainer().appendChild(panel);
     _panel = panel;
 
-    // Search box — debounced filter + client-side autocomplete
-    const searchInput  = panel.querySelector('#natloc-search');
-    const suggestList  = panel.querySelector('#natloc-suggest');
-    let _searchTimer   = null;
+    // ── Brand chip multi-select + autocomplete ────────────────────────────────
+    const searchInput = panel.querySelector('#natloc-search');
+    const suggestList = panel.querySelector('#natloc-suggest');
+    const chipsRow    = panel.querySelector('#natloc-chips');
 
     function _hideSuggest() { suggestList.style.display = 'none'; }
+
+    function _renderChips() {
+      chipsRow.innerHTML = _brandChips.map((c, i) =>
+        `<span class="natloc-chip">
+           ${_esc(c)}
+           <span class="natloc-chip-x" data-i="${i}">✕</span>
+         </span>`
+      ).join('');
+      chipsRow.querySelectorAll('.natloc-chip-x').forEach(x => {
+        x.addEventListener('mousedown', e => {
+          e.preventDefault();
+          _brandChips.splice(+x.dataset.i, 1);
+          _renderChips();
+          _applyFilter();
+          _updateLegend();
+        });
+      });
+    }
+
+    function _addChip(text) {
+      const norm = text.trim();
+      if (!norm || _brandChips.includes(norm)) return;
+      _brandChips.push(norm);
+      _renderChips();
+      searchInput.value = '';
+      _hideSuggest();
+      _applyFilter();
+      _updateLegend();
+    }
 
     function _showSuggestions(raw) {
       if (!raw) { _hideSuggest(); return; }
       const q = raw.toLowerCase();
-      const seen = new Set();
+      const seen = new Set(_brandChips.map(c => c.toLowerCase()));
       const hits = [];
       for (const { loc } of _markerData) {
         const label = (loc.brand_primary || loc.name_primary || '').trim();
-        if (!label || seen.has(label)) continue;
+        if (!label || seen.has(label.toLowerCase())) continue;
         if (label.toLowerCase().includes(q)) {
-          seen.add(label);
+          seen.add(label.toLowerCase());
           hits.push(label);
           if (hits.length >= 8) break;
         }
       }
       if (!hits.length) { _hideSuggest(); return; }
+      // mousedown on the <ul> itself prevents blur from firing before any child click
+      suggestList.onmousedown = e => e.preventDefault();
       suggestList.innerHTML = hits.map(h =>
         `<li data-val="${_esc(h)}">${_esc(h)}</li>`
       ).join('');
       suggestList.style.display = '';
       suggestList.querySelectorAll('li').forEach(li => {
-        li.addEventListener('mousedown', e => {
-          e.preventDefault();   // prevent blur firing before mousedown
-          searchInput.value = li.dataset.val;
-          _nameFilter = li.dataset.val;
-          _applyFilter();
-          _updateLegend();
-          _hideSuggest();
-        });
+        li.addEventListener('click', () => _addChip(li.dataset.val));
       });
     }
 
     searchInput.addEventListener('input', e => {
-      const raw = e.target.value.trim();
-      _showSuggestions(raw);
-      clearTimeout(_searchTimer);
-      _searchTimer = setTimeout(() => {
-        _nameFilter = raw;
-        _applyFilter();
-        _updateLegend();
-      }, 200);
+      _showSuggestions(e.target.value.trim());
     });
 
-    searchInput.addEventListener('blur', () => setTimeout(_hideSuggest, 150));
+    searchInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const raw = searchInput.value.trim();
+        if (raw) _addChip(raw);
+      }
+    });
+
+    searchInput.addEventListener('blur', () => setTimeout(_hideSuggest, 120));
     searchInput.addEventListener('focus', e => {
       if (e.target.value.trim()) _showSuggestions(e.target.value.trim());
     });
@@ -425,26 +471,26 @@ const NatLocs = (() => {
   // ── Visibility logic ──────────────────────────────────────────────────────
   function _isVisible(loc) {
     const top = loc.category_top;
-    if (!top || _disabledTops.has(top)) return false;
+    if (!top) return false;
 
-    const seg = BrokerSegments.segmentForLeaf(loc.category_primary, top);
+    const seg    = BrokerSegments.segmentForLeaf(loc.category_primary, top);
     const filter = _segFilter[top];
-    if (filter && filter.size > 0 && !filter.has(seg)) return false;
 
-    if (_nameFilter) {
-      const q = _nameFilter.toLowerCase();
-      const segObj = BrokerSegments.SEGMENTS.find(s => s.id === seg);
-      const matches =
-        (loc.name_primary     || '').toLowerCase().includes(q) ||
-        (loc.brand_primary    || '').toLowerCase().includes(q) ||
-        (top).replace(/_/g, ' ').includes(q) ||
-        (loc.category_primary || '').replace(/_/g, ' ').includes(q) ||
-        (segObj ? segObj.label.toLowerCase().includes(q) : false) ||
-        seg.replace(/_/g, ' ').includes(q);
-      if (!matches) return false;
-    }
+    // Does this marker pass the category checkboxes (tier-1 + tier-2)?
+    const passesCategories =
+      !_disabledTops.has(top) &&
+      (!filter || filter.size === 0 || filter.has(seg));
 
-    return true;
+    // Does this marker match any active brand chip? (OR across chips)
+    const passesChip = _brandChips.length > 0 && _brandChips.some(chip => {
+      const q = chip.toLowerCase();
+      return (loc.name_primary  || '').toLowerCase().includes(q) ||
+             (loc.brand_primary || '').toLowerCase().includes(q);
+    });
+
+    // No chips → category filter only (existing behavior unchanged).
+    // Chips active → show if passes categories OR matches any chip (OR-union).
+    return _brandChips.length === 0 ? passesCategories : (passesCategories || passesChip);
   }
 
   // ── Fetch + render ────────────────────────────────────────────────────────
