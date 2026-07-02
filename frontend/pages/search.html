@@ -129,6 +129,26 @@
         <div class="role-chips" id="role-chips"></div>
       </div>
 
+      <div class="f-group" id="g-account-name" style="display:none">
+        <span class="f-label">Account name</span>
+        <input class="f-input" id="f-account-name" placeholder="Search accounts…" autocomplete="off" style="width:160px" oninput="debouncedSearch()">
+      </div>
+
+      <div class="f-group" id="g-contact-name" style="display:none">
+        <span class="f-label">Contact name</span>
+        <input class="f-input" id="f-contact-name" placeholder="Search contacts…" autocomplete="off" style="width:150px" oninput="debouncedSearch()">
+      </div>
+
+      <div class="f-group" id="g-contact-title" style="display:none">
+        <span class="f-label">Title</span>
+        <input class="f-input" id="f-contact-title" placeholder="e.g. CEO…" autocomplete="off" style="width:120px" oninput="debouncedSearch()">
+      </div>
+
+      <div class="f-group" id="g-tenant-name" style="display:none">
+        <span class="f-label">Tenant name</span>
+        <input class="f-input" id="f-tenant-name" placeholder="Search tenants…" autocomplete="off" style="width:150px" oninput="debouncedSearch()">
+      </div>
+
       <div class="f-group" id="g-brand" style="display:none">
         <span class="f-label">Brand</span>
         <input class="f-input" id="f-brand" placeholder="e.g. Starbucks…" autocomplete="off" style="width:140px" oninput="debouncedSearch()">
@@ -138,11 +158,11 @@
         <span class="f-label">Category</span>
         <select class="f-sel" id="f-category" onchange="runSearch()">
           <option value="">All categories</option>
-          <option value="eat_and_drink">Eat &amp; Drink</option>
-          <option value="retail">Retail</option>
-          <option value="automotive">Automotive</option>
-          <option value="beauty_and_spa">Beauty &amp; Spa</option>
-          <option value="financial_service">Financial Services</option>
+          <option value="food_and_drink">Food &amp; Drink</option>
+          <option value="shopping">Shopping</option>
+          <option value="travel_and_transportation">Travel &amp; Transportation</option>
+          <option value="lifestyle_services">Lifestyle Services</option>
+          <option value="services_and_business">Services &amp; Business</option>
         </select>
       </div>
     </div>
@@ -193,9 +213,9 @@
 
   const RETURN_FIELDS = {
     properties:         ['prop-type', 'size', 'price'],
-    accounts:           ['role'],
-    contacts:           [],
-    tenants:            ['prop-type'],
+    accounts:           ['role', 'account-name'],
+    contacts:           ['contact-name', 'contact-title'],
+    tenants:            ['prop-type', 'tenant-name'],
     deals:              ['prop-type'],
     national_locations: ['brand', 'category'],
   };
@@ -292,11 +312,15 @@
   function applyReturnVisibility() {
     const visible = RETURN_FIELDS[currentReturn] || [];
     document.getElementById('g-prop-type').style.display = visible.includes('prop-type') ? '' : 'none';
-    document.getElementById('g-size').style.display       = visible.includes('size')      ? '' : 'none';
-    document.getElementById('g-price').style.display      = visible.includes('price')     ? '' : 'none';
-    document.getElementById('g-role').style.display       = visible.includes('role')      ? '' : 'none';
-    document.getElementById('g-brand').style.display      = visible.includes('brand')     ? '' : 'none';
-    document.getElementById('g-category').style.display   = visible.includes('category')  ? '' : 'none';
+    document.getElementById('g-size').style.display          = visible.includes('size')          ? '' : 'none';
+    document.getElementById('g-price').style.display         = visible.includes('price')         ? '' : 'none';
+    document.getElementById('g-role').style.display          = visible.includes('role')          ? '' : 'none';
+    document.getElementById('g-account-name').style.display  = visible.includes('account-name')  ? '' : 'none';
+    document.getElementById('g-contact-name').style.display  = visible.includes('contact-name')  ? '' : 'none';
+    document.getElementById('g-contact-title').style.display = visible.includes('contact-title') ? '' : 'none';
+    document.getElementById('g-tenant-name').style.display   = visible.includes('tenant-name')   ? '' : 'none';
+    document.getElementById('g-brand').style.display         = visible.includes('brand')         ? '' : 'none';
+    document.getElementById('g-category').style.display      = visible.includes('category')      ? '' : 'none';
   }
 
   // User changing the Records dropdown — geography/role filters don't carry
@@ -309,8 +333,12 @@
     activeRoles = new Set();
     renderRoleChips();
     renderGeoChips();
-    document.getElementById('f-brand').value = '';
-    document.getElementById('f-category').value = '';
+    document.getElementById('f-account-name').value  = '';
+    document.getElementById('f-contact-name').value  = '';
+    document.getElementById('f-contact-title').value = '';
+    document.getElementById('f-tenant-name').value   = '';
+    document.getElementById('f-brand').value          = '';
+    document.getElementById('f-category').value       = '';
     runSearch();
   }
 
@@ -331,6 +359,14 @@
     const priceMax = document.getElementById('f-price-max').value.trim();
     if (priceMax) p.set('price_max', priceMax);
     [...activeRoles].forEach(r => p.append('role', r));
+    const acctName    = document.getElementById('f-account-name').value.trim();
+    if (acctName)  p.set('account_name', acctName);
+    const cName       = document.getElementById('f-contact-name').value.trim();
+    if (cName)     p.set('contact_name', cName);
+    const cTitle      = document.getElementById('f-contact-title').value.trim();
+    if (cTitle)    p.set('contact_title', cTitle);
+    const tName       = document.getElementById('f-tenant-name').value.trim();
+    if (tName)     p.set('tenant_name', tName);
     const brand = document.getElementById('f-brand').value.trim();
     if (brand) p.set('brand', brand);
     const cat = document.getElementById('f-category').value;
@@ -357,12 +393,16 @@
       const v = p.get(key);
       if (v) document.getElementById(id).value = v;
     };
-    restoreInput('f-sf-min', 'sf_min');
-    restoreInput('f-sf-max', 'sf_max');
-    restoreInput('f-price-min', 'price_min');
-    restoreInput('f-price-max', 'price_max');
-    restoreInput('f-brand',    'brand');
-    restoreInput('f-category', 'category');
+    restoreInput('f-sf-min',        'sf_min');
+    restoreInput('f-sf-max',        'sf_max');
+    restoreInput('f-price-min',     'price_min');
+    restoreInput('f-price-max',     'price_max');
+    restoreInput('f-account-name',  'account_name');
+    restoreInput('f-contact-name',  'contact_name');
+    restoreInput('f-contact-title', 'contact_title');
+    restoreInput('f-tenant-name',   'tenant_name');
+    restoreInput('f-brand',         'brand');
+    restoreInput('f-category',      'category');
     p.getAll('role').forEach(r => activeRoles.add(r));
     return true;
   }
@@ -442,7 +482,20 @@
     if (priceMax) pf.price_max = +priceMax;
     if (Object.keys(pf).length) spec.property = pf;
 
-    if (activeRoles.size) spec.account = { roles: [...activeRoles] };
+    const accountName = document.getElementById('f-account-name').value.trim();
+    if (accountName) spec.account = { ...(spec.account || {}), name: accountName };
+    if (activeRoles.size) spec.account = { ...(spec.account || {}), roles: [...activeRoles] };
+
+    const contactName  = document.getElementById('f-contact-name').value.trim();
+    const contactTitle = document.getElementById('f-contact-title').value.trim();
+    if (contactName || contactTitle) {
+      spec.contact = {};
+      if (contactName)  spec.contact.name  = contactName;
+      if (contactTitle) spec.contact.title = contactTitle;
+    }
+
+    const tenantName = document.getElementById('f-tenant-name').value.trim();
+    if (tenantName) spec.tenant = { name: tenantName };
 
     if (currentReturn === 'national_locations') {
       const brand = document.getElementById('f-brand').value.trim();
