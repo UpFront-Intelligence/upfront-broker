@@ -14,31 +14,8 @@ from models.property import Property
 from models.user import User
 from auth_utils import get_current_user
 from services.accounts import ensure_role
-from services.property_category import categorize_property_type
+from services.property_category import categorize_property_type, parcel_classcode_to_property_type
 from services.national_locations import link_property_to_national_locations
-
-
-# Oakland County CLASSCODE -> this app's CRE property_type (PROP_TYPES on
-# property.html). Distinct from finder._classcode_to_type, which returns
-# generic Michigan tax-classification labels (e.g. "Commercial") that don't
-# match the CRE-specific types this app's UI understands.
-_PARCEL_CLASSCODE_PROPERTY_TYPE = {
-    201: "Office",       # Commercial
-    202: "Office",       # Commercial Condo
-    203: "Office",       # Commercial Other
-    207: "Land",         # Commercial Vacant
-    301: "Industrial",
-    302: "Industrial",   # Industrial Condo
-    403: "Multifamily",  # Residential Apartment
-    407: "Land",         # Residential Vacant Land
-}
-
-
-def _parcel_classcode_to_property_type(code) -> Optional[str]:
-    try:
-        return _PARCEL_CLASSCODE_PROPERTY_TYPE.get(int(str(code).strip()))
-    except (TypeError, ValueError):
-        return None
 
 
 def _geocode(address: str, city: str, state: str) -> Tuple[Optional[float], Optional[float]]:
@@ -391,7 +368,7 @@ def attach_parcel(
     if row.living_area_sqft is not None:
         prop.sf_rentable = float(row.living_area_sqft)
     if row.classcode:
-        mapped_type = _parcel_classcode_to_property_type(row.classcode)
+        mapped_type = parcel_classcode_to_property_type(row.classcode)
         if mapped_type:
             prop.property_type = mapped_type
             prop.property_category = categorize_property_type(prop.property_type)

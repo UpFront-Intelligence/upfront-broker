@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, Text, DateTime, ForeignKey, JSON, UniqueConstraint
+from sqlalchemy import Column, Integer, Text, DateTime, Date, Numeric, ForeignKey, JSON, UniqueConstraint
+from sqlalchemy.dialects.postgresql import DOUBLE_PRECISION
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
@@ -41,6 +42,18 @@ class ParcelRegrid(Base):
 
     matched_account_id  = Column(Integer, ForeignKey("accounts.id",   ondelete="SET NULL"), nullable=True)
     matched_property_id = Column(Integer, ForeignKey("properties.id", ondelete="SET NULL"), nullable=True)
+
+    # ── Searchable fields (migration 97ff9ec4ed1c, 2026-07-03) ───────────────
+    usecode        = Column(Text, nullable=True, index=True)
+    usedesc        = Column(Text, nullable=True)
+    assessed_value = Column(Numeric(14, 2), nullable=True, index=True)
+    sale_price     = Column(Numeric(14, 2), nullable=True, index=True)
+    sale_date      = Column(Date, nullable=True)
+    lot_acres      = Column(Numeric(10, 5), nullable=True, index=True)
+    zoning         = Column(Text, nullable=True)
+    land_use       = Column(Text, nullable=True)
+    centroid_lat   = Column(DOUBLE_PRECISION, nullable=True)
+    centroid_lng   = Column(DOUBLE_PRECISION, nullable=True)
 
     __table_args__ = (
         UniqueConstraint("parcel_id", "source_county", name="uq_parcels_regrid_parcel_county"),

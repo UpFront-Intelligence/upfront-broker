@@ -25,6 +25,7 @@ from models.deal import Deal
 from models.parcel_regrid import ParcelRegrid
 from models.shared import EnrichmentCache
 from services.naming import normalize_address
+from services.property_category import parcel_classcode_to_property_type
 from auth_utils import get_current_user
 
 router = APIRouter()
@@ -356,13 +357,17 @@ def debug_arcgis(current_user: User = Depends(get_current_user)):
     return results
 
 
-@router.get("/parcels")
-def get_parcels(
-    zip:          str     = Query(..., min_length=5, max_length=5),
-    db:           Session = Depends(get_db),
-    current_user: User    = Depends(get_current_user),
+def _get_parcels_legacy_arcgis(
+    zip:          str,
+    db:           Session,
+    current_user: User,
 ):
-    """Return all parcels for a zip code with per-user exists_in_db flag."""
+    """Legacy path: local `parcels` table (Oakland-only) with live-ArcGIS
+    fallback. Kept in place, unreachable (no @router decorator) — replaced
+    as the live /parcels route by the parcels_regrid-backed get_parcels()
+    below on 2026-07-03. Not deleted yet; clean up once the new path is
+    verified live. Body is otherwise byte-for-byte what GET /parcels used
+    to do."""
     parcels: list = []
 
     # ── 1. Attributes from local parcels table (no record limit) ─────────────
@@ -463,6 +468,159 @@ def get_parcels(
         "total":     len(parcels),
         "zip":       zip,
         "layer_url": OAKLAND_PARCELS_URL,
+    }
+
+
+MAX_PARCELS_REGRID_RESULTS = 500
+
+
+def _parcel_from_regrid_row(row: ParcelRegrid) -> dict:
+    """Shapes a parcels_regrid row into the same parcel dict contract
+    _parcel_from_local_row()/_parcel_from_attrs() above already produce, so
+    finder.html's existing renderParcels()/openPanel() work unchanged once
+    this endpoint is wired to the page (next phase). Fields the legacy
+    `parcels` table had that parcels_regrid doesn't (classcode,
+    cvttaxdescription, living_area_sqft, shapearea, bedrooms, bathrooms,
+    taxablevalue, postaladdress) are simply omitted rather than guessed —
+    openPanel()'s row() helper already skips any null/empty field, so this
+    doesn't break rendering, just shows fewer detail rows for now.
+
+    property_type comes from parcel_classcode_to_property_type()
+    (services/property_category.py) — the classifier actually used in the
+    real property_category write-site chain (attach_parcel), NOT finder.py's
+    own _classcode_to_type() a few functions up, which returns a different,
+    incompatible vocabulary (generic tax labels like "Commercial" instead of
+    this app's CRE types like "Office") that was never meant to drive
+    property_category. See the accompanying recon report for the full
+    reasoning — this also means finder.html's TYPE_COLORS (which currently
+    expects the OTHER vocabulary) won't color-match most parcels_regrid
+    results until a frontend phase updates it; pins still render, just
+    mostly in the fallback gray until then.
+    """
+    return {
+        "keypin":         row.parcel_id,
+        "pin":            row.parcel_id,
+        "address":        row.address or "",
+        "city":           (row.city or "").title(),
+        "zip":            row.zip or "",
+        "state":          row.state or "MI",
+        "property_type":  parcel_classcode_to_property_type(row.usecode),
+        "subtype":        row.usedesc or "",
+        "sf_rentable":    None,   # not a parcels_regrid column — see raw_data['bldg_sqft']
+        "sf_land":        None,
+        "year_built":     None,   # see raw_data['year_built']
+        "assessed_value": float(row.assessed_value) if row.assessed_value is not None else None,
+        "tax_year":       None,
+        "zoning":         row.zoning,
+        "owner":          row.owner_raw or "",
+        "owner_addr":     None, "owner_city": None, "owner_state": None, "owner_zip": None,
+        "bedrooms":       None,
+        "bathrooms":      None,
+        "notes":          None,
+        "name1":          row.owner_raw or None,
+        "name2":          None,
+        "lat":            row.centroid_lat,
+        "lng":            row.centroid_lng,
+        "county":         row.county,
+        "source_county":  row.source_county,
+        "sale_price":     float(row.sale_price) if row.sale_price is not None else None,
+        "sale_date":      row.sale_date.isoformat() if row.sale_date else None,
+        "lot_acres":      float(row.lot_acres) if row.lot_acres is not None else None,
+        "usecode":        row.usecode,
+        "land_use":       row.land_use,
+    }
+
+
+@router.get("/parcels")
+def get_parcels(
+    zip:                 Optional[str]   = None,
+    city:                Optional[str]   = None,
+    street:               Optional[str]   = None,
+    owner:                Optional[str]   = None,
+    assessed_value_min:  Optional[float] = None,
+    assessed_value_max:  Optional[float] = None,
+    sale_price_min:       Optional[float] = None,
+    sale_price_max:       Optional[float] = None,
+    lot_acres_min:        Optional[float] = None,
+    lot_acres_max:        Optional[float] = None,
+    usecode:              Optional[str]   = Query(None, description="Exact match; comma-separated for a list"),
+    db:                  Session = Depends(get_db),
+    current_user:        User    = Depends(get_current_user),
+):
+    """parcels_regrid-backed parcel search (replaces the legacy local-parcels/
+    ArcGIS path — see _get_parcels_legacy_arcgis() above, kept but
+    unreachable). At least one of zip/city/street/owner is required — no
+    unfiltered full-table scans over 215K rows. Hard-capped at 500 results
+    via SQL LIMIT, before any Python-side shaping.
+
+    Two existing frontend callers hit this route today, both zip-only:
+    finder.html's ZIP search, and property.html's "Show Nearby Parcels" Map
+    tab toggle (toggleNearby()) — both already treat zip as required, so
+    the new "at least one" rule doesn't change their behavior. Neither is
+    modified in this change; their results will just now come from
+    parcels_regrid's 6-county set instead of Oakland-only.
+    """
+    zip    = (zip or "").strip() or None
+    city   = (city or "").strip() or None
+    street = (street or "").strip() or None
+    owner  = (owner or "").strip() or None
+
+    if not any([zip, city, street, owner]):
+        raise HTTPException(
+            status_code=400,
+            detail="At least one of zip, city, street, or owner is required.",
+        )
+
+    q = db.query(ParcelRegrid)
+    if zip:
+        q = q.filter(ParcelRegrid.zip == zip)
+    if city:
+        q = q.filter(ParcelRegrid.city.ilike(f"%{city}%"))
+    if street:
+        q = q.filter(ParcelRegrid.address.ilike(f"%{street}%"))
+    if owner:
+        q = q.filter(ParcelRegrid.owner_raw.ilike(f"%{owner}%"))
+    if assessed_value_min is not None:
+        q = q.filter(ParcelRegrid.assessed_value >= assessed_value_min)
+    if assessed_value_max is not None:
+        q = q.filter(ParcelRegrid.assessed_value <= assessed_value_max)
+    if sale_price_min is not None:
+        q = q.filter(ParcelRegrid.sale_price >= sale_price_min)
+    if sale_price_max is not None:
+        q = q.filter(ParcelRegrid.sale_price <= sale_price_max)
+    if lot_acres_min is not None:
+        q = q.filter(ParcelRegrid.lot_acres >= lot_acres_min)
+    if lot_acres_max is not None:
+        q = q.filter(ParcelRegrid.lot_acres <= lot_acres_max)
+    if usecode:
+        codes = [c.strip() for c in usecode.split(",") if c.strip()]
+        if codes:
+            q = q.filter(ParcelRegrid.usecode.in_(codes))
+
+    rows = q.limit(MAX_PARCELS_REGRID_RESULTS).all()
+    parcels = [_parcel_from_regrid_row(r) for r in rows]
+
+    # Per-user exists_in_db via normalize_address() — parcel_id schemes
+    # differ across sources (Oakland ArcGIS keypin vs Regrid parcelnumb,
+    # already established non-equivalent in the Public Record tab work),
+    # so address match is the only reliable check. Reuses normalize_address()
+    # exactly as get_public_record() and services/regrid.py's reconcile()
+    # already do — no second normalizer.
+    my_addresses = {
+        normalize_address(a) for (a,) in
+        db.query(Property.address)
+        .filter(Property.owner_id == current_user.id, Property.address.isnot(None))
+        .all()
+        if a
+    }
+    for p in parcels:
+        p["exists_in_db"] = bool(p.get("address")) and normalize_address(p["address"]) in my_addresses
+
+    return {
+        "parcels": parcels,
+        "total":   len(parcels),
+        "zip":     zip,
+        "source":  "parcels_regrid",
     }
 
 
