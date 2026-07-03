@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>UpFront Broker — Property Finder</title>
-  <link rel="stylesheet" href="/static/main.css?v=11">
+  <link rel="stylesheet" href="/static/main.css?v=12">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <style>
     /* Full-height map layout */
@@ -80,6 +80,13 @@
       font-size: 13px; color: var(--stone);
     }
     #map-loading.show { display: flex; }
+
+    /* Parcel category marker badges — replaces plain circleMarker dots */
+    .parcel-badge {
+      width: 26px; height: 26px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.35);
+    }
   </style>
 </head>
 <body>
@@ -109,13 +116,16 @@
     <div id="finder-map"></div>
     <div id="map-loading"><div class="spinner"></div><span id="loading-msg">Searching parcels…</span></div>
 
-    <!-- Legend -->
+    <!-- Legend — matches parcel_classcode_to_property_type()'s actual 4
+         possible values (Office/Industrial/Multifamily/Land) + Unclassified;
+         Retail/Residential/Agricultural removed, the classifier can't ever
+         return them — see the icon-system change notes for why. -->
     <div id="legend" style="display:none">
-      <span><span class="legend-dot" style="background:var(--dataviz-amber)"></span>Commercial</span>
+      <span><span class="legend-dot" style="background:var(--dataviz-amber)"></span>Office</span>
       <span><span class="legend-dot" style="background:#0f1923"></span>Industrial</span>
-      <span><span class="legend-dot" style="background:#2d7d4f"></span>Agricultural</span>
-      <span><span class="legend-dot" style="background:#c47c20"></span>Developmental</span>
-      <span><span class="legend-dot" style="background:#8a8278"></span>Residential / Owned</span>
+      <span><span class="legend-dot" style="background:var(--dataviz-blue)"></span>Multifamily</span>
+      <span><span class="legend-dot" style="background:var(--dataviz-green)"></span>Land</span>
+      <span><span class="legend-dot" style="background:#8a8278"></span>Unclassified</span>
     </div>
   </div>
 </div>
@@ -134,32 +144,97 @@
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="/js/app.js?v=11"></script>
+<script src="/js/app.js?v=12"></script>
 <script>
   if (!Auth.requireAuth()) throw new Error('Not authenticated');
   renderSidebar('finder');
 
-  // Commercial dot color comes from the --dataviz-amber token (read live so
-  // it tracks tokens.css; --hint-gold stays exclusive to the hint system).
-  const DATAVIZ_AMBER = getComputedStyle(document.documentElement)
-    .getPropertyValue('--dataviz-amber').trim() || '#A8702E';
+  // Category colors read live from tokens.css (never hardcoded as the
+  // primary source — see CLAUDE.md's coding rules) with a literal fallback
+  // only if the token lookup itself fails.
+  function _token(name, fallback) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+  }
+  const DATAVIZ_AMBER = _token('--dataviz-amber', '#A8702E');
+  const DATAVIZ_GREEN = _token('--dataviz-green', '#5C7A3D');
+  const DATAVIZ_BLUE  = _token('--dataviz-blue',  '#3D6B99');
+  const INDUSTRIAL_COLOR   = '#0f1923';   // no existing token; reused verbatim from the old TYPE_COLORS value
+  const UNCLASSIFIED_COLOR = '#8a8278';   // same neutral stone-gray the old palette used for "not a distinct category"
 
-  const TYPE_COLORS = {
-    'Residential':          '#8a8278',
-    'Residential Condo':    '#8a8278',
-    'Residential Apartment':'#8a8278',
-    'Residential Vacant Land':'#8a8278',
-    'Commercial':           DATAVIZ_AMBER,
-    'Commercial Condo':     DATAVIZ_AMBER,
-    'Commercial Other':     DATAVIZ_AMBER,
-    'Commercial Vacant Land':DATAVIZ_AMBER,
-    'Industrial':           '#0f1923',
-    'Industrial Condo':     '#0f1923',
-    'Industrial Other':     '#0f1923',
-    'Agricultural':         '#2d7d4f',
-    'Exempt':               '#8a8278',
+  // property_type here is parcel_classcode_to_property_type()'s output
+  // (backend/services/property_category.py) — confirmed by reading that
+  // function directly (2026-07-03): it can ONLY return 'Office',
+  // 'Industrial', 'Multifamily', 'Land', or None. Retail/Residential/
+  // Agricultural/Exempt are NOT possible values despite being in the old
+  // TYPE_COLORS map above — that map was keyed on a completely different,
+  // now-dead classifier (_classcode_to_type()'s generic tax-label
+  // vocabulary). Building icons for values that can never occur would be
+  // dead code, so this map covers exactly the 4 real values.
+  //
+  // Each glyph is pure white SVG (stroke/fill #fff only) sitting on a
+  // colored circular badge (.parcel-badge, see <style> above) — the badge
+  // color is the only thing that varies per category, so no per-category
+  // SVG string generation/color-injection is needed.
+  const CATEGORY_ICONS = {
+    'Office': { color: DATAVIZ_AMBER, glyph: `
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#fff" stroke-width="1.8" stroke-linejoin="round">
+        <rect x="5" y="3" width="14" height="18"/>
+        <rect x="8" y="7" width="2.2" height="2.2" fill="#fff" stroke="none"/>
+        <rect x="13.8" y="7" width="2.2" height="2.2" fill="#fff" stroke="none"/>
+        <rect x="8" y="11.4" width="2.2" height="2.2" fill="#fff" stroke="none"/>
+        <rect x="13.8" y="11.4" width="2.2" height="2.2" fill="#fff" stroke="none"/>
+        <rect x="8" y="15.8" width="2.2" height="2.2" fill="#fff" stroke="none"/>
+        <rect x="13.8" y="15.8" width="2.2" height="2.2" fill="#fff" stroke="none"/>
+      </svg>` },
+    'Industrial': { color: INDUSTRIAL_COLOR, glyph: `
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="#fff" stroke-width="1.8" stroke-linejoin="round">
+        <path d="M3 9 L7 5 L11 9 L15 5 L19 9 L19 19 L3 19 Z"/>
+        <rect x="9" y="13" width="5" height="6" fill="#fff" stroke="none"/>
+      </svg>` },
+    'Multifamily': { color: DATAVIZ_BLUE, glyph: `
+      <svg viewBox="0 0 24 24" width="13" height="16" fill="none" stroke="#fff" stroke-width="1.8" stroke-linejoin="round">
+        <rect x="6" y="2" width="12" height="20"/>
+        <rect x="8.3" y="5" width="1.8" height="1.8" fill="#fff" stroke="none"/>
+        <rect x="13.9" y="5" width="1.8" height="1.8" fill="#fff" stroke="none"/>
+        <rect x="8.3" y="8.5" width="1.8" height="1.8" fill="#fff" stroke="none"/>
+        <rect x="13.9" y="8.5" width="1.8" height="1.8" fill="#fff" stroke="none"/>
+        <rect x="8.3" y="12" width="1.8" height="1.8" fill="#fff" stroke="none"/>
+        <rect x="13.9" y="12" width="1.8" height="1.8" fill="#fff" stroke="none"/>
+        <rect x="8.3" y="15.5" width="1.8" height="1.8" fill="#fff" stroke="none"/>
+        <rect x="13.9" y="15.5" width="1.8" height="1.8" fill="#fff" stroke="none"/>
+      </svg>` },
+    'Land': { color: DATAVIZ_GREEN, glyph: `
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="#fff" stroke="none">
+        <circle cx="12" cy="9" r="6"/>
+        <rect x="10.5" y="14" width="3" height="6" rx="0.5"/>
+      </svg>` },
   };
-  const OWNED_COLOR = '#8a8278';
+  const UNCLASSIFIED_ICON = { color: UNCLASSIFIED_COLOR, glyph: '' };   // deliberately no glyph — see divIcon builder below
+
+  function categoryFor(propertyType) {
+    return CATEGORY_ICONS[propertyType] || UNCLASSIFIED_ICON;
+  }
+
+  // Precomputed once per category (Leaflet icon instances are safely
+  // shared across many markers) rather than rebuilt per parcel.
+  const DIV_ICONS = {};
+  function divIconFor(propertyType) {
+    const key = CATEGORY_ICONS[propertyType] ? propertyType : '__unclassified__';
+    if (!DIV_ICONS[key]) {
+      const cat = categoryFor(propertyType);
+      // No glyph for unclassified — a plain colored circle, deliberately
+      // distinct from every classified badge (which all show a white
+      // building/tree glyph) and from Leaflet's default blue pin (which
+      // is never used at all — every code path below sets an explicit icon).
+      DIV_ICONS[key] = L.divIcon({
+        className: '',   // suppress Leaflet's default .leaflet-div-icon box/border styling
+        html: `<div class="parcel-badge" style="background:${cat.color}">${cat.glyph}</div>`,
+        iconSize:   [26, 26],
+        iconAnchor: [13, 13],
+      });
+    }
+    return DIV_ICONS[key];
+  }
 
   let leafletMap  = null;
   let markers     = [];
@@ -223,16 +298,14 @@
     }
 
     validParcels.forEach(p => {
-      const color  = p.exists_in_db ? OWNED_COLOR : (TYPE_COLORS[p.property_type] || '#8a8278');
-
       // [lat, lng] — lat first, lng second (Leaflet convention)
-      const marker = L.circleMarker([p.lat, p.lng], {
-        radius: 6,
-        fillColor:   color,
-        color:       '#fff',
-        weight:      1.5,
-        opacity:     1,
-        fillOpacity: p.exists_in_db ? 0.5 : 0.85,
+      // Dimming for exists_in_db uses marker opacity (not a color override)
+      // so an owned parcel keeps its real category icon/color, just muted —
+      // otherwise it would be visually indistinguishable from an
+      // unclassified parcel, both of which would end up the same gray.
+      const marker = L.marker([p.lat, p.lng], {
+        icon:    divIconFor(p.property_type),
+        opacity: p.exists_in_db ? 0.55 : 1,
       });
 
       marker.on('click', () => openPanel(p));
@@ -338,11 +411,14 @@
       } else {
         Toast.success(`Property added${result.deal ? ' + deal created' : ''}`);
         currentParcel.exists_in_db = true;
-        // Update marker color
+        // Dim the marker to reflect exists_in_db — setStyle() doesn't exist
+        // on L.marker (icon-based, not a Path like the old circleMarker);
+        // setOpacity() is the correct equivalent, same effect renderParcels()
+        // already applies via the opacity option.
         markers.forEach(m => {
           if (m.getLatLng().lat === currentParcel.lat &&
               m.getLatLng().lng === currentParcel.lng) {
-            m.setStyle({ fillColor: OWNED_COLOR, fillOpacity: 0.5 });
+            m.setOpacity(0.55);
           }
         });
       }

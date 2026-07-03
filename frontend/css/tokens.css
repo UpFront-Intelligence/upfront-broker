@@ -17,6 +17,15 @@
   --dataviz-amber:      #A8702E;
   --dataviz-amber-soft: #F2E2D0;
 
+  /* Additional map/chart categorical colors (Property Finder parcel-type
+     icons, 2026-07-03) — added per this file's own "add a real token
+     rather than hardcoding a hex" rule once a third/fourth categorical
+     color was needed. --dataviz-green deliberately distinct from --accent
+     (both green, different hue/lightness) so a Land map pin is never
+     confusable with the app's primary interactive color. */
+  --dataviz-green: #5C7A3D;
+  --dataviz-blue:  #3D6B99;
+
   --border:         rgba(27,34,53,0.08);
   --text-secondary: #5C6470;
 
