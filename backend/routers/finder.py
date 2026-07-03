@@ -474,6 +474,15 @@ def _get_parcels_legacy_arcgis(
 MAX_PARCELS_REGRID_RESULTS = 500
 
 
+def _safe_int(v):
+    if v in (None, ""):
+        return None
+    try:
+        return int(float(v))
+    except (TypeError, ValueError):
+        return None
+
+
 def _parcel_from_regrid_row(row: ParcelRegrid) -> dict:
     """Shapes a parcels_regrid row into the same parcel dict contract
     _parcel_from_local_row()/_parcel_from_attrs() above already produce, so
@@ -496,7 +505,28 @@ def _parcel_from_regrid_row(row: ParcelRegrid) -> dict:
     expects the OTHER vocabulary) won't color-match most parcels_regrid
     results until a frontend phase updates it; pins still render, just
     mostly in the fallback gray until then.
+
+    bldg_sqft/year_built/num_units come from raw_data JSON, not dedicated
+    columns — confirmed real key names against a 500-row production sample
+    (2026-07-03): 'bldg_sqft' (36.4% populated) with 'area_building' as a
+    fallback ONLY when bldg_sqft itself is null (22.4% populated, a
+    different, lower-coverage concept — do NOT use ll_bldg_footprint_sqft,
+    that's building FOOTPRINT/ground-outline, not total building SF, and
+    conflating them would mislabel real data). 'year_built' (20.4%
+    populated, 'yearbuilt' is a confirmed duplicate, ignored). 'num_units'
+    (0.4% populated — included anyway; openPanel()'s row() helper already
+    skips it on the ~99.6% of parcels where it's absent, so a near-empty
+    field costs nothing). No value is fabricated when raw_data lacks a key —
+    _safe_int() returns None, and None keys are simply omitted from display,
+    same as every other field this function already treats this way.
     """
+    raw_data = row.raw_data or {}
+    bldg_sqft = _safe_int(raw_data.get("bldg_sqft"))
+    if bldg_sqft is None:
+        bldg_sqft = _safe_int(raw_data.get("area_building"))
+    year_built = _safe_int(raw_data.get("year_built"))
+    num_units = _safe_int(raw_data.get("num_units"))
+
     return {
         "keypin":         row.parcel_id,
         "pin":            row.parcel_id,
@@ -506,9 +536,11 @@ def _parcel_from_regrid_row(row: ParcelRegrid) -> dict:
         "state":          row.state or "MI",
         "property_type":  parcel_classcode_to_property_type(row.usecode),
         "subtype":        row.usedesc or "",
-        "sf_rentable":    None,   # not a parcels_regrid column — see raw_data['bldg_sqft']
+        "sf_rentable":    None,   # not a parcels_regrid column — see bldg_sqft below
         "sf_land":        None,
-        "year_built":     None,   # see raw_data['year_built']
+        "bldg_sqft":      bldg_sqft,   # raw_data['bldg_sqft'], falls back to raw_data['area_building']
+        "num_units":      num_units,   # raw_data['num_units'] — sparse (0.4%), included anyway
+        "year_built":     year_built,  # raw_data['year_built']
         "assessed_value": float(row.assessed_value) if row.assessed_value is not None else None,
         "tax_year":       None,
         "zoning":         row.zoning,

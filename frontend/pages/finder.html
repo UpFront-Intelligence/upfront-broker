@@ -264,8 +264,9 @@
       if (val == null || val === '') return '';
       return `<div class="detail-row"><span class="detail-label">${label}</span><span class="detail-val" title="${val}">${val}</span></div>`;
     }
-    const fmtSF  = v => v ? Number(v).toLocaleString() + ' SF' : null;
-    const fmtVal = v => v ? Fmt.currency(v) : null;
+    const fmtSF    = v => v ? Number(v).toLocaleString() + ' SF' : null;
+    const fmtVal   = v => v ? Fmt.currency(v) : null;
+    const fmtAcres = v => v ? Number(v).toLocaleString(undefined, {maximumFractionDigits: 2}) + ' ac' : null;
 
     // Owner block
     const ownerName = parcel.name1 || parcel.owner || '';
@@ -288,7 +289,10 @@
         ${row('Class Code',     parcel.classcode)}
         ${row('Municipality',   parcel.cvttaxdescription)}
         ${row('Structure',      parcel.subtype)}
-        ${row('Building SF',    fmtSF(parcel.sf_rentable))}
+        ${row('Building SF',    fmtSF(parcel.bldg_sqft))}
+        ${row('Year Built',     parcel.year_built != null ? String(parcel.year_built) : null)}
+        ${row('Units',          parcel.num_units != null ? String(parcel.num_units) : null)}
+        ${row('Lot Acres',      fmtAcres(parcel.lot_acres))}
         ${row('Living Area SF', fmtSF(parcel.living_area_sqft))}
         ${row('Parcel Area SF', fmtSF(parcel.shapearea))}
         ${row('Beds',           parcel.bedrooms != null ? String(parcel.bedrooms) : null)}
