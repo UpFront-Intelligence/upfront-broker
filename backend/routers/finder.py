@@ -563,6 +563,33 @@ def get_parcel_by_keypin(
     raise HTTPException(status_code=404, detail="Parcel not found")
 
 
+def _property_source_county(prop: Property) -> Optional[str]:
+    """Maps a property's free-text county to the parcels_regrid.source_county
+    value it would have been ingested under. Returns None if property.county
+    is blank -- callers should fall back to an unscoped query in that case,
+    same as before this scoping was added. property.county is inconsistently
+    populated in practice (confirmed 2026-07-02: 2 of 5 sampled Oakland
+    properties had county=None despite matching correctly), so requiring it
+    would silently regress those matches rather than protect them.
+
+    Wayne County's own assessor and the City of Detroit's assessor are two
+    separate Regrid exports (source_county 'wayne' vs 'wayne_detroit' -- see
+    CLAUDE.md's PARCELS_REGRID section) even though both are "Wayne County"
+    from the property's point of view, so county name alone isn't enough
+    for Wayne -- city is also checked.
+    """
+    if not prop.county:
+        return None
+    base = prop.county.strip().lower()
+    if base.endswith(" county"):
+        base = base[: -len(" county")].strip()
+    if not base:
+        return None
+    if base == "wayne" and (prop.city or "").strip().lower() == "detroit":
+        return "wayne_detroit"
+    return base
+
+
 @router.get("/public-record/{property_id}")
 def get_public_record(
     property_id:  int,
@@ -589,6 +616,12 @@ def get_public_record(
          above), only possible if property.parcel_id is already set from
          a prior manual attach — unchanged behavior for counties not yet
          in parcels_regrid.
+
+    Both parcels_regrid queries are scoped to the property's own
+    source_county (via _property_source_county()) when known, so a
+    zip+address collision can't match a different county's parcel. When
+    property.county is blank, the query is unscoped (same as before this
+    was added) rather than silently excluding otherwise-valid matches.
     """
     prop = db.query(Property).filter(
         Property.id == property_id, Property.owner_id == current_user.id
@@ -596,18 +629,23 @@ def get_public_record(
     if not prop:
         raise HTTPException(status_code=404, detail="Property not found")
 
+    source_county = _property_source_county(prop)
     match, matched_via = None, None
 
     if prop.parcel_id:
-        match = db.query(ParcelRegrid).filter(
-            ParcelRegrid.parcel_id == prop.parcel_id
-        ).first()
+        q = db.query(ParcelRegrid).filter(ParcelRegrid.parcel_id == prop.parcel_id)
+        if source_county:
+            q = q.filter(ParcelRegrid.source_county == source_county)
+        match = q.first()
         if match:
             matched_via = "parcel_id"
 
     if match is None and prop.zip and prop.address:
         target_norm = normalize_address(prop.address)
-        candidates = db.query(ParcelRegrid).filter(ParcelRegrid.zip == prop.zip).all()
+        q = db.query(ParcelRegrid).filter(ParcelRegrid.zip == prop.zip)
+        if source_county:
+            q = q.filter(ParcelRegrid.source_county == source_county)
+        candidates = q.all()
         for cand in candidates:
             if cand.address and normalize_address(cand.address) == target_norm:
                 match, matched_via = cand, "address"
