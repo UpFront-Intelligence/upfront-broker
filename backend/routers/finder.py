@@ -528,6 +528,8 @@ def _parcel_from_regrid_row(row: ParcelRegrid) -> dict:
     num_units = _safe_int(raw_data.get("num_units"))
 
     return {
+        "source":         "prospect",
+        "property_id":    None,
         "keypin":         row.parcel_id,
         "pin":            row.parcel_id,
         "address":        row.address or "",
@@ -560,6 +562,81 @@ def _parcel_from_regrid_row(row: ParcelRegrid) -> dict:
         "lot_acres":      float(row.lot_acres) if row.lot_acres is not None else None,
         "usecode":        row.usecode,
         "land_use":       row.land_use,
+        # CRM-summary fields — a prospect has none of these (they only exist
+        # once a broker actually adds it as a Property); kept as explicit
+        # None rather than omitted so both branches of the common dict
+        # contract always carry the same keys.
+        "asking_price":   None,
+        "cap_rate":       None,
+        "status":         None,
+        "tenant_summary": None,
+    }
+
+
+def _property_row_to_finder_shape(p: Property) -> dict:
+    """Shapes an owner-scoped Property row into the same dict contract
+    _parcel_from_regrid_row() produces above, so finder.html's renderParcels()/
+    openPanel() can treat "yours" and "prospect" results uniformly wherever
+    the fields overlap, and branch only where they genuinely differ (see the
+    unified-search recon report).
+
+    property_type is set from Property.property_category (already computed
+    and stored at every property_type write site — see property_category.py)
+    rather than parcel_classcode_to_property_type(): that function's input is
+    a raw county classcode, and Property has no such column — it already
+    stores its own classification directly in this app's vocabulary, so
+    there's nothing to feed the classcode mapper. finder.html aliases the
+    one vocabulary mismatch ('Multi-Family' vs the badge system's
+    'Multifamily' key) client-side; every other property_category value
+    that isn't one of the 4 badge categories already falls back to the
+    existing Unclassified badge, same as any prospect parcel type the
+    badge system doesn't recognize.
+
+    CRM-summary fields included here are exactly the ones already sitting on
+    this row with no extra join/query: asking_price, cap_rate, status
+    (always populated, defaults "Active"), and tenant (a single free-text
+    occupant field — not the full property_tenants roster, which would need
+    a per-property join and isn't "cheap").
+    """
+    return {
+        "source":         "yours",
+        "property_id":    p.id,
+        "keypin":         None,
+        "pin":            None,
+        "address":        p.address or "",
+        "city":           p.city or "",
+        "zip":            p.zip or "",
+        "state":          p.state or "MI",
+        "property_type":  p.property_category,
+        "subtype":        p.subtype or "",
+        "sf_rentable":    p.sf_rentable,
+        "sf_land":        p.sf_land,
+        "bldg_sqft":      p.sf_rentable,
+        "num_units":      p.units,
+        "year_built":     p.year_built,
+        "assessed_value": p.assessed_value,
+        "tax_year":       p.tax_year,
+        "zoning":         p.zoning,
+        "owner":          None,
+        "owner_addr":     None, "owner_city": None, "owner_state": None, "owner_zip": None,
+        "bedrooms":       None,
+        "bathrooms":      None,
+        "notes":          p.notes,
+        "name1":          None,
+        "name2":          None,
+        "lat":            p.lat,
+        "lng":            p.lng,
+        "county":         p.county,
+        "source_county":  None,
+        "sale_price":     p.last_sale_price,
+        "sale_date":      p.last_sale_date.isoformat() if p.last_sale_date else None,
+        "lot_acres":      (p.sf_land / 43560.0) if p.sf_land else None,
+        "usecode":        None,
+        "land_use":       None,
+        "asking_price":   p.asking_price,
+        "cap_rate":       p.cap_rate,
+        "status":         p.status,
+        "tenant_summary": p.tenant,
     }
 
 
@@ -579,11 +656,23 @@ def get_parcels(
     db:                  Session = Depends(get_db),
     current_user:        User    = Depends(get_current_user),
 ):
-    """parcels_regrid-backed parcel search (replaces the legacy local-parcels/
-    ArcGIS path — see _get_parcels_legacy_arcgis() above, kept but
-    unreachable). At least one of zip/city/street/owner is required — no
-    unfiltered full-table scans over 215K rows. Hard-capped at 500 results
-    via SQL LIMIT, before any Python-side shaping.
+    """Unified Property Finder search: merges the broker's own owner-scoped
+    `properties` ("yours") with parcels_regrid prospects ("prospect") into
+    one ranked/deduped list. At least one of zip/city/street/owner is
+    required — no unfiltered full-table scans over 215K parcels_regrid rows
+    (the owner-scoped Property query is cheap regardless, but is gated by
+    the same check for consistency).
+
+    Two independent, small, capped queries are shaped into a common dict
+    contract (_parcel_from_regrid_row / _property_row_to_finder_shape) and
+    merged in Python rather than a SQL UNION — see the unified-search recon
+    report: normalize_address() (the dedupe key) is Python-only, the two
+    tables' column shapes are too different for a clean UNION, and this
+    matches the existing /api/query engine's per-source-shaping pattern.
+
+    Dedup: if a "yours" property and a "prospect" parcel normalize to the
+    same address, only the "yours" entry is kept — the prospect is dropped,
+    not just dimmed (replaces the old exists_in_db flag entirely).
 
     Two existing frontend callers hit this route today, both zip-only:
     finder.html's ZIP search, and property.html's "Show Nearby Parcels" Map
@@ -630,14 +719,44 @@ def get_parcels(
             q = q.filter(ParcelRegrid.usecode.in_(codes))
 
     rows = q.limit(MAX_PARCELS_REGRID_RESULTS).all()
-    parcels = [_parcel_from_regrid_row(r) for r in rows]
+    prospects = [_parcel_from_regrid_row(r) for r in rows]
 
-    # Per-user exists_in_db via normalize_address() — parcel_id schemes
-    # differ across sources (Oakland ArcGIS keypin vs Regrid parcelnumb,
-    # already established non-equivalent in the Public Record tab work),
-    # so address match is the only reliable check. Reuses normalize_address()
-    # exactly as get_public_record() and services/regrid.py's reconcile()
-    # already do — no second normalizer.
+    # ── "Yours" — owner-scoped Property query, same filter params where a
+    # compatible field exists on Property; filters with no Property
+    # equivalent (owner, usecode) are simply skipped for this query, not
+    # treated as errors (owner has no text-name field on Property; usecode
+    # is a county tax-classification scheme Property doesn't carry).
+    pq = db.query(Property).filter(Property.owner_id == current_user.id)
+    if zip:
+        pq = pq.filter(Property.zip == zip)
+    if city:
+        pq = pq.filter(Property.city.ilike(f"%{city}%"))
+    if street:
+        pq = pq.filter(Property.address.ilike(f"%{street}%"))
+    if assessed_value_min is not None:
+        pq = pq.filter(Property.assessed_value >= assessed_value_min)
+    if assessed_value_max is not None:
+        pq = pq.filter(Property.assessed_value <= assessed_value_max)
+    if sale_price_min is not None:
+        pq = pq.filter(Property.last_sale_price >= sale_price_min)
+    if sale_price_max is not None:
+        pq = pq.filter(Property.last_sale_price <= sale_price_max)
+    if lot_acres_min is not None:
+        pq = pq.filter(Property.sf_land / 43560.0 >= lot_acres_min)
+    if lot_acres_max is not None:
+        pq = pq.filter(Property.sf_land / 43560.0 <= lot_acres_max)
+
+    my_properties = pq.limit(MAX_PARCELS_REGRID_RESULTS).all()
+    yours = [_property_row_to_finder_shape(p) for p in my_properties]
+    yours_missing_coords = sum(1 for y in yours if not (y["lat"] and y["lng"]))
+
+    # Per-user address set for dedup — deliberately UNFILTERED (every one of
+    # the broker's properties, regardless of the filters above) so a prospect
+    # is correctly dropped even if the matching "yours" property happens to
+    # fall outside this particular search's price/size range and therefore
+    # isn't itself in `yours`. Reuses normalize_address() exactly as
+    # get_public_record() and services/regrid.py's reconcile() already do —
+    # no second normalizer.
     my_addresses = {
         normalize_address(a) for (a,) in
         db.query(Property.address)
@@ -645,14 +764,21 @@ def get_parcels(
         .all()
         if a
     }
-    for p in parcels:
-        p["exists_in_db"] = bool(p.get("address")) and normalize_address(p["address"]) in my_addresses
+    prospects = [
+        p for p in prospects
+        if not (p["address"] and normalize_address(p["address"]) in my_addresses)
+    ]
+
+    parcels = yours + prospects
 
     return {
-        "parcels": parcels,
-        "total":   len(parcels),
-        "zip":     zip,
-        "source":  "parcels_regrid",
+        "parcels":              parcels,
+        "total":                len(parcels),
+        "yours_total":          len(yours),
+        "prospect_total":       len(prospects),
+        "yours_missing_coords": yours_missing_coords,
+        "zip":                  zip,
+        "source":               "parcels_regrid+properties",
     }
 
 

@@ -83,10 +83,31 @@
 
     /* Parcel category marker badges — replaces plain circleMarker dots */
     .parcel-badge {
+      position: relative;
       width: 26px; height: 26px; border-radius: 50%;
       display: flex; align-items: center; justify-content: center;
       border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.35);
     }
+    /* "Yours" indicator — a small additive corner badge, NOT a substitute
+       for the category color/glyph and NOT the old opacity-dimming (that
+       mechanic is retired: a "yours" result is now a single first-class
+       entry, not a de-emphasized duplicate sitting next to a prospect). */
+    .yours-badge {
+      position: absolute; top: -3px; right: -3px;
+      width: 13px; height: 13px; border-radius: 50%;
+      background: var(--accent); border: 1.5px solid #fff;
+      display: flex; align-items: center; justify-content: center;
+    }
+
+    /* Unified-search banner (missing-coordinates notice) */
+    #coverage-banner {
+      position: absolute; top: 16px; right: 16px; z-index: 500;
+      max-width: 280px; background: #fff; padding: 8px 12px;
+      border-radius: var(--radius); box-shadow: var(--shadow-card);
+      border: 1px solid var(--cream-dark); font-size: 12px; color: var(--stone);
+      display: none; align-items: flex-start; gap: 8px;
+    }
+    #coverage-banner .btn-ghost { padding: 0 4px; font-size: 13px; line-height: 1; }
   </style>
 </head>
 <body>
@@ -96,7 +117,7 @@
   <div id="topbar">
     <div class="topbar-title">Property Finder</div>
     <div class="topbar-actions" style="font-size:12px;color:var(--stone)">
-      Oakland County · ArcGIS Public Data · CRE only
+      6-County Regrid · Your Properties · CRE only
     </div>
   </div>
 
@@ -112,6 +133,12 @@
     <!-- Result count -->
     <div id="result-bar"></div>
 
+    <!-- Unified-search coverage note — non-blocking, dismissible -->
+    <div id="coverage-banner">
+      <span id="coverage-banner-text"></span>
+      <button class="btn-ghost" onclick="document.getElementById('coverage-banner').style.display='none'">✕</button>
+    </div>
+
     <!-- Map -->
     <div id="finder-map"></div>
     <div id="map-loading"><div class="spinner"></div><span id="loading-msg">Searching parcels…</span></div>
@@ -119,13 +146,17 @@
     <!-- Legend — matches parcel_classcode_to_property_type()'s actual 4
          possible values (Office/Industrial/Multifamily/Land) + Unclassified;
          Retail/Residential/Agricultural removed, the classifier can't ever
-         return them — see the icon-system change notes for why. -->
+         return them — see the icon-system change notes for why. The "Yours"
+         entry is an orthogonal dimension (ownership, not category) — an
+         additive corner badge on top of whichever category color/glyph
+         already applies, not a 6th category color. -->
     <div id="legend" style="display:none">
       <span><span class="legend-dot" style="background:var(--dataviz-amber)"></span>Office</span>
       <span><span class="legend-dot" style="background:#0f1923"></span>Industrial</span>
       <span><span class="legend-dot" style="background:var(--dataviz-blue)"></span>Multifamily</span>
       <span><span class="legend-dot" style="background:var(--dataviz-green)"></span>Land</span>
       <span><span class="legend-dot" style="background:#8a8278"></span>Unclassified</span>
+      <span><span class="legend-dot" style="background:var(--accent)"></span>✓ Yours</span>
     </div>
   </div>
 </div>
@@ -211,15 +242,41 @@
   };
   const UNCLASSIFIED_ICON = { color: UNCLASSIFIED_COLOR, glyph: '' };   // deliberately no glyph — see divIcon builder below
 
-  function categoryFor(propertyType) {
-    return CATEGORY_ICONS[propertyType] || UNCLASSIFIED_ICON;
+  // "Yours" results carry property_category, this app's own 10-category
+  // taxonomy (services/property_category.py), not
+  // parcel_classcode_to_property_type()'s narrower 4-value vocabulary —
+  // Property has no raw classcode column to feed that function, so the
+  // backend passes property_category straight through. Only the spelling
+  // of the shared "Multifamily" concept differs ('Multi-Family' vs this
+  // badge system's 'Multifamily' key); every other property_category value
+  // (Retail, Health Care, Hospitality, Flex, Sports & Entertainment,
+  // Specialty, Uncategorized, null) already falls through to the existing
+  // Unclassified badge below, same as any prospect type this system
+  // doesn't recognize — no new categories/colors added.
+  function normalizedCategory(propertyType) {
+    return propertyType === 'Multi-Family' ? 'Multifamily' : propertyType;
   }
 
-  // Precomputed once per category (Leaflet icon instances are safely
-  // shared across many markers) rather than rebuilt per parcel.
+  function categoryFor(propertyType) {
+    return CATEGORY_ICONS[normalizedCategory(propertyType)] || UNCLASSIFIED_ICON;
+  }
+
+  // Small additive checkmark chip for "yours" results — layered on top of
+  // the category badge, never replacing its color/glyph. Not a substitute
+  // for the retired opacity-dimming: a "yours" result is now a single
+  // first-class entry (see the unified-search recon report), so full
+  // opacity + this corner badge is the whole treatment, not a muted one.
+  const YOURS_BADGE_HTML = `<div class="yours-badge">
+    <svg viewBox="0 0 24 24" width="8" height="8" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 12 L10 18 L20 6"/>
+    </svg></div>`;
+
+  // Precomputed once per (category, isYours) pair (Leaflet icon instances
+  // are safely shared across many markers) rather than rebuilt per parcel.
   const DIV_ICONS = {};
-  function divIconFor(propertyType) {
-    const key = CATEGORY_ICONS[propertyType] ? propertyType : '__unclassified__';
+  function divIconFor(propertyType, isYours) {
+    const catKey = CATEGORY_ICONS[normalizedCategory(propertyType)] ? normalizedCategory(propertyType) : '__unclassified__';
+    const key = catKey + (isYours ? '::yours' : '');
     if (!DIV_ICONS[key]) {
       const cat = categoryFor(propertyType);
       // No glyph for unclassified — a plain colored circle, deliberately
@@ -228,7 +285,7 @@
       // is never used at all — every code path below sets an explicit icon).
       DIV_ICONS[key] = L.divIcon({
         className: '',   // suppress Leaflet's default .leaflet-div-icon box/border styling
-        html: `<div class="parcel-badge" style="background:${cat.color}">${cat.glyph}</div>`,
+        html: `<div class="parcel-badge" style="background:${cat.color}">${cat.glyph}${isYours ? YOURS_BADGE_HTML : ''}</div>`,
         iconSize:   [26, 26],
         iconAnchor: [13, 13],
       });
@@ -268,9 +325,23 @@
       const data = await API.get(`/finder/parcels?zip=${zip}`);
       renderParcels(data.parcels, data.zip);
       const bar = document.getElementById('result-bar');
-      bar.textContent = `${data.total} parcel${data.total !== 1 ? 's' : ''} in ${data.zip}`;
+      bar.textContent = `${data.total} result${data.total !== 1 ? 's' : ''} in ${data.zip} (${data.yours_total} yours · ${data.prospect_total} prospect${data.prospect_total !== 1 ? 's' : ''})`;
       bar.style.display = 'block';
       document.getElementById('legend').style.display = 'flex';
+
+      // Non-blocking, dismissible — the null-lat/lng geocode gap is a known,
+      // already-tracked coverage limitation (see CLAUDE.md's geocoding
+      // notes), not a bug; surface it honestly instead of silently dropping
+      // pins with no explanation.
+      const banner = document.getElementById('coverage-banner');
+      if (data.yours_missing_coords > 0) {
+        document.getElementById('coverage-banner-text').textContent =
+          `${data.yours_missing_coords} of your propert${data.yours_missing_coords !== 1 ? 'ies' : 'y'} ` +
+          `${data.yours_missing_coords !== 1 ? "aren't" : "isn't"} shown on the map (missing coordinates).`;
+        banner.style.display = 'flex';
+      } else {
+        banner.style.display = 'none';
+      }
     } catch(e) {
       Toast.error('Parcel search failed: ' + e.message);
     } finally {
@@ -299,18 +370,19 @@
 
     validParcels.forEach(p => {
       // [lat, lng] — lat first, lng second (Leaflet convention)
-      // Dimming for exists_in_db uses marker opacity (not a color override)
-      // so an owned parcel keeps its real category icon/color, just muted —
-      // otherwise it would be visually indistinguishable from an
-      // unclassified parcel, both of which would end up the same gray.
+      // "Yours" is an additive corner badge on the marker's icon, always
+      // full opacity — the old exists_in_db opacity-dimming is retired
+      // (see the unified-search recon report): a "yours" result is now a
+      // single first-class merged entry, not a muted duplicate sitting
+      // next to a separate prospect pin at the same address.
+      const isYours = p.source === 'yours';
       const marker = L.marker([p.lat, p.lng], {
-        icon:    divIconFor(p.property_type),
-        opacity: p.exists_in_db ? 0.55 : 1,
+        icon: divIconFor(p.property_type, isYours),
       });
 
       marker.on('click', () => openPanel(p));
       marker.bindTooltip(
-        `<strong>${p.address || 'No address'}</strong><br>${p.property_type || ''}${p.sf_rentable ? ' · ' + Number(p.sf_rentable).toLocaleString() + ' SF' : ''}`,
+        `<strong>${isYours ? '✓ Yours · ' : ''}${p.address || 'No address'}</strong><br>${p.property_type || ''}${p.sf_rentable ? ' · ' + Number(p.sf_rentable).toLocaleString() + ' SF' : ''}`,
         { direction: 'top', offset: [0, -4] }
       );
       marker.addTo(leafletMap);
@@ -326,21 +398,32 @@
   }
 
   // ── Panel ─────────────────────────────────────────────────────────────────
+  // Renders a row only if val is non-null and non-empty
+  function row(label, val) {
+    if (val == null || val === '') return '';
+    return `<div class="detail-row"><span class="detail-label">${label}</span><span class="detail-val" title="${val}">${val}</span></div>`;
+  }
+  const fmtSF    = v => v ? Number(v).toLocaleString() + ' SF' : null;
+  const fmtVal   = v => v ? Fmt.currency(v) : null;
+  const fmtAcres = v => v ? Number(v).toLocaleString(undefined, {maximumFractionDigits: 2}) + ' ac' : null;
+
   function openPanel(parcel) {
     currentParcel = parcel;
     document.getElementById('p-address').textContent = parcel.address || parcel.keypin || '—';
     document.getElementById('p-city').textContent =
       [parcel.city, parcel.state, parcel.zip].filter(Boolean).join(', ');
 
-    // Renders a row only if val is non-null and non-empty
-    function row(label, val) {
-      if (val == null || val === '') return '';
-      return `<div class="detail-row"><span class="detail-label">${label}</span><span class="detail-val" title="${val}">${val}</span></div>`;
+    if (parcel.source === 'yours') {
+      renderYoursPanel(parcel);
+    } else {
+      renderProspectPanel(parcel);
     }
-    const fmtSF    = v => v ? Number(v).toLocaleString() + ' SF' : null;
-    const fmtVal   = v => v ? Fmt.currency(v) : null;
-    const fmtAcres = v => v ? Number(v).toLocaleString(undefined, {maximumFractionDigits: 2}) + ' ac' : null;
 
+    document.getElementById('detail-panel').classList.add('open');
+  }
+
+  // A parcels_regrid prospect — public-record fields only, no CRM data.
+  function renderProspectPanel(parcel) {
     // Owner block
     const ownerName = parcel.name1 || parcel.owner || '';
     const ownerHtml = ownerName ? `<div class="owner-block">
@@ -375,17 +458,42 @@
         ${row('Parcel ID',      parcel.keypin)}
       </div>`;
 
-    const actions = document.getElementById('p-actions');
-    if (parcel.exists_in_db) {
-      actions.innerHTML = `<div class="exists-badge">✓ Already in your Properties</div>
-        <button class="btn btn-outline btn-sm" onclick="navigate('properties')">View Properties →</button>`;
-    } else {
-      actions.innerHTML = `
-        <button class="btn btn-primary" onclick="addParcel(false)">Add to Properties</button>
-        <button class="btn btn-outline btn-sm" onclick="addParcel(true)">Add + Start Prospecting Deal</button>`;
-    }
+    document.getElementById('p-actions').innerHTML = `
+      <button class="btn btn-primary" onclick="addParcel(false)">Add to Properties</button>
+      <button class="btn btn-outline btn-sm" onclick="addParcel(true)">Add + Start Prospecting Deal</button>`;
+  }
 
-    document.getElementById('detail-panel').classList.add('open');
+  // A property already in the broker's own CRM — real CRM-summary fields
+  // (whatever's actually populated on the Property row, see
+  // _property_row_to_finder_shape() in finder.py) plus a direct link to
+  // the property's own detail page, instead of the generic regrid-only
+  // fields/link the old exists_in_db path showed.
+  function renderYoursPanel(parcel) {
+    document.getElementById('p-body').innerHTML = `
+      <div class="owner-block">
+        <div class="owner-name">${parcel.status || 'Active'}</div>
+      </div>
+      <div>
+        ${row('Type',           parcel.property_type)}
+        ${row('Address',        parcel.address)}
+        ${row('City',           parcel.city)}
+        ${row('ZIP',            parcel.zip)}
+        ${row('County',         parcel.county)}
+        ${row('Asking Price',   fmtVal(parcel.asking_price))}
+        ${row('Cap Rate',       parcel.cap_rate != null ? Number(parcel.cap_rate).toFixed(2) + '%' : null)}
+        ${row('Assessed Value', fmtVal(parcel.assessed_value))}
+        ${row('Last Sale',      fmtVal(parcel.sale_price))}
+        ${row('Building SF',    fmtSF(parcel.bldg_sqft))}
+        ${row('Year Built',     parcel.year_built != null ? String(parcel.year_built) : null)}
+        ${row('Units',          parcel.num_units != null ? String(parcel.num_units) : null)}
+        ${row('Lot Acres',      fmtAcres(parcel.lot_acres))}
+        ${row('Zoning',         parcel.zoning)}
+        ${row('Tenant',         parcel.tenant_summary)}
+      </div>`;
+
+    document.getElementById('p-actions').innerHTML = `
+      <div class="exists-badge">✓ In your Properties</div>
+      <a class="btn btn-primary" style="text-align:center;text-decoration:none" href="/pages/property.html?id=${parcel.property_id}">View Property →</a>`;
   }
 
   function closePanel() {
@@ -405,29 +513,30 @@
         create_deal: createDeal,
       });
 
+      // Either way (fresh add or a keypin-matched duplicate), this pin now
+      // represents a real Property — promote it to "yours" and swap its
+      // icon for the corner-badged version. No more opacity-dimming: a
+      // "yours" result is a first-class entry, not a muted duplicate.
+      currentParcel.source      = 'yours';
+      currentParcel.property_id = result.property.id;
+      markers.forEach(m => {
+        if (m.getLatLng().lat === currentParcel.lat &&
+            m.getLatLng().lng === currentParcel.lng) {
+          m.setIcon(divIconFor(currentParcel.property_type, true));
+        }
+      });
+
       if (result.duplicate) {
         Toast.info('Property already in your database');
-        currentParcel.exists_in_db = true;
       } else {
         Toast.success(`Property added${result.deal ? ' + deal created' : ''}`);
-        currentParcel.exists_in_db = true;
-        // Dim the marker to reflect exists_in_db — setStyle() doesn't exist
-        // on L.marker (icon-based, not a Path like the old circleMarker);
-        // setOpacity() is the correct equivalent, same effect renderParcels()
-        // already applies via the opacity option.
-        markers.forEach(m => {
-          if (m.getLatLng().lat === currentParcel.lat &&
-              m.getLatLng().lng === currentParcel.lng) {
-            m.setOpacity(0.55);
-          }
-        });
       }
 
       // Refresh panel actions
       const actions = document.getElementById('p-actions');
       actions.innerHTML = `<div class="exists-badge">✓ Added to Properties</div>
         ${result.deal ? `<div style="font-size:12px;color:var(--stone);text-align:center">Deal: ${result.deal.name}</div>` : ''}
-        <button class="btn btn-outline btn-sm" onclick="navigate('properties')">View Properties →</button>`;
+        <a class="btn btn-outline btn-sm" style="text-align:center;text-decoration:none" href="/pages/property.html?id=${result.property.id}">View Property →</a>`;
     } catch(e) {
       Toast.error(e.message);
       btns.forEach(b => b.disabled = false);
