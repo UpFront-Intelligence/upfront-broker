@@ -26,6 +26,18 @@
   --dataviz-green: #5C7A3D;
   --dataviz-blue:  #3D6B99;
 
+  /* Fifth categorical map color (Property Finder Detroit-scoped Retail
+     classification, 2026-07-06) — a blue-violet, deliberately distinct in
+     hue from every other marker color it could sit next to: amber
+     #A8702E (~30°), green #5C7A3D (~90°), blue #3D6B99 (~205°), red
+     --owned-marker #D32F2F (~0°). Also deliberately shifted away from the
+     existing --role-tenant badge color (#7A5C8F, a mauve-purple, ~277°) —
+     both are "purple family" but different hues, used in unrelated UI
+     contexts (account-role chip vs. map marker), so a near-miss would
+     invite exactly the kind of confusion this file's naming rules already
+     guard against elsewhere (see --owned-marker vs --role-owner above). */
+  --dataviz-purple: #5B4E96;
+
   /* "Yours" ownership marker override (Property Finder unified search,
      2026-07-06) — a semantic STATUS color (this pin is already in the
      broker's own portfolio), not a categorical map/chart color like the

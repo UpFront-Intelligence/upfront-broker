@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>UpFront Broker — Property Finder</title>
-  <link rel="stylesheet" href="/static/main.css?v=13">
+  <link rel="stylesheet" href="/static/main.css?v=14">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <style>
     /* Full-height map layout */
@@ -143,14 +143,18 @@
     <div id="finder-map"></div>
     <div id="map-loading"><div class="spinner"></div><span id="loading-msg">Searching parcels…</span></div>
 
-    <!-- Legend — matches parcel_classcode_to_property_type()'s actual 4
-         possible values (Office/Industrial/Multifamily/Land) + Unclassified;
-         Retail/Residential/Agricultural removed, the classifier can't ever
-         return them — see the icon-system change notes for why. "Yours" is
-         a fill-color override (not a 6th category, not an additive badge —
-         that corner-checkmark treatment was retired in favor of this) —
-         shape still varies by property_type, only the color changes. -->
+    <!-- Legend — Office/Industrial/Multifamily/Land match
+         parcel_classcode_to_property_type()'s 4 possible values (every
+         county except wayne_detroit); Retail is reachable only via
+         parcel_usedesc_to_property_type_detroit() for Detroit rows (or a
+         "yours" property whose own property_category is Retail) — see the
+         icon-system change notes for why standard counties can't produce
+         it. "Yours" is a fill-color override (not a 6th category, not an
+         additive badge — that corner-checkmark treatment was retired in
+         favor of this) — shape still varies by property_type, only the
+         color changes. -->
     <div id="legend" style="display:none">
+      <span><span class="legend-dot" style="background:var(--dataviz-purple)"></span>Retail</span>
       <span><span class="legend-dot" style="background:var(--dataviz-amber)"></span>Office</span>
       <span><span class="legend-dot" style="background:#0f1923"></span>Industrial</span>
       <span><span class="legend-dot" style="background:var(--dataviz-blue)"></span>Multifamily</span>
@@ -175,7 +179,7 @@
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="/js/app.js?v=13"></script>
+<script src="/js/app.js?v=14"></script>
 <script>
   if (!Auth.requireAuth()) throw new Error('Not authenticated');
   renderSidebar('finder');
@@ -186,28 +190,47 @@
   function _token(name, fallback) {
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
   }
-  const DATAVIZ_AMBER = _token('--dataviz-amber', '#A8702E');
-  const DATAVIZ_GREEN = _token('--dataviz-green', '#5C7A3D');
-  const DATAVIZ_BLUE  = _token('--dataviz-blue',  '#3D6B99');
+  const DATAVIZ_AMBER  = _token('--dataviz-amber',  '#A8702E');
+  const DATAVIZ_GREEN  = _token('--dataviz-green',  '#5C7A3D');
+  const DATAVIZ_BLUE   = _token('--dataviz-blue',   '#3D6B99');
+  const DATAVIZ_PURPLE = _token('--dataviz-purple', '#5B4E96');
   const INDUSTRIAL_COLOR   = '#0f1923';   // no existing token; reused verbatim from the old TYPE_COLORS value
   const UNCLASSIFIED_COLOR = '#8a8278';   // same neutral stone-gray the old palette used for "not a distinct category"
   const OWNED_MARKER_COLOR = _token('--owned-marker', '#D32F2F');   // "yours" fill-color override — see tokens.css
 
   // property_type here is parcel_classcode_to_property_type()'s output
-  // (backend/services/property_category.py) — confirmed by reading that
-  // function directly (2026-07-03): it can ONLY return 'Office',
-  // 'Industrial', 'Multifamily', 'Land', or None. Retail/Residential/
-  // Agricultural/Exempt are NOT possible values despite being in the old
+  // (backend/services/property_category.py) for every county EXCEPT
+  // wayne_detroit — confirmed by reading that function directly
+  // (2026-07-03): it can ONLY return 'Office', 'Industrial', 'Multifamily',
+  // 'Land', or None. Retail/Residential/Agricultural/Exempt are NOT
+  // possible values from THAT function despite being in the old
   // TYPE_COLORS map above — that map was keyed on a completely different,
   // now-dead classifier (_classcode_to_type()'s generic tax-label
-  // vocabulary). Building icons for values that can never occur would be
-  // dead code, so this map covers exactly the 4 real values.
+  // vocabulary).
+  //
+  // 'Retail' became a real, reachable value on 2026-07-06 — but ONLY for
+  // Detroit: finder.py branches on source_county and calls the new
+  // parcel_usedesc_to_property_type_detroit() for wayne_detroit rows
+  // instead, which CAN return 'Retail' (keyword-matched off Detroit's own
+  // usedesc field — STORE, SHOPPING CENTER, RESTAURANT, etc.). Standard
+  // counties still can't produce 'Retail' — that county's classcode is too
+  // coarse and was confirmed, via live recon, to have no reliable secondary
+  // signal (usedesc mostly null/boilerplate there, zoning_subtype doesn't
+  // discriminate) — see CLAUDE.md's PROPERTY_CATEGORY section. A "yours"
+  // result can also show 'Retail' if the Property's own property_category
+  // happens to be 'Retail' (see the "yours" note below).
   //
   // Each glyph is pure white SVG (stroke/fill #fff only) sitting on a
   // colored circular badge (.parcel-badge, see <style> above) — the badge
   // color is the only thing that varies per category, so no per-category
   // SVG string generation/color-injection is needed.
   const CATEGORY_ICONS = {
+    'Retail': { color: DATAVIZ_PURPLE, glyph: `
+      <svg viewBox="0 0 24 24" width="16" height="14" fill="none" stroke="#fff" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round">
+        <path d="M3 10 L3 19 L21 19 L21 10"/>
+        <path d="M3 10 L4 5 L9 5 L9.5 10 M9.5 10 L10 5 L14 5 L14.5 10 M14.5 10 L15 5 L20 5 L21 10"/>
+        <rect x="10.5" y="13.5" width="3" height="5.5" fill="#fff" stroke="none"/>
+      </svg>` },
     'Office': { color: DATAVIZ_AMBER, glyph: `
       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#fff" stroke-width="1.8" stroke-linejoin="round">
         <rect x="5" y="3" width="14" height="18"/>
@@ -245,15 +268,18 @@
 
   // "Yours" results carry property_category, this app's own 10-category
   // taxonomy (services/property_category.py), not
-  // parcel_classcode_to_property_type()'s narrower 4-value vocabulary —
-  // Property has no raw classcode column to feed that function, so the
-  // backend passes property_category straight through. Only the spelling
-  // of the shared "Multifamily" concept differs ('Multi-Family' vs this
-  // badge system's 'Multifamily' key); every other property_category value
-  // (Retail, Health Care, Hospitality, Flex, Sports & Entertainment,
-  // Specialty, Uncategorized, null) already falls through to the existing
-  // Unclassified badge below, same as any prospect type this system
-  // doesn't recognize — no new categories/colors added.
+  // parcel_classcode_to_property_type()'s narrower vocabulary — Property
+  // has no raw classcode column to feed that function, so the backend
+  // passes property_category straight through. Only the spelling of the
+  // shared "Multifamily" concept differs ('Multi-Family' vs this badge
+  // system's 'Multifamily' key). 'Retail' matches this badge system's key
+  // directly (no alias needed) as of 2026-07-06 — a "yours" property whose
+  // property_category is 'Retail' now gets the storefront glyph, same as a
+  // Detroit prospect classified Retail via usedesc. Every OTHER
+  // property_category value (Health Care, Hospitality, Flex, Sports &
+  // Entertainment, Specialty, Uncategorized, null) still falls through to
+  // the existing Unclassified badge below, same as any prospect type this
+  // system doesn't recognize.
   function normalizedCategory(propertyType) {
     return propertyType === 'Multi-Family' ? 'Multifamily' : propertyType;
   }

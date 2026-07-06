@@ -25,7 +25,10 @@ from models.deal import Deal
 from models.parcel_regrid import ParcelRegrid
 from models.shared import EnrichmentCache
 from services.naming import normalize_address
-from services.property_category import parcel_classcode_to_property_type
+from services.property_category import (
+    parcel_classcode_to_property_type,
+    parcel_usedesc_to_property_type_detroit,
+)
 from auth_utils import get_current_user
 
 router = APIRouter()
@@ -500,11 +503,17 @@ def _parcel_from_regrid_row(row: ParcelRegrid) -> dict:
     own _classcode_to_type() a few functions up, which returns a different,
     incompatible vocabulary (generic tax labels like "Commercial" instead of
     this app's CRE types like "Office") that was never meant to drive
-    property_category. See the accompanying recon report for the full
-    reasoning — this also means finder.html's TYPE_COLORS (which currently
-    expects the OTHER vocabulary) won't color-match most parcels_regrid
-    results until a frontend phase updates it; pins still render, just
-    mostly in the fallback gray until then.
+    property_category.
+
+    EXCEPT for source_county == 'wayne_detroit': that county's usecode is a
+    separate 5-digit assessor scheme parcel_classcode_to_property_type()
+    was never meant to read (and calling it unscoped risked numeric
+    collisions with the 3-digit standard-county keys — a latent bug flagged
+    in recon, closed by this branch). Detroit rows call
+    parcel_usedesc_to_property_type_detroit(row.usedesc) instead — see that
+    function's docstring for why usedesc is a viable signal there but was
+    rejected for every other county. Standard counties still have no retail
+    detection at all; only Detroit gets a "Retail" output today.
 
     bldg_sqft/year_built/num_units come from raw_data JSON, not dedicated
     columns — confirmed real key names against a 500-row production sample
@@ -527,6 +536,11 @@ def _parcel_from_regrid_row(row: ParcelRegrid) -> dict:
     year_built = _safe_int(raw_data.get("year_built"))
     num_units = _safe_int(raw_data.get("num_units"))
 
+    if row.source_county == "wayne_detroit":
+        property_type = parcel_usedesc_to_property_type_detroit(row.usedesc)
+    else:
+        property_type = parcel_classcode_to_property_type(row.usecode)
+
     return {
         "source":         "prospect",
         "property_id":    None,
@@ -536,7 +550,7 @@ def _parcel_from_regrid_row(row: ParcelRegrid) -> dict:
         "city":           (row.city or "").title(),
         "zip":            row.zip or "",
         "state":          row.state or "MI",
-        "property_type":  parcel_classcode_to_property_type(row.usecode),
+        "property_type":  property_type,
         "subtype":        row.usedesc or "",
         "sf_rentable":    None,   # not a parcels_regrid column — see bldg_sqft below
         "sf_land":        None,
