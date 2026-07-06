@@ -223,12 +223,38 @@ def _account_from_parcel_owner(owner_id: int, parcel: ParcelRegrid) -> Account:
     reconcile()/Suggestions flow) and create_and_link_account_from_parcel_owner()
     below (the ad-hoc Public Record "Use this" owner-accept action,
     routers/finder.py) — one real implementation of account-from-owner-string,
-    not two copies."""
+    not two copies.
+
+    Address is the OWNER's mailing address (raw_data's mailadd/mail_city/
+    mail_state2/mail_zip — confirmed real, populated Regrid columns, not
+    promoted to dedicated ParcelRegrid columns, so read from raw_data
+    directly) when present, not the parcel's own site address
+    (ParcelRegrid.address/city/state/zip) — a property's owner, especially
+    an out-of-state LLC, very often has a different mailing address than
+    the property it owns, and the Property record already stores the site
+    address itself, so copying it onto the Account too would be redundant
+    at best and misleading at worst. Falls back to the parcel's site
+    address only when no mailing-address field is present at all, rather
+    than leaving a newly created Account with no address whatsoever.
+    Account's own columns are plain `address`/`city`/`state`/`zip` (checked
+    directly against models/account.py) — no "mailing_" prefix on that
+    side, so no renaming needed, just the right source fields.
+    """
+    raw_data = parcel.raw_data or {}
+    mail_address = raw_data.get("mailadd") or None
+    mail_city    = raw_data.get("mail_city") or None
+    mail_state   = raw_data.get("mail_state2") or None
+    mail_zip     = raw_data.get("mail_zip") or None
+    has_mailing_address = any([mail_address, mail_city, mail_state, mail_zip])
+
     return Account(
         owner_id=owner_id,
         name=parcel.owner_raw or f"Unknown Owner — Parcel {parcel.parcel_id}",
         normalized_name=normalize_name(parcel.owner_raw or ''),
-        address=parcel.address, city=parcel.city, state=parcel.state, zip=parcel.zip,
+        address=mail_address if has_mailing_address else parcel.address,
+        city=mail_city if has_mailing_address else parcel.city,
+        state=mail_state if has_mailing_address else parcel.state,
+        zip=mail_zip if has_mailing_address else parcel.zip,
         roles=["owner"],
     )
 
@@ -417,10 +443,25 @@ def create_and_link_account_from_parcel_owner(db: Session, owner_id: int,
     never produce a Suggestion for a broker to act on — this function is
     the direct-correction path for exactly that case, called from the
     Public Record tab the moment a broker notices the mismatch themselves.
+
+    Also fills prop.account_id ("current owner entity" — the field the
+    Summary tab's "Owner" card and the Contacts tab actually read, a
+    different field from recorded_owner_account_id) when it's currently
+    null. Fill-blank-only, deliberately NOT a general sync between the two
+    fields: account_id can legitimately diverge from the deed-of-record
+    owner (e.g. a sale not yet reflected in county records), so an
+    already-set account_id is never overwritten here. This only helps the
+    specific case a property has no owner link at all yet — accepting the
+    Public Record owner is, in that case, the only owner information the
+    property has, so it makes sense for both fields to end up pointing at
+    it rather than leaving account_id null and the Owner card/Contacts tab
+    looking unpopulated right after a broker just confirmed the owner.
     """
     new_account = _account_from_parcel_owner(owner_id, parcel)
     db.add(new_account)
     db.flush()
     _apply_auto_link(db, parcel, new_account, prop)
+    if prop.account_id is None:
+        prop.account_id = new_account.id
     db.commit()
     return {"account_id": new_account.id, "account_name": new_account.name}
