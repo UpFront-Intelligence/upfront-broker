@@ -21,14 +21,16 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models.user import User
 from models.property import Property
+from models.account import Account
 from models.deal import Deal
 from models.parcel_regrid import ParcelRegrid
-from models.shared import EnrichmentCache
+from models.shared import EnrichmentCache, Activity
 from services.naming import normalize_address
 from services.property_category import (
     parcel_classcode_to_property_type,
     parcel_usedesc_to_property_type_detroit,
 )
+from services.regrid import create_and_link_account_from_parcel_owner
 from auth_utils import get_current_user
 
 router = APIRouter()
@@ -486,6 +488,37 @@ def _safe_int(v):
         return None
 
 
+def _bldg_sqft_from_raw_data(raw_data: dict):
+    """'bldg_sqft' (36.4% populated in a 500-row production sample,
+    2026-07-03) with 'area_building' as a fallback ONLY when bldg_sqft
+    itself is null (22.4% populated, a different, lower-coverage concept —
+    do NOT use ll_bldg_footprint_sqft, that's building FOOTPRINT/ground-
+    outline, not total building SF). Extracted out of
+    _parcel_from_regrid_row() so get_public_record()'s "Building SF" row
+    (property.html's Public Record tab) uses the exact same extraction,
+    not a second copy — see that endpoint for why this is explicitly NOT
+    conflated with Property.sf_rentable (a different, commercial-leasing
+    concept)."""
+    bldg_sqft = _safe_int(raw_data.get("bldg_sqft"))
+    if bldg_sqft is None:
+        bldg_sqft = _safe_int(raw_data.get("area_building"))
+    return bldg_sqft
+
+
+def _derive_property_type_for_parcel(row: ParcelRegrid):
+    """Same source_county branching _parcel_from_regrid_row() uses below:
+    wayne_detroit rows go through the usedesc keyword classifier (its own
+    5-digit scheme has no classcode mapping and calling the classcode
+    function unscoped risked numeric collisions — see that classifier's
+    docstring), every other county through the 3-digit classcode
+    classifier. Extracted so get_public_record()'s "Class/Type" accept
+    affordance (property.html's Public Record tab) uses the exact same
+    derivation as the map display, not a second copy."""
+    if row.source_county == "wayne_detroit":
+        return parcel_usedesc_to_property_type_detroit(row.usedesc)
+    return parcel_classcode_to_property_type(row.usecode)
+
+
 def _parcel_from_regrid_row(row: ParcelRegrid) -> dict:
     """Shapes a parcels_regrid row into the same parcel dict contract
     _parcel_from_local_row()/_parcel_from_attrs() above already produce, so
@@ -530,16 +563,10 @@ def _parcel_from_regrid_row(row: ParcelRegrid) -> dict:
     same as every other field this function already treats this way.
     """
     raw_data = row.raw_data or {}
-    bldg_sqft = _safe_int(raw_data.get("bldg_sqft"))
-    if bldg_sqft is None:
-        bldg_sqft = _safe_int(raw_data.get("area_building"))
+    bldg_sqft = _bldg_sqft_from_raw_data(raw_data)
     year_built = _safe_int(raw_data.get("year_built"))
     num_units = _safe_int(raw_data.get("num_units"))
-
-    if row.source_county == "wayne_detroit":
-        property_type = parcel_usedesc_to_property_type_detroit(row.usedesc)
-    else:
-        property_type = parcel_classcode_to_property_type(row.usecode)
+    property_type = _derive_property_type_for_parcel(row)
 
     return {
         "source":         "prospect",
@@ -1030,6 +1057,22 @@ def get_public_record(
     zip+address collision can't match a different county's parcel. When
     property.county is blank, the query is unscoped (same as before this
     was added) rather than silently excluding otherwise-valid matches.
+
+    EXTENDED (2026-07-06) — also merges in _public_record_subobject()
+    (assessed_value, sale_price, sale_date, usecode, usedesc, lot_acres,
+    zoning), the same enrichment already built for Property Finder's
+    "yours" pins, reusing the same matched row rather than re-querying.
+    Plus bldg_sqft (via the shared _bldg_sqft_from_raw_data() extraction),
+    surfaced as its own field specifically so the frontend can label it
+    "Building SF (Public Record)" and NOT silently equate it with
+    Property.sf_rentable — bldg_sqft is a general Regrid building-SF
+    concept, sf_rentable is a commercial-leasing concept; these are not
+    guaranteed to mean the same measurement. Plus derived_property_type
+    (via the shared _derive_property_type_for_parcel() branching), this
+    app's CRE vocabulary derived from usecode/usedesc, for the "Class/Type"
+    accept affordance. This is the field-sync
+    feature's data source — see CLAUDE.md's PARCELS_REGRID section for
+    the accept-action design built on top of it.
     """
     prop = db.query(Property).filter(
         Property.id == property_id, Property.owner_id == current_user.id
@@ -1052,6 +1095,9 @@ def get_public_record(
             "county":        match.county,
             "source_county": match.source_county,
             "ingested_at":   match.ingested_at.isoformat() if match.ingested_at else None,
+            "bldg_sqft":     _bldg_sqft_from_raw_data(match.raw_data or {}),
+            "derived_property_type": _derive_property_type_for_parcel(match),
+            **_public_record_subobject(match),
         }
 
     # ── Fallback: legacy local-parcels/ArcGIS path — only reachable if the
@@ -1084,6 +1130,68 @@ def get_public_record(
             }
 
     return {"source": None, "matched_via": None}
+
+
+def _log_public_record_sync(db: Session, owner_id: int, property_id: int,
+                             field_label: str, old_value, new_value):
+    """Reuses the existing Activity model/table (routers/activities.py's
+    create_activity() constructs the exact same Activity(...) shape) rather
+    than adding a new audit column — see the field-sync recon report for
+    why: updated_at is a whole-row timestamp that fires for any change for
+    any reason, so it can't answer "was this field synced from Public
+    Record, and when." A dedicated 'last synced' column would also only
+    ever remember the most recent sync; an Activity row naturally keeps
+    history, and property.html already renders an Activity feed on the
+    same page — no new UI surface needed."""
+    old_display = old_value if old_value not in (None, "") else "—"
+    new_display = new_value if new_value not in (None, "") else "—"
+    db.add(Activity(
+        owner_id=owner_id,
+        property_id=property_id,
+        activity_type="public_record_sync",
+        subject=f"Public Record sync — {field_label}",
+        notes=f"{field_label} updated from Public Record: {old_display} → {new_display}",
+        activity_date=datetime.now(timezone.utc),
+    ))
+
+
+@router.post("/public-record/{property_id}/accept-owner")
+def accept_public_record_owner(
+    property_id:  int,
+    db:           Session = Depends(get_db),
+    current_user: User    = Depends(get_current_user),
+):
+    """"Use this" owner-accept action from the Public Record tab — direct
+    correction, no confirmation step (per the field-sync design: this is
+    the one field where a plain scalar PUT can't work, since
+    recorded_owner_account_id is an Account relationship, not a text
+    field; see create_and_link_account_from_parcel_owner() in
+    services/regrid.py for why this reuses create_account_from_suggestion()/
+    _apply_auto_link()'s exact mechanics rather than a second
+    account-resolution implementation).
+    """
+    prop = db.query(Property).filter(
+        Property.id == property_id, Property.owner_id == current_user.id
+    ).first()
+    if not prop:
+        raise HTTPException(status_code=404, detail="Property not found")
+
+    match, _ = _match_parcel_regrid_for_property(db, prop)
+    if match is None or not match.owner_raw:
+        raise HTTPException(status_code=400, detail="No Public Record owner available to accept")
+
+    old_owner_name = None
+    if prop.recorded_owner_account_id:
+        old_account = db.query(Account).filter(Account.id == prop.recorded_owner_account_id).first()
+        old_owner_name = old_account.name if old_account else None
+
+    result = create_and_link_account_from_parcel_owner(db, current_user.id, match, prop)
+
+    _log_public_record_sync(db, current_user.id, property_id, "Recorded Owner",
+                             old_owner_name, result["account_name"])
+    db.commit()
+
+    return result
 
 
 @router.post("/add")

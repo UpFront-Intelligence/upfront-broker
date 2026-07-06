@@ -217,6 +217,22 @@ def _apply_auto_link(db: Session, parcel: ParcelRegrid, account: Account, prop: 
     ensure_role(account, "owner")
 
 
+def _account_from_parcel_owner(owner_id: int, parcel: ParcelRegrid) -> Account:
+    """Builds (not yet added/committed) a fresh Account from a parcels_regrid
+    row's raw owner string. Shared by create_account_from_suggestion() (the
+    reconcile()/Suggestions flow) and create_and_link_account_from_parcel_owner()
+    below (the ad-hoc Public Record "Use this" owner-accept action,
+    routers/finder.py) — one real implementation of account-from-owner-string,
+    not two copies."""
+    return Account(
+        owner_id=owner_id,
+        name=parcel.owner_raw or f"Unknown Owner — Parcel {parcel.parcel_id}",
+        normalized_name=normalize_name(parcel.owner_raw or ''),
+        address=parcel.address, city=parcel.city, state=parcel.state, zip=parcel.zip,
+        roles=["owner"],
+    )
+
+
 def reconcile(db: Session, owner_id: int, county: Optional[str] = None,
               auto_create_accounts: bool = False) -> dict:
     """Owner-scoped reconciliation pass over pending parcels_regrid rows.
@@ -356,13 +372,7 @@ def create_account_from_suggestion(db: Session, owner_id: int, suggestion: Sugge
     if parcel is None:
         raise ValueError("Linked parcels_regrid row no longer exists")
 
-    new_account = Account(
-        owner_id=owner_id,
-        name=parcel.owner_raw or f"Unknown Owner — Parcel {parcel.parcel_id}",
-        normalized_name=normalize_name(parcel.owner_raw or ''),
-        address=parcel.address, city=parcel.city, state=parcel.state, zip=parcel.zip,
-        roles=["owner"],
-    )
+    new_account = _account_from_parcel_owner(owner_id, parcel)
     db.add(new_account)
     db.flush()
 
@@ -372,11 +382,14 @@ def create_account_from_suggestion(db: Session, owner_id: int, suggestion: Sugge
         matched_property = db.query(Property).filter(
             Property.id == prop_id, Property.owner_id == owner_id).first()
 
-    parcel.matched_account_id = new_account.id
-    parcel.reconciliation_status = "auto_linked"
-    if matched_property is not None:
-        parcel.matched_property_id = matched_property.id
-        matched_property.recorded_owner_account_id = new_account.id
+    # Reuses _apply_auto_link() rather than re-setting matched_account_id/
+    # reconciliation_status/recorded_owner_account_id by hand (as this
+    # function did before) — also fixes a real gap this refactor surfaced:
+    # the hand-rolled version never called ensure_role(), so an account
+    # created this way could end up linked as recorded_owner_account_id
+    # without ever getting the 'owner' role tag, unlike every other linking
+    # path in this file.
+    _apply_auto_link(db, parcel, new_account, matched_property)
 
     suggestion.status = "merged"
     suggestion.resolved_at = datetime.now(timezone.utc)
@@ -384,3 +397,30 @@ def create_account_from_suggestion(db: Session, owner_id: int, suggestion: Sugge
 
     return {"account_id": new_account.id,
             "matched_property_id": matched_property.id if matched_property else None}
+
+
+def create_and_link_account_from_parcel_owner(db: Session, owner_id: int,
+                                               parcel: ParcelRegrid, prop: Property) -> dict:
+    """Ad-hoc "Use this" owner-accept action from the property detail Public
+    Record tab (routers/finder.py's accept_public_record_owner) — same
+    account-creation + link mechanics as create_account_from_suggestion()
+    above (_account_from_parcel_owner() + _apply_auto_link()), just
+    triggered directly from an already address-matched (property, parcel)
+    pair instead of a batch-reconcile Suggestion row.
+
+    This is a deliberately different trigger path, not a duplicate one:
+    reconcile()'s Suggestion rows only get created when the parcel's owner
+    name scores >= SUGGEST_THRESHOLD (65) against an existing account.
+    A property whose recorded owner has genuinely changed (e.g. "JMC
+    Management, LLC" vs. Regrid's "LEGRA PROPERTIES LLC") scores nowhere
+    near that threshold, lands in reconcile()'s no_match branch, and would
+    never produce a Suggestion for a broker to act on — this function is
+    the direct-correction path for exactly that case, called from the
+    Public Record tab the moment a broker notices the mismatch themselves.
+    """
+    new_account = _account_from_parcel_owner(owner_id, parcel)
+    db.add(new_account)
+    db.flush()
+    _apply_auto_link(db, parcel, new_account, prop)
+    db.commit()
+    return {"account_id": new_account.id, "account_name": new_account.name}

@@ -27,6 +27,12 @@
     .fv:hover { background:var(--cream-dark); }
     .fv[data-empty]::before { content:'—'; color:var(--stone-light); }
     .fv[data-empty]:hover::before { content:'— +'; }
+    /* Public Record → Property field-sync accept affordances — only
+       rendered when a field's Public Record value actually differs from
+       (or fills a null in) the stored value; see publicRecordCard(). */
+    .pr-accept { padding:2px 0 6px; font-size:11.5px; }
+    .pr-accept .btn { padding:2px 8px; font-size:11.5px; }
+    .pr-accept-confirm { color:var(--red); }
     .chip { display:inline-flex; align-items:center; gap:4px; padding:3px 10px; border-radius:20px; font-size:12px; font-weight:500; background:var(--cream-dark); color:var(--navy); cursor:pointer; margin:2px; text-decoration:none; transition:all 0.1s; }
     .chip:hover { background:var(--navy); color:#fff; }
     .act-item { display:flex; gap:10px; padding:8px 0; border-bottom:1px solid var(--cream-dark); font-size:12.5px; }
@@ -180,6 +186,8 @@
   let tabMap = null, nearbyActive = false, nearbyMarkers = [];
   let TENANTS = [];
   let RECORDED_OWNER = null, roEditing = false;
+  let PUBLIC_RECORD = null;       // last-fetched get_public_record() response — field-sync accept affordances read this
+  let classTypeConfirming = false; // two-click confirm state for the Class/Type accept (see acceptClassType())
 
   async function load() {
     try {
@@ -729,20 +737,45 @@
   // ── Recorded Owner (links property to an Account) ─────────────────────────
   let _ownerTimer = null;
 
+  // Public Record's owner string vs. the currently linked recorded_owner
+  // Account's name — case-insensitive compare, same "differs or fills a
+  // null" gate every field-sync accept affordance uses.
+  function ownerAcceptHtml() {
+    const pr = PUBLIC_RECORD;
+    if (!pr || !pr.owner) return '';
+    const mismatch = !RECORDED_OWNER ||
+      RECORDED_OWNER.name.trim().toLowerCase() !== pr.owner.trim().toLowerCase();
+    if (!mismatch) return '';
+    return `<div class="pr-accept" style="margin-top:6px">
+      Public Record shows: <strong>${pr.owner}</strong>
+      <button class="btn btn-ghost btn-sm" onclick="acceptPublicRecordOwner()">Use this</button>
+    </div>`;
+  }
+
   function renderRecordedOwner() {
     const body = document.getElementById('ro-body');
     if (!body) return;
     if (RECORDED_OWNER && !roEditing) {
       body.innerHTML = `
         <a class="chip" href="/pages/account.html?id=${RECORDED_OWNER.id}">${RECORDED_OWNER.name}</a>
-        <button class="btn btn-ghost btn-sm" onclick="roEditing=true;renderRecordedOwner()">Change</button>`;
+        <button class="btn btn-ghost btn-sm" onclick="roEditing=true;renderRecordedOwner()">Change</button>
+        ${ownerAcceptHtml()}`;
       return;
     }
     body.innerHTML = `
       <div style="max-width:320px">
         <input type="text" id="ro-search" class="form-control" placeholder="Search accounts…" autocomplete="off" oninput="onOwnerInput()">
       </div>
-      ${RECORDED_OWNER ? `<button class="btn btn-ghost btn-sm" style="margin-top:6px" onclick="roEditing=false;renderRecordedOwner()">Cancel</button>` : ''}`;
+      ${RECORDED_OWNER ? `<button class="btn btn-ghost btn-sm" style="margin-top:6px" onclick="roEditing=false;renderRecordedOwner()">Cancel</button>` : ''}
+      ${ownerAcceptHtml()}`;
+  }
+
+  async function acceptPublicRecordOwner() {
+    try {
+      const result = await API.post(`/finder/public-record/${ID}/accept-owner`, {});
+      Toast.success(`Recorded owner updated: ${result.account_name}`);
+      await refreshAfterAttach();
+    } catch(e) { Toast.error(e.message); }
   }
 
   function onOwnerInput() {
@@ -853,7 +886,14 @@
     if (!el) return;
     let rec = null;
     try { rec = await API.get(`/finder/public-record/${ID}`); } catch(e) { rec = null; }
+    PUBLIC_RECORD = rec;
     el.innerHTML = publicRecordCard(rec, REC);
+    renderRecordedOwner();   // owner-accept affordance depends on PUBLIC_RECORD, refresh now that it's loaded
+  }
+
+  function rerenderPublicRecordCard() {
+    const el = document.getElementById('assessor-section');
+    if (el) el.innerHTML = publicRecordCard(PUBLIC_RECORD, REC);
   }
 
   function publicRecordCard(rec, p) {
@@ -878,16 +918,100 @@
       sourceLabel = 'Oakland County ArcGIS (live)';
     }
 
+    // ── Field-sync accept affordances — only rendered when Public Record's
+    // value actually differs from (or fills a null in) the stored value;
+    // one click for the three scalar fields, two-click confirm for
+    // Class/Type given the lossiness risk (see CLAUDE.md's field-sync
+    // notes on parcel_classcode_to_property_type()'s narrow vocabulary).
+    const showParcelIdAccept = hasLive && rec.parcel_id && rec.parcel_id !== p.parcel_id;
+    const showAssessedAccept = hasLive && rec.assessed_value != null && rec.assessed_value !== p.assessed_value;
+    // Building SF (rec.bldg_sqft) and Rentable SF (p.sf_rentable) are
+    // DIFFERENT CONCEPTS (general building SF vs. commercial rentable SF)
+    // — never silently equated. The Building SF row is shown whenever
+    // Public Record has a value, purely informational; the accept
+    // affordance is a deliberate cross-concept COPY, phrased as such.
+    const showBldgSFAccept = hasLive && rec.bldg_sqft != null && rec.bldg_sqft !== p.sf_rentable;
+    const showTypeAccept = hasLive && rec.derived_property_type && rec.derived_property_type !== p.property_type;
+
+    const typeAcceptHtml = !showTypeAccept ? '' : classTypeConfirming ? `
+      <div class="pr-accept pr-accept-confirm">
+        Overwrite "${p.property_type || '—'}" with "${rec.derived_property_type}"?
+        <button class="btn btn-outline btn-sm" onclick="acceptClassType()">Confirm</button>
+        <button class="btn btn-ghost btn-sm" onclick="classTypeConfirming=false;rerenderPublicRecordCard()">Cancel</button>
+      </div>` : `
+      <div class="pr-accept">
+        <button class="btn btn-ghost btn-sm" onclick="classTypeConfirming=true;rerenderPublicRecordCard()">Use "${rec.derived_property_type}" (Public Record)</button>
+      </div>`;
+
     return `<div class="dc"><div class="dc-title">🏛 Public Record</div><div class="dc-body">
       ${owner ? `<div class="fr"><span class="fl">Owner</span><span class="fv" style="cursor:default;font-weight:600">${owner}</span></div>` : ''}
       <div class="fr"><span class="fl">Parcel ID</span><span class="fv" style="cursor:default">${parcelId}</span></div>
+      ${showParcelIdAccept ? `<div class="pr-accept"><button class="btn btn-ghost btn-sm" onclick="acceptParcelId()">Use ${rec.parcel_id} (Public Record)</button></div>` : ''}
       <div class="fr"><span class="fl">Site Address</span><span class="fv" style="cursor:default">${address}</span></div>
       <div class="fr"><span class="fl">County</span><span class="fv" style="cursor:default">${county}</span></div>
       <div class="fr"><span class="fl">Assessed Value</span><span class="fv" style="cursor:default">${p.assessed_value?Fmt.currency(p.assessed_value):'—'}</span></div>
-      <div class="fr"><span class="fl">Living Area</span><span class="fv" style="cursor:default">${fmtSF(p.sf_rentable)}</span></div>
+      ${showAssessedAccept ? `<div class="pr-accept"><button class="btn btn-ghost btn-sm" onclick="acceptAssessedValue()">Use ${Fmt.currency(rec.assessed_value)} (Public Record)</button></div>` : ''}
+      <div class="fr"><span class="fl">Rentable SF</span><span class="fv" style="cursor:default">${fmtSF(p.sf_rentable)}</span></div>
+      ${hasLive ? `<div class="fr"><span class="fl">Building SF (Public Record)</span><span class="fv" style="cursor:default">${fmtSF(rec.bldg_sqft)}</span></div>` : ''}
+      ${showBldgSFAccept ? `<div class="pr-accept"><button class="btn btn-ghost btn-sm" onclick="acceptBuildingSF()">Copy to Rentable SF</button></div>` : ''}
       <div class="fr"><span class="fl">Class / Type</span><span class="fv" style="cursor:default">${p.property_type||'—'}</span></div>
+      ${typeAcceptHtml}
       ${sourceLabel ? `<div style="margin-top:10px;font-size:11px;color:var(--stone)">Source: ${sourceLabel}</div>` : ''}
     </div></div>`;
+  }
+
+  // ── Field-sync accept actions ─────────────────────────────────────────────
+  // Assessed Value, Parcel ID, and (cross-concept) Rentable SF are simple
+  // scalar overwrites — reuse the exact ef() PUT contract
+  // (PUT /api/properties/{id} {[field]: value}) directly rather than a new
+  // endpoint. Class/Type uses the same PUT too, just gated behind the
+  // two-click confirm above. Every accept logs an Activity row via the
+  // existing POST /api/activities endpoint — no new table/column.
+  async function acceptPublicRecordField(field, fieldLabel, newValue, oldDisplay, newDisplay) {
+    try {
+      const updated = await API.put(`/${SILO}/${ID}`, { [field]: newValue });
+      Object.assign(REC, updated);
+      await API.post('/activities', {
+        activity_type: 'public_record_sync',
+        property_id: Number(ID),
+        subject: `Public Record sync — ${fieldLabel}`,
+        notes: `${fieldLabel} updated from Public Record: ${oldDisplay} → ${newDisplay}`,
+        activity_date: new Date().toISOString(),
+      });
+      Toast.success(`${fieldLabel} updated from Public Record`);
+      await refreshAfterAttach();
+    } catch(e) { Toast.error(e.message); }
+  }
+
+  function acceptAssessedValue() {
+    const newVal = PUBLIC_RECORD?.assessed_value;
+    if (newVal == null) return;
+    acceptPublicRecordField('assessed_value', 'Assessed Value', newVal,
+      REC.assessed_value ? Fmt.currency(REC.assessed_value) : '—', Fmt.currency(newVal));
+  }
+
+  function acceptParcelId() {
+    const newVal = PUBLIC_RECORD?.parcel_id;
+    if (!newVal) return;
+    acceptPublicRecordField('parcel_id', 'Parcel ID', newVal, REC.parcel_id || '—', newVal);
+  }
+
+  function acceptBuildingSF() {
+    const newVal = PUBLIC_RECORD?.bldg_sqft;
+    if (newVal == null) return;
+    const fmtSF = v => v ? Number(v).toLocaleString() + ' SF' : '—';
+    // Field label spells out the cross-concept copy in the Activity note
+    // itself, not just the button — the audit trail should read clearly
+    // even without the UI context around it.
+    acceptPublicRecordField('sf_rentable', 'Rentable SF (copied from Public Record Building SF)',
+      newVal, fmtSF(REC.sf_rentable), fmtSF(newVal));
+  }
+
+  function acceptClassType() {
+    classTypeConfirming = false;
+    const newVal = PUBLIC_RECORD?.derived_property_type;
+    if (!newVal) return;
+    acceptPublicRecordField('property_type', 'Class / Type', newVal, REC.property_type || '—', newVal);
   }
 
   // ── Inline edit ──────────────────────────────────────────────────────────
