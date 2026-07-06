@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>UpFront Broker — Property Finder</title>
-  <link rel="stylesheet" href="/static/main.css?v=12">
+  <link rel="stylesheet" href="/static/main.css?v=13">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <style>
     /* Full-height map layout */
@@ -54,6 +54,14 @@
     .detail-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--stone); }
     .detail-val   { font-size: 13px; color: var(--ink); font-family: var(--font-mono); text-align: right; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+    /* Section divider within a panel's detail-row list (e.g. "yours" panel's
+       Public Record sub-section, sourced from live parcels_regrid data as
+       distinct from the CRM fields above it) */
+    .panel-section-label {
+      font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;
+      color: var(--stone); margin: 14px 0 2px; padding-top: 10px; border-top: 1px solid var(--cream-dark);
+    }
+
     .owner-block {
       background: var(--cream); border-radius: var(--radius); padding: 10px 12px;
       margin: 12px 0; font-size: 12.5px; color: var(--stone); line-height: 1.6;
@@ -81,22 +89,14 @@
     }
     #map-loading.show { display: flex; }
 
-    /* Parcel category marker badges — replaces plain circleMarker dots */
+    /* Parcel category marker badges — replaces plain circleMarker dots.
+       "Yours" is a fill-color override (--owned-marker, see tokens.css)
+       applied via inline style at render time, not a separate CSS class —
+       the glyph/shape still comes from property_type either way. */
     .parcel-badge {
-      position: relative;
       width: 26px; height: 26px; border-radius: 50%;
       display: flex; align-items: center; justify-content: center;
       border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.35);
-    }
-    /* "Yours" indicator — a small additive corner badge, NOT a substitute
-       for the category color/glyph and NOT the old opacity-dimming (that
-       mechanic is retired: a "yours" result is now a single first-class
-       entry, not a de-emphasized duplicate sitting next to a prospect). */
-    .yours-badge {
-      position: absolute; top: -3px; right: -3px;
-      width: 13px; height: 13px; border-radius: 50%;
-      background: var(--accent); border: 1.5px solid #fff;
-      display: flex; align-items: center; justify-content: center;
     }
 
     /* Unified-search banner (missing-coordinates notice) */
@@ -146,17 +146,17 @@
     <!-- Legend — matches parcel_classcode_to_property_type()'s actual 4
          possible values (Office/Industrial/Multifamily/Land) + Unclassified;
          Retail/Residential/Agricultural removed, the classifier can't ever
-         return them — see the icon-system change notes for why. The "Yours"
-         entry is an orthogonal dimension (ownership, not category) — an
-         additive corner badge on top of whichever category color/glyph
-         already applies, not a 6th category color. -->
+         return them — see the icon-system change notes for why. "Yours" is
+         a fill-color override (not a 6th category, not an additive badge —
+         that corner-checkmark treatment was retired in favor of this) —
+         shape still varies by property_type, only the color changes. -->
     <div id="legend" style="display:none">
       <span><span class="legend-dot" style="background:var(--dataviz-amber)"></span>Office</span>
       <span><span class="legend-dot" style="background:#0f1923"></span>Industrial</span>
       <span><span class="legend-dot" style="background:var(--dataviz-blue)"></span>Multifamily</span>
       <span><span class="legend-dot" style="background:var(--dataviz-green)"></span>Land</span>
       <span><span class="legend-dot" style="background:#8a8278"></span>Unclassified</span>
-      <span><span class="legend-dot" style="background:var(--accent)"></span>✓ Yours</span>
+      <span><span class="legend-dot" style="background:var(--owned-marker)"></span>Yours</span>
     </div>
   </div>
 </div>
@@ -175,7 +175,7 @@
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="/js/app.js?v=12"></script>
+<script src="/js/app.js?v=13"></script>
 <script>
   if (!Auth.requireAuth()) throw new Error('Not authenticated');
   renderSidebar('finder');
@@ -191,6 +191,7 @@
   const DATAVIZ_BLUE  = _token('--dataviz-blue',  '#3D6B99');
   const INDUSTRIAL_COLOR   = '#0f1923';   // no existing token; reused verbatim from the old TYPE_COLORS value
   const UNCLASSIFIED_COLOR = '#8a8278';   // same neutral stone-gray the old palette used for "not a distinct category"
+  const OWNED_MARKER_COLOR = _token('--owned-marker', '#D32F2F');   // "yours" fill-color override — see tokens.css
 
   // property_type here is parcel_classcode_to_property_type()'s output
   // (backend/services/property_category.py) — confirmed by reading that
@@ -261,31 +262,31 @@
     return CATEGORY_ICONS[normalizedCategory(propertyType)] || UNCLASSIFIED_ICON;
   }
 
-  // Small additive checkmark chip for "yours" results — layered on top of
-  // the category badge, never replacing its color/glyph. Not a substitute
-  // for the retired opacity-dimming: a "yours" result is now a single
-  // first-class entry (see the unified-search recon report), so full
-  // opacity + this corner badge is the whole treatment, not a muted one.
-  const YOURS_BADGE_HTML = `<div class="yours-badge">
-    <svg viewBox="0 0 24 24" width="8" height="8" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M4 12 L10 18 L20 6"/>
-    </svg></div>`;
+  // "Yours" is now a fill-color override, not an additive badge (retired —
+  // stacking a corner checkmark on top of the category color was judged
+  // redundant once a whole-marker color change already reads unambiguously
+  // as "yours" at a glance). The glyph shape still comes from property_type
+  // — ownership and category are still two independent signals, just both
+  // expressed through this one marker now: shape = type, color = ownership.
+  // Unclassified-but-owned (property_type is None) still renders the plain
+  // glyph-less circle, just in --owned-marker red instead of the neutral gray.
 
   // Precomputed once per (category, isYours) pair (Leaflet icon instances
   // are safely shared across many markers) rather than rebuilt per parcel.
   const DIV_ICONS = {};
   function divIconFor(propertyType, isYours) {
     const catKey = CATEGORY_ICONS[normalizedCategory(propertyType)] ? normalizedCategory(propertyType) : '__unclassified__';
-    const key = catKey + (isYours ? '::yours' : '');
+    const key = catKey + (isYours ? '::owned' : '');
     if (!DIV_ICONS[key]) {
       const cat = categoryFor(propertyType);
+      const bg  = isYours ? OWNED_MARKER_COLOR : cat.color;
       // No glyph for unclassified — a plain colored circle, deliberately
       // distinct from every classified badge (which all show a white
       // building/tree glyph) and from Leaflet's default blue pin (which
       // is never used at all — every code path below sets an explicit icon).
       DIV_ICONS[key] = L.divIcon({
         className: '',   // suppress Leaflet's default .leaflet-div-icon box/border styling
-        html: `<div class="parcel-badge" style="background:${cat.color}">${cat.glyph}${isYours ? YOURS_BADGE_HTML : ''}</div>`,
+        html: `<div class="parcel-badge" style="background:${bg}">${cat.glyph}</div>`,
         iconSize:   [26, 26],
         iconAnchor: [13, 13],
       });
@@ -469,6 +470,22 @@
   // the property's own detail page, instead of the generic regrid-only
   // fields/link the old exists_in_db path showed.
   function renderYoursPanel(parcel) {
+    // Public Record is only present when _match_parcel_regrid_for_property()
+    // (backend/routers/finder.py) found a live parcels_regrid match for this
+    // property — omitted entirely otherwise (a real, confirmable gap, e.g.
+    // this address isn't ingested yet), never shown with fabricated blanks.
+    const pr = parcel.public_record;
+    const publicRecordHtml = pr ? `
+      <div class="panel-section-label">Public Record</div>
+      ${row('Assessed Value', fmtVal(pr.assessed_value))}
+      ${row('Last Sale',      fmtVal(pr.sale_price))}
+      ${row('Sale Date',      pr.sale_date)}
+      ${row('Use Code',       pr.usecode)}
+      ${row('Use Description',pr.usedesc)}
+      ${row('Lot Acres',      fmtAcres(pr.lot_acres))}
+      ${row('Zoning',         pr.zoning)}
+    ` : '';
+
     document.getElementById('p-body').innerHTML = `
       <div class="owner-block">
         <div class="owner-name">${parcel.status || 'Active'}</div>
@@ -489,6 +506,7 @@
         ${row('Lot Acres',      fmtAcres(parcel.lot_acres))}
         ${row('Zoning',         parcel.zoning)}
         ${row('Tenant',         parcel.tenant_summary)}
+        ${publicRecordHtml}
       </div>`;
 
     document.getElementById('p-actions').innerHTML = `

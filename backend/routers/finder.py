@@ -747,7 +747,21 @@ def get_parcels(
         pq = pq.filter(Property.sf_land / 43560.0 <= lot_acres_max)
 
     my_properties = pq.limit(MAX_PARCELS_REGRID_RESULTS).all()
-    yours = [_property_row_to_finder_shape(p) for p in my_properties]
+    yours = []
+    for p in my_properties:
+        shaped = _property_row_to_finder_shape(p)
+        # Live Regrid enrichment — restores the assessed_value/sale_price/
+        # usecode/etc. a "yours" pin used to show back when it was just a
+        # dimmed parcels_regrid pin (see the unified-search recon report's
+        # FIX 1). Reuses get_public_record()'s exact matching logic via
+        # _match_parcel_regrid_for_property() rather than a second
+        # implementation. Omitted entirely (not fabricated as nulls) when
+        # no match exists — a real, confirmable gap (e.g. this address
+        # isn't ingested yet), not an error.
+        match, _ = _match_parcel_regrid_for_property(db, p)
+        if match is not None:
+            shaped["public_record"] = _public_record_subobject(match)
+        yours.append(shaped)
     yours_missing_coords = sum(1 for y in yours if not (y["lat"] and y["lng"]))
 
     # Per-user address set for dedup — deliberately UNFILTERED (every one of
@@ -906,6 +920,70 @@ def _property_source_county(prop: Property) -> Optional[str]:
     return base
 
 
+def _match_parcel_regrid_for_property(db: Session, prop: Property):
+    """The exact match order/scoping get_public_record() uses: opportunistic
+    parcel_id match, then zip-scoped normalize_address() exact match, both
+    scoped to the property's own source_county (via _property_source_county())
+    when known. Extracted out of get_public_record() so the unified Property
+    Finder merge (get_parcels() below) can attach live Regrid enrichment to a
+    "yours" result without a second implementation of this matching logic —
+    same reasoning that already governs normalize_address() itself living in
+    services/naming.py instead of being copied per-caller.
+
+    Returns (ParcelRegrid | None, matched_via | None), matched_via being
+    "parcel_id" or "address" — get_public_record() surfaces that in its
+    response; get_parcels() only cares whether a match exists.
+
+    Known accepted cost: called once per "yours" result in get_parcels(),
+    same nested-query-per-row tradeoff scan_duplicates()/reconcile() already
+    accept elsewhere in this app (see their docstrings) — fine at the scale
+    of one broker's own filtered result set, not re-optimized here.
+    """
+    source_county = _property_source_county(prop)
+    match, matched_via = None, None
+
+    if prop.parcel_id:
+        q = db.query(ParcelRegrid).filter(ParcelRegrid.parcel_id == prop.parcel_id)
+        if source_county:
+            q = q.filter(ParcelRegrid.source_county == source_county)
+        match = q.first()
+        if match:
+            matched_via = "parcel_id"
+
+    if match is None and prop.zip and prop.address:
+        target_norm = normalize_address(prop.address)
+        q = db.query(ParcelRegrid).filter(ParcelRegrid.zip == prop.zip)
+        if source_county:
+            q = q.filter(ParcelRegrid.source_county == source_county)
+        for cand in q.all():
+            if cand.address and normalize_address(cand.address) == target_norm:
+                match, matched_via = cand, "address"
+                break
+
+    return match, matched_via
+
+
+def _public_record_subobject(match: ParcelRegrid) -> dict:
+    """Regrid-sourced enrichment fields for the unified Finder's "yours"
+    panel — a compact subset of ParcelRegrid's own columns for the map
+    panel, distinct from get_public_record()'s response shape (that
+    endpoint serves the full property detail page's Public Record tab, a
+    richer, separate UI surface with its own already-established field
+    set). Only called when a match exists — no zero/empty fabrication for
+    the no-match case, that's handled by simply not attaching this
+    sub-object at all (see get_parcels() below).
+    """
+    return {
+        "assessed_value": float(match.assessed_value) if match.assessed_value is not None else None,
+        "sale_price":     float(match.sale_price) if match.sale_price is not None else None,
+        "sale_date":      match.sale_date.isoformat() if match.sale_date else None,
+        "usecode":        match.usecode,
+        "usedesc":        match.usedesc,
+        "lot_acres":      float(match.lot_acres) if match.lot_acres is not None else None,
+        "zoning":         match.zoning,
+    }
+
+
 @router.get("/public-record/{property_id}")
 def get_public_record(
     property_id:  int,
@@ -945,27 +1023,7 @@ def get_public_record(
     if not prop:
         raise HTTPException(status_code=404, detail="Property not found")
 
-    source_county = _property_source_county(prop)
-    match, matched_via = None, None
-
-    if prop.parcel_id:
-        q = db.query(ParcelRegrid).filter(ParcelRegrid.parcel_id == prop.parcel_id)
-        if source_county:
-            q = q.filter(ParcelRegrid.source_county == source_county)
-        match = q.first()
-        if match:
-            matched_via = "parcel_id"
-
-    if match is None and prop.zip and prop.address:
-        target_norm = normalize_address(prop.address)
-        q = db.query(ParcelRegrid).filter(ParcelRegrid.zip == prop.zip)
-        if source_county:
-            q = q.filter(ParcelRegrid.source_county == source_county)
-        candidates = q.all()
-        for cand in candidates:
-            if cand.address and normalize_address(cand.address) == target_norm:
-                match, matched_via = cand, "address"
-                break
+    match, matched_via = _match_parcel_regrid_for_property(db, prop)
 
     if match is not None:
         return {
