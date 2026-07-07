@@ -7,6 +7,11 @@
   <link rel="stylesheet" href="/static/main.css?v=14">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <style>
+    /* Same rule accounts.html/contacts.html each define locally (not in
+       main.css) — reused verbatim so the Party Account/Contact modals'
+       reused form-divider markup renders identically. */
+    .form-divider { font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--stone);border-bottom:1px solid var(--cream-dark);padding-bottom:6px;margin:20px 0 14px; }
+    .form-divider:first-child { margin-top:0; }
     #page-content { padding:24px 28px; max-width:1200px; }
     .tab-nav { display:flex; border-bottom:2px solid var(--cream-dark); margin-bottom:20px; }
     .tab-btn { background:none; border:none; border-bottom:2px solid transparent; margin-bottom:-2px;
@@ -164,6 +169,138 @@
     <div class="modal-footer">
       <button class="btn btn-outline" onclick="Modal.close('tenant-modal')">Cancel</button>
       <button class="btn btn-primary" onclick="saveTenant()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Party — Create Account (fields mirror accounts.html's add-account modal) -->
+<div class="modal-overlay" id="party-account-modal" onclick="Modal.closeOnOverlay('party-account-modal')">
+  <div class="modal" style="width:560px">
+    <div class="modal-header">
+      <div class="modal-title">Create Account</div>
+      <button class="modal-close" onclick="Modal.close('party-account-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-divider">Entity</div>
+      <div class="form-group"><label class="form-label">Entity Name <span style="color:var(--red)">*</span></label>
+        <input id="pam-name" class="form-control" placeholder="Oak Street Investments LLC"></div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label class="form-label">Entity Type</label>
+          <select id="pam-type" class="form-control"><option value="">— Select —</option>
+            <option>LLC</option><option>Corp</option><option>Trust</option>
+            <option>Individual</option><option>REIT</option><option>Partnership</option>
+          </select></div>
+        <div class="form-group"><label class="form-label">EIN / Tax ID</label>
+          <input id="pam-ein" class="form-control" placeholder="12-3456789"></div>
+      </div>
+      <div class="form-group"><label class="form-label">Website</label>
+        <input id="pam-website" class="form-control" placeholder="https://example.com"></div>
+
+      <div class="form-divider">Contact Info</div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label class="form-label">Email</label>
+          <input id="pam-email" class="form-control" type="email" placeholder="contact@entity.com"></div>
+        <div class="form-group"><label class="form-label">Phone</label>
+          <input id="pam-phone" class="form-control" placeholder="(313) 555-0100"></div>
+      </div>
+      <div class="form-group"><label class="form-label">Street Address</label>
+        <input id="pam-address" class="form-control" placeholder="123 Main St"></div>
+      <div class="form-row cols-3">
+        <div class="form-group"><label class="form-label">City</label>
+          <input id="pam-city" class="form-control" placeholder="Detroit"></div>
+        <div class="form-group"><label class="form-label">State</label>
+          <input id="pam-state" class="form-control" placeholder="MI" maxlength="2"></div>
+        <div class="form-group"><label class="form-label">Zip</label>
+          <input id="pam-zip" class="form-control" placeholder="48226"></div>
+      </div>
+
+      <div class="form-divider">Link a Contact (optional)</div>
+      <div class="form-group" style="position:relative">
+        <label class="form-label">Contact</label>
+        <input type="text" id="pam-contact-search" class="form-control" placeholder="Search contacts, or type a name to create one…" autocomplete="off" oninput="onPamContactInput()">
+      </div>
+
+      <div class="form-divider">Notes</div>
+      <div class="form-group"><label class="form-label">Notes</label>
+        <textarea id="pam-notes" class="form-control" rows="3" placeholder="Investment focus, principals, history…"></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="Modal.close('party-account-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveCreateAccountModal()">Save Account</button>
+    </div>
+  </div>
+</div>
+
+<!-- Party — Create Contact (fields mirror contacts.html's add-contact modal, plus
+     address fields — real Contact columns not exposed there — and an Account
+     link, since every Contact created here must belong to an Account) -->
+<div class="modal-overlay" id="party-contact-modal" onclick="Modal.closeOnOverlay('party-contact-modal')">
+  <div class="modal" style="width:560px">
+    <div class="modal-header">
+      <div class="modal-title">Create Contact</div>
+      <button class="modal-close" onclick="Modal.close('party-contact-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-divider">Identity</div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label class="form-label">First Name <span style="color:var(--red)">*</span></label>
+          <input id="pcm-first" class="form-control" placeholder="John"></div>
+        <div class="form-group"><label class="form-label">Last Name <span style="color:var(--red)">*</span></label>
+          <input id="pcm-last" class="form-control" placeholder="Smith"></div>
+      </div>
+      <div class="form-group"><label class="form-label">Title / Role</label>
+        <input id="pcm-title" class="form-control" placeholder="Principal, Managing Partner, VP Acquisitions…"></div>
+
+      <div class="form-divider">Contact Info</div>
+      <div class="form-row cols-3">
+        <div class="form-group"><label class="form-label">Email</label>
+          <input id="pcm-email" class="form-control" type="email" placeholder="john@firm.com"></div>
+        <div class="form-group"><label class="form-label">Phone</label>
+          <input id="pcm-phone" class="form-control" placeholder="(313) 555-0100"></div>
+        <div class="form-group"><label class="form-label">Mobile</label>
+          <input id="pcm-mobile" class="form-control" placeholder="(313) 555-0101"></div>
+      </div>
+      <div class="form-group"><label class="form-label">LinkedIn URL</label>
+        <input id="pcm-linkedin" class="form-control" placeholder="https://linkedin.com/in/johnsmith"></div>
+      <div class="form-group"><label class="form-label">Street Address</label>
+        <input id="pcm-address" class="form-control" placeholder="123 Main St"></div>
+      <div class="form-row cols-3">
+        <div class="form-group"><label class="form-label">City</label>
+          <input id="pcm-city" class="form-control" placeholder="Detroit"></div>
+        <div class="form-group"><label class="form-label">State</label>
+          <input id="pcm-state" class="form-control" placeholder="MI" maxlength="2"></div>
+        <div class="form-group"><label class="form-label">Zip</label>
+          <input id="pcm-zip" class="form-control" placeholder="48226"></div>
+      </div>
+
+      <div class="form-divider">Classification</div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label class="form-label">Contact Type</label>
+          <select id="pcm-type" class="form-control"><option value="">— Select —</option>
+            <option>Owner</option><option>Buyer</option><option>Tenant</option>
+            <option>Attorney</option><option>Lender</option><option>Broker</option>
+          </select></div>
+        <div class="form-group"><label class="form-label">Source</label>
+          <select id="pcm-source" class="form-control"><option value="">— Select —</option>
+            <option>Referral</option><option>CRE Platform</option><option>Cold Call</option>
+            <option>Networking</option><option>LinkedIn</option><option>Loopnet</option>
+            <option>Website</option><option>Other</option>
+          </select></div>
+      </div>
+
+      <div class="form-divider">Account <span style="font-weight:400;color:var(--stone-light)">— every Contact must belong to one</span></div>
+      <div class="form-group" style="position:relative">
+        <label class="form-label">Account <span style="color:var(--red)">*</span></label>
+        <input type="text" id="pcm-account-search" class="form-control" placeholder="Search accounts, or leave the pre-filled name to create a new one…" autocomplete="off" oninput="onPcmAccountInput()">
+      </div>
+
+      <div class="form-divider">Notes</div>
+      <div class="form-group"><label class="form-label">Notes</label>
+        <textarea id="pcm-notes" class="form-control" rows="3" placeholder="Background, relationship history, preferences…"></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="Modal.close('party-contact-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveCreateContactModal()">Save Contact</button>
     </div>
   </div>
 </div>
@@ -903,8 +1040,8 @@
         { label: `+ Create "${q}" as new Contact`, value: { __createContact: true, name: q } },
       ];
       Typeahead.open(input, items, item => {
-        if (item.value.__createAccount) createPartyAccount(item.value.name);
-        else if (item.value.__createContact) createPartyContact(item.value.name);
+        if (item.value.__createAccount) openCreateAccountModal(item.value.name);
+        else if (item.value.__createContact) openCreateContactModal(item.value.name);
         else selectPartyEntity(item.value);
       });
     } catch(_) { Typeahead.close(); }
@@ -919,37 +1056,174 @@
     if (sel) sel.textContent = `Selected: ${entity.name} (${entity.type})`;
   }
 
-  // Same pattern as the Recorded Owner "Change" flow's createOwnerAccount()
-  // (POST /accounts/ then immediately proceed) — reused here, not reinvented.
-  async function createPartyAccount(name) {
+  // ── Create Account dialog (fields mirror accounts.html's add-account modal) ─
+  let pamSelectedContact = null; // {mode:'existing', id, name} or {mode:'create', name} or null
+  let _pamContactTimer = null;
+
+  function openCreateAccountModal(name) {
+    const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+    set('pam-name', name);
+    ['pam-type','pam-ein','pam-website','pam-email','pam-phone','pam-address',
+     'pam-city','pam-state','pam-zip','pam-notes','pam-contact-search'].forEach(id => set(id, ''));
+    pamSelectedContact = null;
+    Modal.open('party-account-modal');
+  }
+
+  function onPamContactInput() {
     Typeahead.close();
+    pamSelectedContact = null;
+    clearTimeout(_pamContactTimer);
+    _pamContactTimer = setTimeout(doPamContactSearch, 280);
+  }
+
+  async function doPamContactSearch() {
+    const input = document.getElementById('pam-contact-search');
+    const q = input ? input.value.trim() : '';
+    if (q.length < 2) { Typeahead.close(); return; }
     try {
-      const acct = await API.post('/accounts/', { name });
+      const hits = await API.get(`/contacts/search?q=${encodeURIComponent(q)}`);
+      const items = [
+        ...hits.map(c => ({ label: c.name, value: { mode: 'existing', id: c.id, name: c.name } })),
+        { label: `+ Create "${q}" as new Contact`, value: { mode: 'create', name: q } },
+      ];
+      Typeahead.open(input, items, item => selectPamContact(item.value));
+    } catch(_) { Typeahead.close(); }
+  }
+
+  function selectPamContact(entity) {
+    Typeahead.close();
+    pamSelectedContact = entity;
+    const input = document.getElementById('pam-contact-search');
+    if (input) input.value = entity.name;
+  }
+
+  // Same pattern as the Recorded Owner "Change" flow's createOwnerAccount()
+  // (POST /accounts/ then immediately proceed) — reused here, not reinvented,
+  // just with a full field-capture dialog inserted first.
+  async function saveCreateAccountModal() {
+    const g = id => document.getElementById(id)?.value.trim() || '';
+    const name = g('pam-name');
+    if (!name) { Toast.error('Entity name is required'); return; }
+    try {
+      const acct = await API.post('/accounts/', {
+        name,
+        entity_type: g('pam-type') || null,
+        ein:         g('pam-ein') || null,
+        website:     g('pam-website') || null,
+        email:       g('pam-email') || null,
+        phone:       g('pam-phone') || null,
+        address:     g('pam-address') || null,
+        city:        g('pam-city') || null,
+        state:       g('pam-state').toUpperCase() || null,
+        zip:         g('pam-zip') || null,
+        notes:       g('pam-notes') || null,
+      });
+      if (pamSelectedContact) {
+        let contactId;
+        if (pamSelectedContact.mode === 'existing') {
+          contactId = pamSelectedContact.id;
+        } else {
+          const first = pamSelectedContact.name.split(' ')[0] || pamSelectedContact.name;
+          const last  = pamSelectedContact.name.split(' ').slice(1).join(' ');
+          const contact = await API.post('/contacts/', { first_name: first, last_name: last });
+          contactId = contact.id;
+        }
+        await API.post(`/accounts/${acct.id}/contacts?contact_id=${contactId}&role=${encodeURIComponent('Owner')}&is_primary=true`, {});
+      }
+      Modal.close('party-account-modal');
       Toast.success(`Account "${acct.name}" created`);
       selectPartyEntity({ type: 'account', id: acct.id, name: acct.name });
       await submitAddParty();
     } catch(e) { Toast.error(e.message); }
   }
 
-  // Every Contact must be linked to an Account (product rule for this flow —
-  // POST /api/contacts/ itself allows an orphan Contact with no account link,
-  // same as contacts.html's own "add contact" form; this flow deliberately
-  // doesn't allow that). Defaults the Account to the same name as the
-  // Contact when the broker hasn't specified a distinct company name, e.g.
-  // a solo contact "Jane Smith" gets an Account also named "Jane Smith".
-  // Three existing endpoints chained client-side, no new backend endpoint:
-  // POST /accounts/ -> POST /contacts/ -> POST /accounts/{id}/contacts (link).
-  async function createPartyContact(name) {
+  // ── Create Contact dialog (fields mirror contacts.html's add-contact modal,
+  // plus address fields — real Contact columns, just not exposed in that
+  // modal — and an Account link, since every Contact created here must
+  // belong to an Account; POST /api/contacts/ itself allows an orphan
+  // Contact, same as contacts.html's own form — this flow deliberately
+  // doesn't allow that). Defaults the Account field to the Contact's own
+  // name, editable, or the broker can search for an existing Account instead.
+  let pcmSelectedAccount = null; // {mode:'existing', id, name} or null (null = create new, named per input text)
+  let _pcmAccountTimer = null;
+
+  function openCreateContactModal(name) {
+    const trimmed = name.trim();
+    const first = trimmed.split(' ')[0] || trimmed;
+    const last  = trimmed.split(' ').slice(1).join(' ');
+    const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+    set('pcm-first', first);
+    set('pcm-last', last);
+    ['pcm-title','pcm-email','pcm-phone','pcm-mobile','pcm-linkedin','pcm-type',
+     'pcm-source','pcm-address','pcm-city','pcm-state','pcm-zip','pcm-notes'].forEach(id => set(id, ''));
+    set('pcm-account-search', trimmed); // default: an Account named after the Contact
+    pcmSelectedAccount = null;
+    Modal.open('party-contact-modal');
+  }
+
+  function onPcmAccountInput() {
     Typeahead.close();
+    pcmSelectedAccount = null; // editing the text invalidates a prior explicit pick
+    clearTimeout(_pcmAccountTimer);
+    _pcmAccountTimer = setTimeout(doPcmAccountSearch, 280);
+  }
+
+  async function doPcmAccountSearch() {
+    const input = document.getElementById('pcm-account-search');
+    const q = input ? input.value.trim() : '';
+    if (q.length < 2) { Typeahead.close(); return; }
     try {
-      const trimmed = name.trim();
-      const first = trimmed.split(' ')[0] || trimmed;
-      const last  = trimmed.split(' ').slice(1).join(' ');
-      const acct = await API.post('/accounts/', { name: trimmed });
-      const contact = await API.post('/contacts/', { first_name: first, last_name: last });
-      await API.post(`/accounts/${acct.id}/contacts?contact_id=${contact.id}&role=${encodeURIComponent('Owner')}&is_primary=true`, {});
-      Toast.success(`Contact "${trimmed}" created (with matching Account)`);
-      selectPartyEntity({ type: 'contact', id: contact.id, name: trimmed });
+      const hits = await API.get(`/accounts/search?q=${encodeURIComponent(q)}`);
+      if (!hits.length) { Typeahead.close(); return; }
+      Typeahead.open(input, hits.map(a => ({ label: a.name, value: { mode: 'existing', id: a.id, name: a.name } })),
+        item => selectPcmAccount(item.value));
+    } catch(_) { Typeahead.close(); }
+  }
+
+  function selectPcmAccount(entity) {
+    Typeahead.close();
+    pcmSelectedAccount = entity;
+    const input = document.getElementById('pcm-account-search');
+    if (input) input.value = entity.name;
+  }
+
+  async function saveCreateContactModal() {
+    const g = id => document.getElementById(id)?.value.trim() || '';
+    const first = g('pcm-first');
+    const last  = g('pcm-last');
+    if (!first || !last) { Toast.error('First and last name are required'); return; }
+    const acctInput = g('pcm-account-search');
+    if (!acctInput) { Toast.error('An Account is required — every Contact must be linked to one'); return; }
+    try {
+      let acctId, acctName;
+      if (pcmSelectedAccount) {
+        acctId = pcmSelectedAccount.id;
+        acctName = pcmSelectedAccount.name;
+      } else {
+        const acct = await API.post('/accounts/', { name: acctInput });
+        acctId = acct.id;
+        acctName = acct.name;
+      }
+      const contact = await API.post('/contacts/', {
+        first_name: first, last_name: last,
+        title:        g('pcm-title') || null,
+        email:        g('pcm-email') || null,
+        phone:        g('pcm-phone') || null,
+        mobile:       g('pcm-mobile') || null,
+        linkedin:     g('pcm-linkedin') || null,
+        contact_type: g('pcm-type') || null,
+        source:       g('pcm-source') || null,
+        address:      g('pcm-address') || null,
+        city:         g('pcm-city') || null,
+        state:        g('pcm-state').toUpperCase() || null,
+        zip:          g('pcm-zip') || null,
+        notes:        g('pcm-notes') || null,
+      });
+      await API.post(`/accounts/${acctId}/contacts?contact_id=${contact.id}&role=${encodeURIComponent('Owner')}&is_primary=true`, {});
+      const fullName = `${first} ${last}`.trim();
+      Modal.close('party-contact-modal');
+      Toast.success(`Contact "${fullName}" created (linked to "${acctName}")`);
+      selectPartyEntity({ type: 'contact', id: contact.id, name: fullName });
       await submitAddParty();
     } catch(e) { Toast.error(e.message); }
   }
