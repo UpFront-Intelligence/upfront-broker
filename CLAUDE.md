@@ -198,8 +198,22 @@ Base seed (migration `d8e9f0a1b2c3`) was 33 entries; two later migrations added 
 ```
 id, property_id (FK, CASCADE), account_id (FK, CASCADE, nullable), contact_id (FK, CASCADE, nullable),
 role, source (default "import"), note, created_at
+
+Unique (partial): (property_id, account_id, role) WHERE account_id IS NOT NULL
+Unique (partial): (property_id, contact_id, role) WHERE contact_id IS NOT NULL
+CHECK: num_nonnulls(account_id, contact_id) >= 1
 ```
-Either `account_id` or `contact_id` is set (a party is one or the other). `role` is free text (leasing_broker, owner, sale_broker, tenant_rep, manager, tax_bill, etc.) — written mainly by the general-purpose property importer's party fan-out (`routers/import_properties_parties.py`). All three relationships (`property`, `account`, `contact`) pin `foreign_keys=` explicitly.
+Either `account_id` or `contact_id` is set (a party is one or the other — the DB CHECK only requires *at least* one, but every writer in this app enforces *exactly* one). `role` is free text (leasing_broker, owner, sale_broker, tenant_rep, manager, tax_bill, etc.) — validated against the `account_roles` vocabulary only on the manual-add path below; the bulk importers allow arbitrary custom-role strings too (see their own docstrings). All three relationships (`property`, `account`, `contact`) pin `foreign_keys=` explicitly.
+
+- **No longer import-only (2026-07-07).** Originally written only by the general-purpose property importer's party fan-out (`routers/import_properties_parties.py`) and the property-centric column-mapping importer, with zero read/write UI anywhere in the app — `GET /api/properties/` never joined it, and `get_property_full()` sourced the property detail page's Contacts tab entirely from `Property.account_id` → `contact_accounts`, untouched by this change. A **Parties** card was added to property.html's existing Contacts tab (not a new tab — the Contacts tab already covers "people/orgs connected to this property," so a second card fit better than a 6th top-level tab) giving brokers a UI to view, add, and remove `property_parties` rows directly, since Regrid/`parcels_regrid` has no data source for "who's the leasing agent/attorney/property manager" — that's manual-entry-only data.
+- **Duplicate-safe insert logic lives in `services/property_parties.py`'s `add_property_party()`**, promoted out of `import_properties_parties.py`'s former private `_add_property_party()` (now a thin wrapper delegating to the shared function, `source="import"` unchanged) once a second caller (the new manual-add endpoint, `source="manual"`) needed the identical duplicate check — same consolidation pattern as `normalize_address()`/`normalize_name()` in `services/naming.py`. The function is an **application-level pre-check** (query-then-insert) that returns `None` on a match instead of inserting — a friendly pre-empt, not the only thing preventing a duplicate; the two partial unique indexes above (already present since the original `3e42ae66cedd` migration, no new migration needed for this feature) are the real backstop. Neither the shared function nor the importer catches the DB `IntegrityError` a raw race would raise — consistent with the importer's pre-existing behavior, not newly introduced.
+- **New endpoints** (`routers/property_parties.py`, a separate router file sharing the `/api/properties` prefix with `routers/properties.py` — same split as `imports.py`/`import_properties_parties.py` sharing `/api/import`):
+  - `GET /api/properties/party-roles` — full `account_roles` vocabulary (slug/display_name/category), for the Add Party role dropdown.
+  - `GET /api/properties/{id}/parties` — list a property's parties, each resolved to the linked Account's `{id,name,entity_type}` or Contact's `{id,first_name,last_name,title}`, plus `role_display_name` (falls back to the raw slug for any older/custom role string not in the vocabulary).
+  - `POST /api/properties/{id}/parties` — body `{account_id XOR contact_id, role, note?}`. Rejects if both or neither of `account_id`/`contact_id` are present (400); validates the FK belongs to the current owner (400/404, per the Coding Rules' owner-isolation-on-write rule); validates `role` against `account_roles` (400 if unknown — this endpoint is stricter than the importers, which allow custom strings); 409 on duplicate. Always writes `source="manual"`.
+  - `DELETE /api/properties/{id}/parties/{party_id}` — hard delete (204), matching this codebase's existing junction-row-removal precedent (`marketing_list_members`, `contact_phones` are hard-deleted the same way; only `Account` itself has a soft-delete concept, and that's specific to the duplicate-merge safety net, not a general pattern).
+- **Frontend typeahead reuses the existing `/accounts/search` and `/contacts/search` endpoints** (the same ones the Property detail page's Recorded Owner "Change" flow already uses) — called in parallel and merged client-side into one dropdown via the shared `Typeahead` module (`frontend/js/app.js`), tagging each hit with a `meta` badge ("Account"/"Contact"). No new search endpoint was added.
+- **Still out of scope, deliberately** (separate follow-up task): filtering `GET /api/properties/` or `/api/query` by a linked party's role (e.g. "show me every property where X is the attorney") — building that now would be premature since most properties have zero `property_parties` rows until brokers start using this new UI to add them.
 
 ### PROPERTY
 ~150 columns covering every property type in one table — see `backend/models/property.py` for the authoritative full list. Core + the most relevant groups:
@@ -538,7 +552,9 @@ portal_views:  id, portal_id (FK), email, section, viewed_at
                                           managed properties, engagements, contacts); /{id}/contacts;
                                           /scan-duplicates; /merge
 /api/properties                        — full CRUD (search is a query param on GET /, not a sub-route);
-                                          /{id}/full; /{id}/attach-parcel
+                                          /{id}/full; /{id}/attach-parcel; /party-roles (account_roles
+                                          vocabulary); /{id}/parties (GET/POST), /{id}/parties/{party_id}
+                                          (DELETE) — manual property_parties UI, see PROPERTY_PARTIES
 /api/deals                             — full CRUD; /pipeline-summary; /{id}/full; /{id}/contacts
 /api/activities                        — full CRUD
 /api/documents                         — full CRUD
@@ -611,7 +627,7 @@ The old **Records** section (Properties / Contacts / Accounts / Tenants / Deals 
 |------|--------|-------|
 | Dashboard | ✅ | Pipeline funnel, upcoming closes, activity feed |
 | **Search** | ✅ | Unified map + filterable list across Properties/Accounts/Contacts/Tenants/Deals; collapsible map, hover/click pin-sync, debounced live filtering via `/api/query`. national_locations is surfaced as a **map layer overlay** (NatLocs toggle button on the map, amber pins) — not a top-level record type. |
-| Property detail | ✅ | Summary / Spaces & Tenants / Contacts / Public Record / Map tabs; Recorded Owner picker + Attach Public Record card |
+| Property detail | ✅ | Summary / Spaces & Tenants / Contacts / Public Record / Map tabs; Recorded Owner picker + Attach Public Record card; Contacts tab now also has a Parties card (add/remove `property_parties` rows by role, combined Account+Contact typeahead) |
 | Contact detail | ✅ | Phones list (label · number, primary badge, inline edit), collapsible office-location mini-map (lazy-init Leaflet) |
 | Account detail | ✅ | Party hub: role badges, owned/managed properties, engagements, contacts, collapsible office-location mini-map |
 | Deal detail | ✅ | Commission math, co-broker splits, contacts, documents, portal create/link |

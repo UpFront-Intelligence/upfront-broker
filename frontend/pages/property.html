@@ -200,6 +200,7 @@
       renderRecordedOwner();
       loadTenants();
       loadPublicRecord();
+      loadParties();
     } catch(e) { Toast.error('Failed to load: ' + e.message); }
   }
 
@@ -458,6 +459,9 @@
               <div style="font-weight:600;color:var(--navy)">${c.first_name||''} ${c.last_name||''}</div>
               ${c.role?`<div style="font-size:11.5px;color:var(--stone)">${c.role}</div>`:''}
             </a>`).join('') : '<span style="font-size:12.5px;color:var(--stone)">No contacts linked to this property yet.</span>'}
+        </div></div>
+        <div class="dc"><div class="dc-title">Parties</div><div class="dc-body" id="parties-body">
+          <div class="spinner" style="margin:20px auto;display:block"></div>
         </div></div>
       </div>
 
@@ -816,6 +820,122 @@
     try {
       const acct = await API.post('/accounts/', { name });
       await selectOwnerAccount(acct.id, acct.name);
+    } catch(e) { Toast.error(e.message); }
+  }
+
+  // ── Parties (property_parties — Account/Contact <-> Property <-> role) ────
+  let PARTIES = [];
+  let PARTY_ROLES = [];
+  let addingParty = false;
+  let selectedPartyEntity = null; // {type:'account'|'contact', id, name}
+  let _partySearchTimer = null;
+
+  async function loadParties() {
+    try {
+      const [parties, roles] = await Promise.all([
+        API.get(`/properties/${ID}/parties`),
+        PARTY_ROLES.length ? Promise.resolve(PARTY_ROLES) : API.get('/properties/party-roles'),
+      ]);
+      PARTIES = parties;
+      PARTY_ROLES = roles;
+      renderParties();
+    } catch(e) { Toast.error('Failed to load parties: ' + e.message); }
+  }
+
+  function partyName(p) {
+    if (p.account) return p.account.name;
+    if (p.contact) return `${p.contact.first_name||''} ${p.contact.last_name||''}`.trim();
+    return '—';
+  }
+  function partyHref(p) {
+    if (p.account) return `/pages/account.html?id=${p.account.id}`;
+    if (p.contact) return `/pages/contact.html?id=${p.contact.id}`;
+    return '#';
+  }
+
+  function renderParties() {
+    const body = document.getElementById('parties-body');
+    if (!body) return;
+    const rows = PARTIES.length ? PARTIES.map(p => `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--cream-dark)">
+        <div>
+          <a class="chip" href="${partyHref(p)}" style="font-weight:600;color:var(--navy)">${partyName(p)}</a>
+          <span style="font-size:11.5px;color:var(--stone);margin-left:6px">${p.role_display_name}</span>
+        </div>
+        <button class="btn btn-ghost btn-sm" title="Remove" onclick="removeParty(${p.id})">&times;</button>
+      </div>`).join('')
+      : '<span style="font-size:12.5px;color:var(--stone)">No parties linked to this property yet.</span>';
+
+    const roleOptions = PARTY_ROLES.map(r => `<option value="${r.slug}">${r.display_name}</option>`).join('');
+
+    body.innerHTML = rows + (addingParty ? `
+      <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--cream-dark);max-width:420px">
+        <input type="text" id="party-search" class="form-control" placeholder="Search accounts or contacts…" autocomplete="off" oninput="onPartySearchInput()">
+        <div id="party-selected" style="font-size:12.5px;color:var(--stone);margin-top:6px"></div>
+        <select id="party-role" class="form-control" style="margin-top:6px">${roleOptions}</select>
+        <div style="margin-top:8px;display:flex;gap:8px">
+          <button class="btn btn-primary btn-sm" onclick="submitAddParty()">Add</button>
+          <button class="btn btn-ghost btn-sm" onclick="addingParty=false;selectedPartyEntity=null;renderParties()">Cancel</button>
+        </div>
+      </div>` : `<button class="btn btn-ghost btn-sm" style="margin-top:10px" onclick="addingParty=true;renderParties()">+ Add Party</button>`);
+  }
+
+  function onPartySearchInput() {
+    Typeahead.close();
+    selectedPartyEntity = null;
+    clearTimeout(_partySearchTimer);
+    _partySearchTimer = setTimeout(doPartySearch, 280);
+  }
+
+  async function doPartySearch() {
+    const input = document.getElementById('party-search');
+    const q = input ? input.value.trim() : '';
+    if (q.length < 2) { Typeahead.close(); return; }
+    try {
+      const [accts, contacts] = await Promise.all([
+        API.get(`/accounts/search?q=${encodeURIComponent(q)}`),
+        API.get(`/contacts/search?q=${encodeURIComponent(q)}`),
+      ]);
+      const items = [
+        ...accts.map(a => ({ label: a.name, meta: 'Account', value: { type: 'account', id: a.id, name: a.name } })),
+        ...contacts.map(c => ({ label: c.name, meta: 'Contact', value: { type: 'contact', id: c.id, name: c.name } })),
+      ];
+      if (!items.length) { Typeahead.close(); return; }
+      Typeahead.open(input, items, item => selectPartyEntity(item.value));
+    } catch(_) { Typeahead.close(); }
+  }
+
+  function selectPartyEntity(entity) {
+    Typeahead.close();
+    selectedPartyEntity = entity;
+    const input = document.getElementById('party-search');
+    if (input) input.value = entity.name;
+    const sel = document.getElementById('party-selected');
+    if (sel) sel.textContent = `Selected: ${entity.name} (${entity.type})`;
+  }
+
+  async function submitAddParty() {
+    if (!selectedPartyEntity) { Toast.error('Search and select an account or contact first'); return; }
+    const role = document.getElementById('party-role')?.value;
+    if (!role) { Toast.error('Choose a role'); return; }
+    try {
+      const body = { role };
+      if (selectedPartyEntity.type === 'account') body.account_id = selectedPartyEntity.id;
+      else body.contact_id = selectedPartyEntity.id;
+      await API.post(`/properties/${ID}/parties`, body);
+      addingParty = false;
+      selectedPartyEntity = null;
+      Toast.success('Party added');
+      await loadParties();
+    } catch(e) { Toast.error(e.message); }
+  }
+
+  async function removeParty(partyId) {
+    if (!confirm('Remove this party from the property?')) return;
+    try {
+      await API.delete(`/properties/${ID}/parties/${partyId}`);
+      Toast.success('Party removed');
+      await loadParties();
     } catch(e) { Toast.error(e.message); }
   }
 

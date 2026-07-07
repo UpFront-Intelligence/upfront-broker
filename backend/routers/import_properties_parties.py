@@ -36,13 +36,13 @@ from models.account import Account
 from models.contact import Contact
 from models.contact_account import ContactAccount
 from models.contact_phone import ContactPhone
-from models.property_party import PropertyParty
 from models.tenant import Tenant
 from models.property_tenant import PropertyTenant
 from auth_utils import get_current_user
 from services.naming import normalize_name, normalize_address
 from services.national_locations import link_property_to_national_locations
 from services.accounts import ensure_role, owned_accounts_query
+from services.property_parties import add_property_party
 from routers.imports import SYNONYMS, VALID_FIELDS, NUMERIC_FIELDS, _best_match, _coerce
 from routers.properties import _geocode
 from services.property_category import categorize_property_type
@@ -501,20 +501,12 @@ def _add_contact_phone_if_new(db, contact, number, label, owner_id):
 
 
 def _add_property_party(db, property_id, role, account_id=None, contact_id=None):
-    """Duplicate-safe insert into property_parties — skips if the matching
-    partial unique index (property_id, account_id, role) or
-    (property_id, contact_id, role) would already be satisfied."""
-    q = db.query(PropertyParty).filter(
-        PropertyParty.property_id == property_id, PropertyParty.role == role)
-    if account_id is not None:
-        q = q.filter(PropertyParty.account_id == account_id)
-    else:
-        q = q.filter(PropertyParty.contact_id == contact_id)
-    if q.first():
-        return False
-    db.add(PropertyParty(property_id=property_id, account_id=account_id,
-                          contact_id=contact_id, role=role, source="import"))
-    return True
+    """Thin wrapper over services.property_parties.add_property_party (this
+    file's own copy was promoted there once the manual Parties UI needed
+    the same duplicate-safe insert) — keeps this fan-out's call sites and
+    source="import" tagging unchanged."""
+    return add_property_party(db, property_id, role, account_id=account_id,
+                               contact_id=contact_id, source="import") is not None
 
 
 # ── Tenant find-or-create + default-space link ────────────────────────────────
