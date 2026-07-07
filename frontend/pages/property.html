@@ -899,9 +899,14 @@
       const items = [
         ...accts.map(a => ({ label: a.name, meta: 'Account', value: { type: 'account', id: a.id, name: a.name } })),
         ...contacts.map(c => ({ label: c.name, meta: 'Contact', value: { type: 'contact', id: c.id, name: c.name } })),
+        { label: `+ Create "${q}" as new Account`, value: { __createAccount: true, name: q } },
+        { label: `+ Create "${q}" as new Contact`, value: { __createContact: true, name: q } },
       ];
-      if (!items.length) { Typeahead.close(); return; }
-      Typeahead.open(input, items, item => selectPartyEntity(item.value));
+      Typeahead.open(input, items, item => {
+        if (item.value.__createAccount) createPartyAccount(item.value.name);
+        else if (item.value.__createContact) createPartyContact(item.value.name);
+        else selectPartyEntity(item.value);
+      });
     } catch(_) { Typeahead.close(); }
   }
 
@@ -912,6 +917,41 @@
     if (input) input.value = entity.name;
     const sel = document.getElementById('party-selected');
     if (sel) sel.textContent = `Selected: ${entity.name} (${entity.type})`;
+  }
+
+  // Same pattern as the Recorded Owner "Change" flow's createOwnerAccount()
+  // (POST /accounts/ then immediately proceed) — reused here, not reinvented.
+  async function createPartyAccount(name) {
+    Typeahead.close();
+    try {
+      const acct = await API.post('/accounts/', { name });
+      Toast.success(`Account "${acct.name}" created`);
+      selectPartyEntity({ type: 'account', id: acct.id, name: acct.name });
+      await submitAddParty();
+    } catch(e) { Toast.error(e.message); }
+  }
+
+  // Every Contact must be linked to an Account (product rule for this flow —
+  // POST /api/contacts/ itself allows an orphan Contact with no account link,
+  // same as contacts.html's own "add contact" form; this flow deliberately
+  // doesn't allow that). Defaults the Account to the same name as the
+  // Contact when the broker hasn't specified a distinct company name, e.g.
+  // a solo contact "Jane Smith" gets an Account also named "Jane Smith".
+  // Three existing endpoints chained client-side, no new backend endpoint:
+  // POST /accounts/ -> POST /contacts/ -> POST /accounts/{id}/contacts (link).
+  async function createPartyContact(name) {
+    Typeahead.close();
+    try {
+      const trimmed = name.trim();
+      const first = trimmed.split(' ')[0] || trimmed;
+      const last  = trimmed.split(' ').slice(1).join(' ');
+      const acct = await API.post('/accounts/', { name: trimmed });
+      const contact = await API.post('/contacts/', { first_name: first, last_name: last });
+      await API.post(`/accounts/${acct.id}/contacts?contact_id=${contact.id}&role=${encodeURIComponent('Owner')}&is_primary=true`, {});
+      Toast.success(`Contact "${trimmed}" created (with matching Account)`);
+      selectPartyEntity({ type: 'contact', id: contact.id, name: trimmed });
+      await submitAddParty();
+    } catch(e) { Toast.error(e.message); }
   }
 
   async function submitAddParty() {
