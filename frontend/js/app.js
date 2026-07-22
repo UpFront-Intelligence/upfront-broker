@@ -613,6 +613,106 @@ const RecordNav = (() => {
   return { captureSearchContext, render, go };
 })();
 
+// ── Associated Properties ───────────────────────────────────────
+// Shared by contact.html/account.html: renders the reverse property_parties
+// lookup (each entry: {property_id, name, address, city, state, property_type,
+// status, lat, lng, roles:[{slug, display_name, category}]}) as a role-grouped
+// list + portfolio-count summary, and shapes the same data into map pins.
+// Bucketing: a property with an 'owner' role tag is Owned even if it also
+// carries a brokerage_mgmt role on the same row (one section per property,
+// not one per role) — mirrors --owned-marker's "one signal, not stacked"
+// precedent on Property Finder's map. Anything left over (buyer/tenant/legal/
+// vendor roles, or the account-side synthetic 'linked' tag) falls to Other
+// rather than vanishing, same "nothing left off the map" pattern as
+// broker_segments.js's catch-all segment.
+const AssociatedProperties = (() => {
+  const PIN_COLOR_PRIORITY = [
+    ['owner',            '--role-owner'],
+    ['sale_broker',      '--role-sale'],
+    ['leasing_broker',   '--role-leasing'],
+    ['tenant_rep',       '--role-tenant'],
+    ['sublease_broker',  '--role-sublease'],
+    ['property_manager', '--role-manager'],
+  ];
+
+  function bucketFor(item) {
+    const slugs = item.roles.map(r => r.slug);
+    if (slugs.includes('owner')) return 'owned';
+    if (item.roles.some(r => r.category === 'brokerage_mgmt')) return 'brokerage';
+    return 'other';
+  }
+
+  function pinColorVar(item) {
+    for (const [slug, cssVar] of PIN_COLOR_PRIORITY) {
+      if (item.roles.some(r => r.slug === slug)) return cssVar;
+    }
+    return '--accent';
+  }
+
+  function badgesHtml(roles) {
+    return roles.map(r => `<span class="role-badge" data-role="${r.slug}">${r.display_name}</span>`).join(' ');
+  }
+
+  function row(item) {
+    const label = item.name || item.address || 'Property';
+    return `<a class="chip" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;border-radius:var(--radius);width:100%;padding:8px 10px;margin:3px 0"
+        href="/pages/property.html?id=${item.property_id}">
+      <span>${label}${item.status ? `<br><span style="font-size:10.5px;color:var(--stone)">${item.status}</span>` : ''}</span>
+      <span style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end">${badgesHtml(item.roles)}</span>
+    </a>`;
+  }
+
+  function section(label, list) {
+    if (!list.length) return '';
+    return `<div style="margin-bottom:6px">
+      <div style="font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--stone);padding:4px 0">${label} (${list.length})</div>
+      ${list.map(row).join('')}
+    </div>`;
+  }
+
+  function render(items) {
+    if (!items || !items.length) {
+      return '<span style="font-size:12.5px;color:var(--stone);padding:4px">No associated properties</span>';
+    }
+    const buckets = { owned: [], brokerage: [], other: [] };
+    items.forEach(i => buckets[bucketFor(i)].push(i));
+
+    const stat = (count, colorVar, label) => `<div>
+      <div style="font-size:18px;font-weight:700;color:var(${colorVar})">${count}</div>
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--stone)">${label}</div>
+    </div>`;
+
+    const summary = `<div style="display:flex;gap:18px;flex-wrap:wrap;padding:2px 0 10px;border-bottom:1px solid var(--cream-dark);margin-bottom:8px">
+      ${stat(buckets.owned.length, '--role-owner', 'Owned')}
+      ${stat(buckets.brokerage.length, '--role-leasing', 'Leasing / Brokerage')}
+      ${buckets.other.length ? stat(buckets.other.length, '--stone', 'Other') : ''}
+    </div>`;
+
+    return summary
+      + section('Owned', buckets.owned)
+      + section('Leasing / Brokerage', buckets.brokerage)
+      + section('Other Roles', buckets.other);
+  }
+
+  // Only entries with real coordinates become pins — the ~8% of properties
+  // missing lat/lng (per CLAUDE.md's Nominatim geocode gap) simply don't
+  // appear on the map, same silent-exclusion behavior as everywhere else in
+  // this app that maps property coordinates; they still render in the list
+  // above since that doesn't need coordinates.
+  function pins(items) {
+    return (items || [])
+      .filter(i => i.lat != null && i.lng != null)
+      .map(i => ({
+        lat: i.lat, lng: i.lng,
+        label: `${i.name || i.address || 'Property'} — ${i.roles.map(r => r.display_name).join(', ')}`,
+        colorVar: pinColorVar(i),
+        propertyId: i.property_id,
+      }));
+  }
+
+  return { render, pins };
+})();
+
 // ── SPA Navigation ───────────────────────────────────────────────
 function navigate(page) {
   window.location.href = `/pages/${page}.html`;

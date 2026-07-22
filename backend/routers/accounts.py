@@ -251,21 +251,16 @@ def get_account_full(
     current_user: User = Depends(get_current_user),
 ):
     from models.property import Property
-    from models.property_party import PropertyParty
     from models.deal import Deal, DealContact
     from models.shared import Activity
     from models.account_role import AccountRole
     from models.engagement import Engagement
+    from services.property_parties import get_properties_for_party
     a = db.query(Account).filter(
         Account.id == account_id, Account.owner_id == current_user.id
     ).first()
     if not a:
         raise HTTPException(404, "Account not found")
-
-    from routers.query import _linked_properties_for_account
-    property_parties_count = db.query(PropertyParty).filter(
-        PropertyParty.account_id == account_id).count()
-    linked_properties = _linked_properties_for_account(db, current_user.id, account_id)
 
     contacts = []
     for ca, c in (db.query(ContactAccount, Contact)
@@ -276,10 +271,47 @@ def get_account_full(
                           "title": c.title, "email": c.email,
                           "role": ca.role, "is_primary": ca.is_primary})
 
-    props = [{"id": p.id, "name": p.name, "address": p.address, "city": p.city,
-               "state": p.state, "property_type": p.property_type, "status": p.status}
-             for p in db.query(Property).filter(Property.account_id == account_id,
-                                                Property.owner_id == current_user.id).all()]
+    # Associated Properties — merges the property_parties reverse lookup with
+    # the three direct FK links (account_id / recorded_owner_account_id /
+    # manager_account_id), one row per property, deduped by property id. A
+    # property reachable via more than one path (e.g. a manual property_parties
+    # "owner" row on a property that also already has recorded_owner_account_id
+    # set to this same account) collects every applicable role tag onto that
+    # one row rather than appearing twice. The FK-only paths get a role tag of
+    # their own so they render/bucket/color identically to a real
+    # property_parties row: 'owner'/'property_manager' reuse the real
+    # account_roles slugs (so they dedupe cleanly against a matching
+    # property_parties row and pick up the existing --role-owner/--role-manager
+    # badge colors for free); recorded via account_id alone has no formal role
+    # in this schema (see PROPERTY's account_id note in CLAUDE.md), so it gets
+    # a synthetic 'linked' tag with no category — the frontend's role-badge
+    # CSS has no rule for that data-role and falls back to its default grey,
+    # which is the intended "not a declared role" look, not a bug.
+    associated = {p["property_id"]: p
+                  for p in get_properties_for_party(db, current_user.id, account_id=account_id)}
+
+    def _tag(prop, slug, display_name, category):
+        entry = associated.setdefault(prop.id, {
+            "property_id": prop.id, "name": prop.name, "address": prop.address,
+            "city": prop.city, "state": prop.state, "property_type": prop.property_type,
+            "status": prop.status, "lat": prop.lat, "lng": prop.lng, "roles": [],
+        })
+        if slug not in {r["slug"] for r in entry["roles"]}:
+            entry["roles"].append({"slug": slug, "display_name": display_name, "category": category})
+
+    for p in db.query(Property).filter(Property.recorded_owner_account_id == account_id,
+                                       Property.owner_id == current_user.id).all():
+        _tag(p, "owner", "Owner", "principals")
+
+    for p in db.query(Property).filter(Property.manager_account_id == account_id,
+                                       Property.owner_id == current_user.id).all():
+        _tag(p, "property_manager", "Property Manager", "brokerage_mgmt")
+
+    for p in db.query(Property).filter(Property.account_id == account_id,
+                                       Property.owner_id == current_user.id).all():
+        _tag(p, "linked", "Linked", None)
+
+    associated_properties = sorted(associated.values(), key=lambda x: x["name"] or x["address"] or "")
 
     deal_ids = [r.deal_id for r in db.query(DealContact.deal_id)
                 .filter(DealContact.account_id == account_id).all()]
@@ -295,14 +327,6 @@ def get_account_full(
         for slug in (a.roles or []) if slug in role_rows
     ]
 
-    owned_properties = [{"id": p.id, "name": p.name, "address": p.address}
-        for p in db.query(Property).filter(Property.recorded_owner_account_id == account_id,
-                                           Property.owner_id == current_user.id).all()]
-
-    managed_properties = [{"id": p.id, "name": p.name, "address": p.address}
-        for p in db.query(Property).filter(Property.manager_account_id == account_id,
-                                           Property.owner_id == current_user.id).all()]
-
     engagements = [{"id": e.id, "name": e.name, "type": e.type, "stage": e.stage}
         for e in db.query(Engagement).filter(Engagement.client_account_id == account_id,
                                              Engagement.owner_id == current_user.id).all()]
@@ -311,14 +335,11 @@ def get_account_full(
     return {
         "account":    a_dict,
         "contacts":   contacts,
-        "properties": props,
         "deals":      deals,
         "roles_resolved":      roles_resolved,
-        "owned_properties":    owned_properties,
-        "managed_properties":  managed_properties,
         "engagements":         engagements,
-        "property_parties_count": property_parties_count,
-        "linked_properties":   linked_properties,
+        "associated_properties": associated_properties,
+        "property_parties_count": len(associated_properties),
     }
 
 
